@@ -1,0 +1,18 @@
+# Keep source/config text stable across Windows and CI.
+*.md text eol=lf
+*.json text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.html text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+
+# These are byte-level contract fixtures; never normalize them.
+specs/fixtures/zotero-marker-lf.* -text -diff
+specs/fixtures/zotero-marker-crlf.* -text -diff
