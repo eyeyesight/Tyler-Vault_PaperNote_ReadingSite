@@ -9,5 +9,5 @@
     "target": "ES2023",
     "types": ["node"]
   },
-  "include": ["scripts/**/*.mjs", "tests/**/*.mjs"]
+  "include": ["lib/**/*.mjs", "scripts/**/*.mjs", "tests/**/*.mjs"]
 }
