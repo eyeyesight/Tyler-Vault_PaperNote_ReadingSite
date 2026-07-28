@@ -1,0 +1,6 @@
+# Synthetic marker contract fixture (not research evidence)
+Before
+<!-- zotero-annotations:start -->
+old managed bytes
+<!-- zotero-annotations:end -->
+After

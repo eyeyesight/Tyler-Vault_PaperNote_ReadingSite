@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tyler-vault-site.local/schemas/release-receipt-v1.schema.json",
+  "title": "Tyler-Vault Release Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_digest",
+    "manifest_id",
+    "plan_digest",
+    "public_set_digest",
+    "created_at",
+    "nodes",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "release_digest": { "$ref": "#/$defs/sha256" },
+    "manifest_id": {
+      "type": "string",
+      "pattern": "^VPUB-[0-9]{8}-[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "plan_digest": { "$ref": "#/$defs/sha256" },
+    "public_set_digest": { "$ref": "#/$defs/sha256" },
+    "created_at": { "$ref": "#/$defs/utcTimestamp" },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/nodeBaseline" }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/artifact" }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "utcTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "publicId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)[^\\\\\\u0000]+$",
+      "allOf": [
+        { "not": { "pattern": "(^|/)\\.\\.(?:/|$)" } },
+        { "not": { "pattern": "^[A-Za-z]:" } }
+      ]
+    },
+    "zoteroBaseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "encoding",
+        "bom",
+        "line_ending",
+        "start_marker_literal",
+        "end_marker_literal",
+        "marker_count",
+        "marker_order",
+        "prefix_sha256",
+        "start_marker_line_sha256",
+        "end_marker_line_sha256",
+        "suffix_sha256"
+      ],
+      "properties": {
+        "encoding": { "const": "utf-8" },
+        "bom": { "const": false },
+        "line_ending": { "enum": ["LF", "CRLF"] },
+        "start_marker_literal": { "const": "<!-- zotero-annotations:start -->" },
+        "end_marker_literal": { "const": "<!-- zotero-annotations:end -->" },
+        "marker_count": { "const": 1 },
+        "marker_order": { "const": "start-before-end" },
+        "prefix_sha256": { "$ref": "#/$defs/sha256" },
+        "start_marker_line_sha256": { "$ref": "#/$defs/sha256" },
+        "end_marker_line_sha256": { "$ref": "#/$defs/sha256" },
+        "suffix_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "nodeBaseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["public_id", "path", "node_class", "source_sha256"],
+      "properties": {
+        "public_id": { "$ref": "#/$defs/publicId" },
+        "path": { "$ref": "#/$defs/relativePath" },
+        "node_class": {
+          "enum": [
+            "paper",
+            "concept",
+            "method",
+            "task",
+            "author",
+            "synthesis",
+            "map"
+          ]
+        },
+        "source_sha256": { "$ref": "#/$defs/sha256" },
+        "zotero_baseline": { "$ref": "#/$defs/zoteroBaseline" }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

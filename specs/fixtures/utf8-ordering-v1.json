@@ -1,0 +1,282 @@
+{
+  "schema_version": 1,
+  "normalization": "NFC",
+  "comparison": "unsigned-utf8-byte-lexicographic-shorter-prefix-first",
+  "prefix_pairs": [
+    {
+      "short": "a",
+      "long": "a-1",
+      "expected_first": "a"
+    },
+    {
+      "short": "a.md",
+      "long": "a.md-more.md",
+      "expected_first": "a.md"
+    },
+    {
+      "short_edge": {
+        "source": "a",
+        "target": "a"
+      },
+      "long_edge": {
+        "source": "a",
+        "target": "a-1"
+      },
+      "expected_first": {
+        "source": "a",
+        "target": "a"
+      }
+    }
+  ],
+  "vectors": {
+    "nodes_by_public_id": {
+      "sort_key": "public_id",
+      "input": [
+        {
+          "public_id": "z",
+          "path": "Knowledge/Concepts/Z.md",
+          "node_class": "concept",
+          "source_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+        },
+        {
+          "public_id": "a-1",
+          "path": "Knowledge/Concepts/A-1.md",
+          "node_class": "concept",
+          "source_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        {
+          "public_id": "a",
+          "path": "Knowledge/Concepts/A.md",
+          "node_class": "concept",
+          "source_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "expected": [
+        {
+          "public_id": "a",
+          "path": "Knowledge/Concepts/A.md",
+          "node_class": "concept",
+          "source_sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        {
+          "public_id": "a-1",
+          "path": "Knowledge/Concepts/A-1.md",
+          "node_class": "concept",
+          "source_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        {
+          "public_id": "z",
+          "path": "Knowledge/Concepts/Z.md",
+          "node_class": "concept",
+          "source_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+        }
+      ],
+      "expected_jcs_sha256": "ede2e9fad66d21b776e38bfcba67f6fc553000da2b5591f8d3f8fa0093d4bd22"
+    },
+    "identity_projection_by_public_id": {
+      "sort_key": "public_id",
+      "input": [
+        {
+          "public_id": "z",
+          "path": "Knowledge/Concepts/Z.md",
+          "node_class": "concept"
+        },
+        {
+          "public_id": "a-1",
+          "path": "Knowledge/Concepts/A-1.md",
+          "node_class": "concept"
+        },
+        {
+          "public_id": "a",
+          "path": "Knowledge/Concepts/A.md",
+          "node_class": "concept"
+        }
+      ],
+      "expected": [
+        {
+          "public_id": "a",
+          "path": "Knowledge/Concepts/A.md",
+          "node_class": "concept"
+        },
+        {
+          "public_id": "a-1",
+          "path": "Knowledge/Concepts/A-1.md",
+          "node_class": "concept"
+        },
+        {
+          "public_id": "z",
+          "path": "Knowledge/Concepts/Z.md",
+          "node_class": "concept"
+        }
+      ],
+      "expected_jcs_sha256": "1a73d385a9cbdd231c8c2576d26e6d67b533dfada6d73bee739d4e5625a7b951"
+    },
+    "support_ids": {
+      "sort_key": "id",
+      "input": [
+        "a-1",
+        "z",
+        "a"
+      ],
+      "expected": [
+        "a",
+        "a-1",
+        "z"
+      ],
+      "expected_jcs_sha256": "2a775c66b7de17974e2857a78de3cb9927f36e635a600e54713ff34d8ffd9717"
+    },
+    "added_node_ids": {
+      "sort_key": "id",
+      "input": [
+        "z",
+        "a-1",
+        "a"
+      ],
+      "expected": [
+        "a",
+        "a-1",
+        "z"
+      ],
+      "expected_jcs_sha256": "2a775c66b7de17974e2857a78de3cb9927f36e635a600e54713ff34d8ffd9717"
+    },
+    "direct_connection_edges": {
+      "sort_key": "(source,target)",
+      "input": [
+        {
+          "source": "a-1",
+          "target": "a"
+        },
+        {
+          "source": "a",
+          "target": "z"
+        },
+        {
+          "source": "a",
+          "target": "a-1"
+        },
+        {
+          "source": "a",
+          "target": "a"
+        }
+      ],
+      "expected": [
+        {
+          "source": "a",
+          "target": "a"
+        },
+        {
+          "source": "a",
+          "target": "a-1"
+        },
+        {
+          "source": "a",
+          "target": "z"
+        },
+        {
+          "source": "a-1",
+          "target": "a"
+        }
+      ],
+      "expected_jcs_sha256": "806e1cb88cdabe21b4629b295a863262ec2e6e2e07814e36ef15d03bdf8d91c0"
+    },
+    "export_files_by_path": {
+      "sort_key": "path",
+      "input": [
+        {
+          "path": "中.md",
+          "source_sha256": "596576347d5298a33886e1a536d8fa3248e0a123f3cd3dee88fef890b3b3c1aa"
+        },
+        {
+          "path": "a.md-more.md",
+          "source_sha256": "df2b6ccdfc3af55d9887ae06aa7337c0dd57f22bd5566cfba822f786385af29b"
+        },
+        {
+          "path": "Å.md",
+          "source_sha256": "976a45dfd2d861a80d7bdb378816855cba780492c4953999a108a4f72e944f2e"
+        },
+        {
+          "path": "a.md",
+          "source_sha256": "65cd2c4ef2d63feef4ddc0b4e7fbd818a009fa9b86156aa2d6f65d81b4ba9a71"
+        },
+        {
+          "path": "A.md",
+          "source_sha256": "0e0e92aeeaf8e8b185c8678b71c42f525fe6c8353ad02a02e91bce7b76ebc915"
+        }
+      ],
+      "expected": [
+        {
+          "path": "A.md",
+          "source_sha256": "0e0e92aeeaf8e8b185c8678b71c42f525fe6c8353ad02a02e91bce7b76ebc915"
+        },
+        {
+          "path": "a.md",
+          "source_sha256": "65cd2c4ef2d63feef4ddc0b4e7fbd818a009fa9b86156aa2d6f65d81b4ba9a71"
+        },
+        {
+          "path": "a.md-more.md",
+          "source_sha256": "df2b6ccdfc3af55d9887ae06aa7337c0dd57f22bd5566cfba822f786385af29b"
+        },
+        {
+          "path": "Å.md",
+          "source_sha256": "976a45dfd2d861a80d7bdb378816855cba780492c4953999a108a4f72e944f2e"
+        },
+        {
+          "path": "中.md",
+          "source_sha256": "596576347d5298a33886e1a536d8fa3248e0a123f3cd3dee88fef890b3b3c1aa"
+        }
+      ],
+      "expected_jcs_sha256": "73642d89c9453851fffd9371280cd484bc6c62c79e5f529cf6cbe94df7d3f140"
+    },
+    "release_artifacts_by_path": {
+      "sort_key": "path",
+      "input": [
+        {
+          "path": "中.html",
+          "sha256": "076290646db1eba2f98d72d7fe2b153d826342d09a5e395319fd45a998f030b4"
+        },
+        {
+          "path": "a.html-more",
+          "sha256": "e6485a12079409b11f0b578ddc8bd31965a3fba6a0269dedac38d473f443b445"
+        },
+        {
+          "path": "Å.html",
+          "sha256": "14b388fbb6fee3bb1d4b750dd84ca4049deb7fc1c7bfd1005ac207bbf1a8fd01"
+        },
+        {
+          "path": "a.html",
+          "sha256": "21d971015e94930f4e78c3472401ca072f2ac830cebd0a136b34057b4b2236c7"
+        },
+        {
+          "path": "A.html",
+          "sha256": "105097424dd297cca7077bd45e3a680b7000506194067a4131914ff1d1f436e5"
+        }
+      ],
+      "expected": [
+        {
+          "path": "A.html",
+          "sha256": "105097424dd297cca7077bd45e3a680b7000506194067a4131914ff1d1f436e5"
+        },
+        {
+          "path": "a.html",
+          "sha256": "21d971015e94930f4e78c3472401ca072f2ac830cebd0a136b34057b4b2236c7"
+        },
+        {
+          "path": "a.html-more",
+          "sha256": "e6485a12079409b11f0b578ddc8bd31965a3fba6a0269dedac38d473f443b445"
+        },
+        {
+          "path": "Å.html",
+          "sha256": "14b388fbb6fee3bb1d4b750dd84ca4049deb7fc1c7bfd1005ac207bbf1a8fd01"
+        },
+        {
+          "path": "中.html",
+          "sha256": "076290646db1eba2f98d72d7fe2b153d826342d09a5e395319fd45a998f030b4"
+        }
+      ],
+      "expected_jcs_sha256": "0a7f8576a3c8bb982cdc5f06f092b8da67e418b9d655f47fe739cccd6eff563c"
+    }
+  },
+  "non_nfc_rejected": [
+    "Å.md"
+  ]
+}

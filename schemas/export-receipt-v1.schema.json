@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tyler-vault-site.local/schemas/export-receipt-v1.schema.json",
+  "title": "Tyler-Vault Export Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "plan_digest",
+    "exported_at",
+    "drive_readback",
+    "files"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "manifest_id": {
+      "type": "string",
+      "pattern": "^VPUB-[0-9]{8}-[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "plan_digest": { "$ref": "#/$defs/sha256" },
+    "exported_at": { "$ref": "#/$defs/utcTimestamp" },
+    "drive_readback": { "const": "verified" },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/file" }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "utcTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 4,
+      "pattern": "^(?!/)[^\\\\\\u0000]+\\.md$",
+      "allOf": [
+        { "not": { "pattern": "(^|/)\\.\\.(?:/|$)" } },
+        { "not": { "pattern": "^[A-Za-z]:" } }
+      ]
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "source_sha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/path" },
+        "source_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

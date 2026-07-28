@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "manifest_id": "VPUB-20260728-example-next",
+  "created_at": "2026-07-28T00:00:00Z",
+  "expires_at": "2026-07-29T00:00:00Z",
+  "action": {
+    "kind": "publish-unit",
+    "baseline": {
+      "kind": "release",
+      "release_digest": "a5ace67336f87faaf1da05161be07ca4e71ee260783b2afcb06e02ef2a76cf0d",
+      "receipt_path": "consumed/VPUB-20260728-example/release-receipt.json"
+    },
+    "primary_id": "guo-2024",
+    "support_ids": [
+      "flow",
+      "micro-action"
+    ],
+    "added_node_ids": [
+      "guo-2024",
+      "micro-action"
+    ],
+    "direct_connection_edges": [
+      {
+        "source": "guo-2024",
+        "target": "flow"
+      },
+      {
+        "source": "guo-2024",
+        "target": "micro-action"
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "public_id": "flow",
+      "path": "Knowledge/Concepts/Flow.md",
+      "node_class": "concept",
+      "source_sha256": "aaac82314aa93fed803d3a91b68143043fd2435916e4512ba479921b679d7e0e"
+    },
+    {
+      "public_id": "guo-2024",
+      "path": "Literature/Notes/guo-2024.md",
+      "node_class": "paper",
+      "source_sha256": "ef494c9b27cd2b9ceaba9cb8dd4f89b44fbd5f1eccf70972f3b586b4669a66ff"
+    },
+    {
+      "public_id": "jackman-2021",
+      "path": "Literature/Notes/jackman-2021.md",
+      "node_class": "paper",
+      "source_sha256": "72e85452dd6eaeb44c00d22028f86f2d268a1bdc142638ea6d176342c07a2247"
+    },
+    {
+      "public_id": "micro-action",
+      "path": "Knowledge/Concepts/Micro-action.md",
+      "node_class": "concept",
+      "source_sha256": "9f24ae85c1a72221056efa16fae384f22d7e0d47c02b2e3ce36220e750a3e3e5"
+    }
+  ],
+  "public_set_digest": "1728b0f03d76e975f680dae63132ab03bbca20e142e7d94c4700173d6b1e6e78",
+  "approval_receipt": {
+    "approver": "tyler",
+    "channel": "telegram",
+    "source_event_id": "example-baseline-not-an-approval",
+    "approved_plan_digest": "76e4c2551887f3bb42174202f2c1928cc72d951c2ace21c6a9d3f95cab44d691",
+    "approved_at": "2026-07-28T00:01:00Z"
+  },
+  "plan_digest": "76e4c2551887f3bb42174202f2c1928cc72d951c2ace21c6a9d3f95cab44d691"
+}

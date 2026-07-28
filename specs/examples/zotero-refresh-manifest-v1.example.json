@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "manifest_id": "VPUB-20260728-example-refresh",
+  "created_at": "2026-07-28T00:00:00Z",
+  "expires_at": "2026-07-29T00:00:00Z",
+  "action": {
+    "kind": "zotero-refresh",
+    "target_id": "jackman-2021",
+    "baseline_release_digest": "a5ace67336f87faaf1da05161be07ca4e71ee260783b2afcb06e02ef2a76cf0d",
+    "baseline_receipt_path": "consumed/VPUB-20260728-example/release-receipt.json"
+  },
+  "nodes": [
+    {
+      "public_id": "flow",
+      "path": "Knowledge/Concepts/Flow.md",
+      "node_class": "concept",
+      "source_sha256": "aaac82314aa93fed803d3a91b68143043fd2435916e4512ba479921b679d7e0e"
+    },
+    {
+      "public_id": "jackman-2021",
+      "path": "Literature/Notes/jackman-2021.md",
+      "node_class": "paper",
+      "source_sha256": "0499cf12e58ace574db942276af43d3883e9930af0a406f2f6b57443a677cbdf"
+    }
+  ],
+  "public_set_digest": "9dd8ec2af1f8036555982d3a7e9a26af464096adc191b6e0062140f041f33f77",
+  "approval_receipt": {
+    "approver": "tyler",
+    "channel": "telegram",
+    "source_event_id": "example-refresh-not-an-approval",
+    "approved_plan_digest": "c94248424864311552bb28cbf8c13608c7e8b1ef97c189fe75b7de01ec465629",
+    "approved_at": "2026-07-28T00:01:00Z"
+  },
+  "plan_digest": "c94248424864311552bb28cbf8c13608c7e8b1ef97c189fe75b7de01ec465629"
+}

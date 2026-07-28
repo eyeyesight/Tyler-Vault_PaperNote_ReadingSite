@@ -1,0 +1,21 @@
+# Local and generated artifacts
+.venv/
+__pycache__/
+.pytest_cache/
+playwright-report/
+test-results/
+dist/
+build/
+coverage/
+.DS_Store
+Thumbs.db
+
+# Secrets and local runtime
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+runtime/
+
+# Local planning tickets are retained in this repository for now
