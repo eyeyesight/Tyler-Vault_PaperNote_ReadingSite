@@ -13,15 +13,19 @@
     "verify": "node scripts/site.mjs verify",
     "serve": "node scripts/site.mjs serve",
     "contracts:validate": "node scripts/contracts.mjs validate",
+    "tracer:preflight": "node scripts/tracer.mjs preflight",
+    "tracer:build": "node scripts/tracer.mjs build",
     "typecheck": "tsc --noEmit",
     "test": "node --test --test-concurrency=1",
+    "test:tracer": "node --test tests/manifest-quartz-tracer.test.mjs",
     "test:contracts": "node --test tests/publication-contracts.test.mjs",
     "test:guard": "node --test tests/canonical-vault-guard.test.mjs",
     "test:serve": "node --test tests/local-serve.test.mjs"
   },
   "dependencies": {
     "@jackyzha0/quartz": "https://github.com/jackyzha0/quartz/archive/41864a0eba8f95deef7ff3cdede7ae03a45d4c70.tar.gz",
-    "ajv": "8.20.0"
+    "ajv": "8.20.0",
+    "mdast-util-from-markdown": "2.0.3"
   },
   "devDependencies": {
     "@types/node": "25.0.10",

@@ -18,6 +18,7 @@ import test from "node:test"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const cli = path.join(repoRoot, "scripts", "site.mjs")
+const filesystemSafety = path.join(repoRoot, "lib", "filesystem-safety.mjs")
 const metadataPath = path.join(repoRoot, "config", "quartz-toolchain.json")
 
 /** @param {string} root */
@@ -180,6 +181,7 @@ test("build fails closed before toolchain materialization when installed default
   const output = path.join(root, "output")
   await Promise.all([
     mkdir(path.dirname(copiedCli), { recursive: true }),
+    mkdir(path.join(root, "lib"), { recursive: true }),
     mkdir(path.join(root, "config"), { recursive: true }),
     mkdir(path.join(quartzRoot, "quartz", "static"), { recursive: true }),
     mkdir(source),
@@ -188,6 +190,7 @@ test("build fails closed before toolchain materialization when installed default
   ])
   await Promise.all([
     cp(cli, copiedCli),
+    cp(filesystemSafety, path.join(root, "lib", "filesystem-safety.mjs")),
     writeFile(path.join(root, "package.json"), '{"type":"module"}\n'),
     writeFile(path.join(root, "config", "quartz-toolchain.json"), `${JSON.stringify(metadata, null, 2)}\n`),
     writeFile(path.join(quartzRoot, "package.json"), `${JSON.stringify({ name: "@jackyzha0/quartz", version: metadata.version })}\n`),

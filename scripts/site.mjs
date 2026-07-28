@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url"
 import { spawn } from "node:child_process"
 import { createServer } from "node:http"
 import { TextDecoder } from "node:util"
+import { canonicalPath, isEqualToOrInside, pathsOverlap } from "../lib/filesystem-safety.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const defaultSource = path.join(repoRoot, "fixtures", "synthetic-content")
@@ -67,47 +68,6 @@ function parseArgs(argv) {
   return options
 }
 
-/**
- * Resolve an existing path through the filesystem. For a destination that does
- * not exist yet, resolve its nearest existing ancestor and append the remaining
- * path. This closes simple spelling, case, junction, and symlink aliases before
- * containment is evaluated.
- * @param {string} candidate
- */
-async function canonicalPath(candidate) {
-  let cursor = path.resolve(candidate)
-  /** @type {string[]} */
-  const missing = []
-  for (;;) {
-    try {
-      const existing = await realpath(cursor)
-      return path.join(existing, ...missing.reverse())
-    } catch (error) {
-      if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
-        throw error
-      }
-      const parent = path.dirname(cursor)
-      if (parent === cursor) throw error
-      missing.push(path.basename(cursor))
-      cursor = parent
-    }
-  }
-}
-
-/** @param {string} root @param {string} candidate */
-function isEqualToOrInside(root, candidate) {
-  /** @type {(value:string) => string} */
-  const normalize = process.platform === "win32" ? (value) => value.toLowerCase() : (value) => value
-  const normalizedRoot = normalize(path.resolve(root))
-  const normalizedCandidate = normalize(path.resolve(candidate))
-  const relative = path.relative(normalizedRoot, normalizedCandidate)
-  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative))
-}
-
-/** @param {string} first @param {string} second */
-function pathsOverlap(first, second) {
-  return isEqualToOrInside(first, second) || isEqualToOrInside(second, first)
-}
 
 /** @type {[string, Buffer][]} */
 const forbiddenSourceMagic = [
