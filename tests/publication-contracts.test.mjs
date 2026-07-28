@@ -1,6 +1,6 @@
 // @ts-nocheck -- black-box mutation matrix intentionally exercises invalid dynamic JSON shapes.
 import assert from "node:assert/strict"
-import { mkdtemp, readFile, rm, symlink, writeFile, mkdir } from "node:fs/promises"
+import { lstat, mkdtemp, readFile, rm, symlink, writeFile, mkdir } from "node:fs/promises"
 import { createHash } from "node:crypto"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -18,6 +18,11 @@ import {
   validateContract,
   validateStandaloneBundle,
   readContractJson,
+  loadPublicationRuntime,
+  validateCrossReleaseManifest,
+  validatePublicationPreflight,
+  validateReleaseAgainstManifest,
+  validateCurrentReleaseCandidate,
 } from "../lib/publication-contracts.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
@@ -46,6 +51,22 @@ function sealRelease(receipt) {
   delete unsigned.release_digest
   receipt.release_digest = sha256Jcs(unsigned)
   return receipt
+}
+async function writeRuntimeCurrent(root, receipt, pointer) {
+  const receiptFile = path.join(root, ...pointer.receipt_path.split("/"))
+  await mkdir(path.dirname(receiptFile), { recursive: true })
+  await writeFile(receiptFile, JSON.stringify(receipt))
+  await writeFile(path.join(root, "current-release.json"), JSON.stringify(pointer))
+}
+
+async function probeFilesystemAlias(expectedPath) {
+  try {
+    await lstat(expectedPath)
+    return true
+  } catch (error) {
+    assert.equal(error?.code, "ENOENT")
+    return false
+  }
 }
 
 const exampleCases = [
@@ -529,37 +550,31 @@ test("Phase B composition seam independently validates supplied current receipt 
 
 test("CLI validate fails closed for the complete missing-context matrix", () => {
   const manifestInput = path.join(examplesRoot, "publish-unit-manifest-v1.example.json")
-  const exportInput = path.join(examplesRoot, "export-receipt-v1.example.json")
-  const manifestMissingNow = spawnSync(process.execPath, [cliPath, "validate", "--kind", "publication-manifest", "--input", manifestInput], { encoding: "utf8" })
-  assert.equal(manifestMissingNow.status, 1)
-  assert.equal(manifestMissingNow.stderr, "")
-  assert.equal(JSON.parse(manifestMissingNow.stdout).error.code, "CONTEXT_REQUIRED")
-
-  const contextFlags = [
-    ["--manifest", manifestInput],
-    ["--export-root", examplesRoot],
-    ["--now", "2026-07-28T00:00:00Z"],
+  const cases = [
+    ["publication-manifest", "publish-unit-manifest-v1.example.json", [["--now", "2026-07-28T00:00:00Z"], ["--runtime-root", examplesRoot]]],
+    ["export-receipt", "export-receipt-v1.example.json", [["--manifest", manifestInput], ["--export-root", examplesRoot], ["--now", "2026-07-28T00:00:00Z"], ["--runtime-root", examplesRoot]]],
+    ["release-receipt", "release-receipt-v1.example.json", [["--manifest", manifestInput], ["--now", "2026-07-28T00:00:00Z"], ["--runtime-root", examplesRoot]]],
+    ["current-release", "current-release-v1.example.json", [["--runtime-root", examplesRoot]]],
   ]
-  for (let mask = 0; mask < 7; mask += 1) {
-    const args = [cliPath, "validate", "--kind", "export-receipt", "--input", exportInput]
-    for (let index = 0; index < contextFlags.length; index += 1) if (mask & (1 << index)) args.push(...contextFlags[index])
-    const result = spawnSync(process.execPath, args, { encoding: "utf8" })
-    assert.equal(result.status, 1, `context mask ${mask}`)
-    assert.equal(result.stderr, "", `context mask ${mask}`)
-    assert.equal(JSON.parse(result.stdout).error.code, "CONTEXT_REQUIRED", `context mask ${mask}`)
-  }
-
-  for (const [kind, filename] of [["release-receipt", "release-receipt-v1.example.json"], ["current-release", "current-release-v1.example.json"]]) {
-    const result = spawnSync(process.execPath, [cliPath, "validate", "--kind", kind, "--input", path.join(examplesRoot, filename)], { encoding: "utf8" })
-    assert.equal(result.status, 1)
-    assert.equal(result.stderr, "")
-    assert.equal(JSON.parse(result.stdout).error.code, "CONTEXT_REQUIRED")
+  for (const [kind, filename, flags] of cases) {
+    const completeMask = (1 << flags.length) - 1
+    for (let mask = 0; mask < completeMask; mask += 1) {
+      const args = [cliPath, "validate", "--kind", kind, "--input", path.join(examplesRoot, filename)]
+      for (let index = 0; index < flags.length; index += 1) if (mask & (1 << index)) args.push(...flags[index])
+      const result = spawnSync(process.execPath, args, { encoding: "utf8" })
+      assert.equal(result.status, 1, `${kind} context mask ${mask}`)
+      assert.equal(result.stderr, "", `${kind} context mask ${mask}`)
+      assert.equal(JSON.parse(result.stdout).error.code, "CONTEXT_REQUIRED", `${kind} context mask ${mask}`)
+      assert.equal(result.stdout.trim().split(/\r?\n/).length, 1)
+    }
   }
 })
 
-test("CLI separates standalone inspect from trusted preflight validation levels", () => {
+test("CLI separates standalone inspect from trusted preflight validation levels", async (t) => {
+  const runtimeRoot = await mkdtemp(path.join(tmpdir(), "contract-cli-runtime-"))
+  t.after(() => rm(runtimeRoot, { recursive: true, force: true }))
   const manifestInput = path.join(examplesRoot, "publish-unit-manifest-v1.example.json")
-  const preflight = spawnSync(process.execPath, [cliPath, "validate", "--kind", "publication-manifest", "--input", manifestInput, "--now", "2026-07-28T00:00:00Z"], { encoding: "utf8" })
+  const preflight = spawnSync(process.execPath, [cliPath, "validate", "--kind", "publication-manifest", "--input", manifestInput, "--now", "2026-07-28T00:00:00Z", "--runtime-root", runtimeRoot], { encoding: "utf8" })
   assert.equal(preflight.status, 0)
   assert.equal(preflight.stderr, "")
   assert.deepEqual(JSON.parse(preflight.stdout), { ok: true, kind: "publication-manifest", schemaVersion: 1, validationLevel: "preflight" })
@@ -599,7 +614,7 @@ test("CLI full export preflight verifies current manifest binding, exact file se
   const contextManifest = path.join(contextRoot, "manifest.json")
   await writeFile(contextManifest, JSON.stringify(manifest))
   await rm(manifestInput)
-  const result = spawnSync(process.execPath, [cliPath, "validate", "--kind", "export-receipt", "--input", receiptInput, "--manifest", contextManifest, "--export-root", root, "--now", "2026-07-28T00:00:00Z"], { encoding: "utf8" })
+  const result = spawnSync(process.execPath, [cliPath, "validate", "--kind", "export-receipt", "--input", receiptInput, "--manifest", contextManifest, "--export-root", root, "--now", "2026-07-28T00:00:00Z", "--runtime-root", contextRoot], { encoding: "utf8" })
   assert.equal(result.status, 0, result.stdout)
   assert.equal(result.stderr, "")
   assert.deepEqual(JSON.parse(result.stdout), { ok: true, kind: "export-receipt", schemaVersion: 1, validationLevel: "preflight" })
@@ -611,7 +626,7 @@ test("CLI rejects adversarial duplicate manifest keys before JSON.parse can over
   t.after(() => rm(root, { recursive: true, force: true }))
   const input = path.join(root, "duplicate.json")
   await writeFile(input, '{"schema_version":1,"schema_version":1}')
-  const result = spawnSync(process.execPath, [cliPath, "validate", "--kind", "publication-manifest", "--input", input, "--now", "2026-07-28T00:00:00Z"], { encoding: "utf8" })
+  const result = spawnSync(process.execPath, [cliPath, "validate", "--kind", "publication-manifest", "--input", input, "--now", "2026-07-28T00:00:00Z", "--runtime-root", root], { encoding: "utf8" })
   assert.equal(result.status, 1)
   assert.equal(result.stderr, "")
   assert.equal(JSON.parse(result.stdout).error.code, "INPUT_DUPLICATE_PROPERTY")
@@ -637,4 +652,426 @@ test("CLI deterministic schema error remains one JSON object with empty stderr",
   assert.equal(failure.stderr, "")
   assert.equal(JSON.parse(failure.stdout).error.code, "NON_NFC_STRING")
   assert.equal(failure.stdout.trim().split(/\r?\n/).length, 1)
+})
+
+test("Phase B public API accepts genesis only with an absent current pointer and exact genesis baseline", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "contract-runtime-genesis-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const manifest = await json(path.join(examplesRoot, "publish-unit-manifest-v1.example.json"))
+  assert.deepEqual(manifest.action.baseline, { kind: "genesis" })
+  const state = await loadPublicationRuntime(root)
+  assert.equal(state.currentPointer, undefined)
+  const result = await validatePublicationPreflight(manifest, { now: "2026-07-28T00:00:00Z", runtimeRoot: root })
+  assert.equal(result.kind, "publication-manifest")
+})
+
+test("Phase B stale fixture is rejected through the public pure composition API", async () => {
+  const fixture = await json(path.join(repoRoot, "specs", "fixtures", "stale-baseline-v1.semantic-invalid.json"))
+  await assert.rejects(validateCrossReleaseManifest(fixture.replayed_manifest, {
+    now: "2026-07-28T00:00:00Z",
+    currentPointer: fixture.current_pointer,
+    currentReceipt: fixture.current_receipt,
+    receiptPath: fixture.current_pointer.receipt_path,
+  }), (error) => error instanceof ContractError && error.code === fixture.expected_error)
+})
+
+test("Phase B positive current publish, Zotero refresh, release binding, and candidate pointer", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "contract-runtime-positive-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const receipt = await json(path.join(examplesRoot, "release-receipt-v1.example.json"))
+  const pointer = await json(path.join(examplesRoot, "current-release-v1.example.json"))
+  await writeRuntimeCurrent(root, receipt, pointer)
+
+  const publish = await json(path.join(examplesRoot, "publish-unit-with-baseline-v1.example.json"))
+  const refresh = await json(path.join(examplesRoot, "zotero-refresh-manifest-v1.example.json"))
+  assert.equal((await validatePublicationPreflight(publish, { now: "2026-07-28T00:00:00Z", runtimeRoot: root })).kind, "publication-manifest")
+  assert.equal((await validatePublicationPreflight(refresh, { now: "2026-07-28T00:00:00Z", runtimeRoot: root })).kind, "publication-manifest")
+
+  const genesis = await json(path.join(examplesRoot, "publish-unit-manifest-v1.example.json"))
+  assert.equal((await validateReleaseAgainstManifest(receipt, genesis)).kind, "release-receipt")
+  assert.equal((await validateCurrentReleaseCandidate(pointer, { runtimeRoot: root })).receipt.release_digest, pointer.release_digest)
+})
+
+test("Phase B current-presence versus baseline decision table fails closed", async () => {
+  const genesis = await json(path.join(examplesRoot, "publish-unit-manifest-v1.example.json"))
+  const baseline = await json(path.join(examplesRoot, "publish-unit-with-baseline-v1.example.json"))
+  const receipt = await json(path.join(examplesRoot, "release-receipt-v1.example.json"))
+  const pointer = await json(path.join(examplesRoot, "current-release-v1.example.json"))
+  const state = { now: "2026-07-28T00:00:00Z", currentPointer: pointer, currentReceipt: receipt, receiptPath: pointer.receipt_path }
+
+  await assert.rejects(validateCrossReleaseManifest(baseline, { now: state.now }), (e) => e.code === "GENESIS_BASELINE_REQUIRED")
+  await assert.rejects(validateCrossReleaseManifest(genesis, state), (e) => e.code === "RELEASE_BASELINE_REQUIRED")
+  const stale = clone(baseline)
+  stale.action.baseline.receipt_path = "consumed/VPUB-20260728-older/release-receipt.json"
+  sealManifest(stale)
+  await assert.rejects(validateCrossReleaseManifest(stale, state), (e) => e.code === "STALE_BASELINE")
+  const refresh = await json(path.join(examplesRoot, "zotero-refresh-manifest-v1.example.json"))
+  await assert.rejects(validateCrossReleaseManifest(refresh, { now: state.now }), (e) => e.code === "CURRENT_RELEASE_REQUIRED")
+})
+
+test("runtime loader distinguishes absent pointer from corrupt pointer and bad/missing receipts", async (t) => {
+  const roots = []
+  t.after(() => Promise.all(roots.map((root) => rm(root, { recursive: true, force: true }))))
+  const makeRoot = async () => { const root = await mkdtemp(path.join(tmpdir(), "contract-runtime-integrity-")); roots.push(root); return root }
+  const receipt = await json(path.join(examplesRoot, "release-receipt-v1.example.json"))
+  const pointer = await json(path.join(examplesRoot, "current-release-v1.example.json"))
+
+  const absent = await makeRoot()
+  assert.equal((await loadPublicationRuntime(absent)).currentPointer, undefined)
+
+  const corruptPointer = await makeRoot()
+  await writeFile(path.join(corruptPointer, "current-release.json"), "{")
+  await assert.rejects(loadPublicationRuntime(corruptPointer), (e) => e.code === "INPUT_INVALID_JSON")
+
+  const missingReceipt = await makeRoot()
+  await writeFile(path.join(missingReceipt, "current-release.json"), JSON.stringify(pointer))
+  await assert.rejects(loadPublicationRuntime(missingReceipt), (e) => e.code === "CURRENT_RECEIPT_MISSING")
+
+  const badReceipt = await makeRoot()
+  const receiptFile = path.join(badReceipt, ...pointer.receipt_path.split("/"))
+  await mkdir(path.dirname(receiptFile), { recursive: true })
+  await writeFile(receiptFile, "{")
+  await writeFile(path.join(badReceipt, "current-release.json"), JSON.stringify(pointer))
+  await assert.rejects(loadPublicationRuntime(badReceipt), (e) => e.code === "INPUT_INVALID_JSON")
+
+  const pointerMismatch = await makeRoot()
+  const wrongPointer = clone(pointer)
+  wrongPointer.release_digest = "0".repeat(64)
+  await writeRuntimeCurrent(pointerMismatch, receipt, wrongPointer)
+  await assert.rejects(loadPublicationRuntime(pointerMismatch), (e) => e.code === "CURRENT_RELEASE_DIGEST_MISMATCH")
+
+  const storedMismatch = await makeRoot()
+  const wrongStored = clone(receipt)
+  wrongStored.release_digest = "0".repeat(64)
+  await writeRuntimeCurrent(storedMismatch, wrongStored, pointer)
+  await assert.rejects(loadPublicationRuntime(storedMismatch), (e) => e.code === "RELEASE_DIGEST_MISMATCH")
+
+  const recomputedMismatch = await makeRoot()
+  const changedBytes = clone(receipt)
+  changedBytes.artifacts[0].sha256 = "0".repeat(64)
+  await writeRuntimeCurrent(recomputedMismatch, changedBytes, pointer)
+  await assert.rejects(loadPublicationRuntime(recomputedMismatch), (e) => e.code === "RELEASE_DIGEST_MISMATCH")
+})
+
+test("pointer absence is genesis only when consumed history is absent or empty, with zero mutation", async (t) => {
+  const roots = []
+  t.after(() => Promise.all(roots.map((root) => rm(root, { recursive: true, force: true }))))
+  const makeRoot = async () => { const root = await mkdtemp(path.join(tmpdir(), "contract-runtime-history-")); roots.push(root); return root }
+  const receipt = await json(path.join(examplesRoot, "release-receipt-v1.example.json"))
+  const pointer = await json(path.join(examplesRoot, "current-release-v1.example.json"))
+
+  const absent = await makeRoot()
+  assert.equal((await loadPublicationRuntime(absent)).currentPointer, undefined)
+
+  const empty = await makeRoot()
+  await mkdir(path.join(empty, "consumed"))
+  assert.equal((await loadPublicationRuntime(empty)).currentPointer, undefined)
+
+  const validHistory = await makeRoot()
+  const validReceiptPath = path.join(validHistory, ...pointer.receipt_path.split("/"))
+  await mkdir(path.dirname(validReceiptPath), { recursive: true })
+  await writeFile(validReceiptPath, JSON.stringify(receipt))
+  const validBefore = await readFile(validReceiptPath, "utf8")
+  await assert.rejects(loadPublicationRuntime(validHistory), (error) => error instanceof ContractError && error.code === "GENESIS_HISTORY_PRESENT")
+  assert.equal(await readFile(validReceiptPath, "utf8"), validBefore)
+
+  const malformedHistory = await makeRoot()
+  const malformedReceiptPath = path.join(malformedHistory, ...pointer.receipt_path.split("/"))
+  await mkdir(path.dirname(malformedReceiptPath), { recursive: true })
+  await writeFile(malformedReceiptPath, "{sentinel")
+  await assert.rejects(loadPublicationRuntime(malformedHistory), (error) => error instanceof ContractError && error.code === "GENESIS_HISTORY_PRESENT")
+  assert.equal(await readFile(malformedReceiptPath, "utf8"), "{sentinel")
+
+  const consumedFile = await makeRoot()
+  await writeFile(path.join(consumedFile, "consumed"), "sentinel")
+  await assert.rejects(loadPublicationRuntime(consumedFile), (error) => error instanceof ContractError && error.code === "GENESIS_HISTORY_PRESENT")
+  assert.equal(await readFile(path.join(consumedFile, "consumed"), "utf8"), "sentinel")
+
+  const caseAlias = await makeRoot()
+  await mkdir(path.join(caseAlias, "Consumed"))
+  await assert.rejects(loadPublicationRuntime(caseAlias), (error) => error instanceof ContractError && error.code === "PATH_CASE_COLLISION")
+
+  const linked = await makeRoot()
+  const outside = await makeRoot()
+  await writeFile(path.join(outside, "sentinel.txt"), "outside-sentinel")
+  await symlink(outside, path.join(linked, "consumed"), "junction")
+  await assert.rejects(loadPublicationRuntime(linked), (error) => error instanceof ContractError && error.code === "PATH_SYMLINK_NOT_ALLOWED")
+  assert.equal(await readFile(path.join(outside, "sentinel.txt"), "utf8"), "outside-sentinel")
+
+  const linkedEntry = await makeRoot()
+  const consumed = path.join(linkedEntry, "consumed")
+  await mkdir(consumed)
+  await symlink(outside, path.join(consumed, "history-alias"), "junction")
+  await assert.rejects(loadPublicationRuntime(linkedEntry), (error) => error instanceof ContractError && error.code === "GENESIS_HISTORY_PRESENT")
+  assert.equal(await readFile(path.join(outside, "sentinel.txt"), "utf8"), "outside-sentinel")
+})
+
+test("runtime root rejects a parent junction even when the final root child is a regular directory", async (t) => {
+  const aliasContainer = await mkdtemp(path.join(tmpdir(), "contract-runtime-parent-alias-"))
+  const outsideParent = await mkdtemp(path.join(tmpdir(), "contract-runtime-parent-target-"))
+  t.after(() => Promise.all([
+    rm(aliasContainer, { recursive: true, force: true }),
+    rm(outsideParent, { recursive: true, force: true }),
+  ]))
+  const realRoot = path.join(outsideParent, "regular-root-child")
+  await mkdir(realRoot)
+  await writeFile(path.join(realRoot, "sentinel.txt"), "root-sentinel")
+  const parentAlias = path.join(aliasContainer, "parent-junction")
+  await symlink(outsideParent, parentAlias, "junction")
+
+  await assert.rejects(loadPublicationRuntime(path.join(parentAlias, "regular-root-child")),
+    (error) => error instanceof ContractError && error.code === "PATH_SYMLINK_NOT_ALLOWED")
+  assert.equal(await readFile(path.join(realRoot, "sentinel.txt"), "utf8"), "root-sentinel")
+})
+
+test("runtime loader rejects case aliases, nonregular files, and junction layers with zero mutation", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "contract-runtime-path-"))
+  const outside = await mkdtemp(path.join(tmpdir(), "contract-runtime-outside-"))
+  t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })]))
+  const pointer = await json(path.join(examplesRoot, "current-release-v1.example.json"))
+
+  const asciiAlias = path.join(root, "CURRENT-RELEASE.JSON")
+  const expectedPointer = path.join(root, "current-release.json")
+  await writeFile(asciiAlias, JSON.stringify(pointer))
+  const asciiFilesystemAlias = await probeFilesystemAlias(expectedPointer)
+  if (process.platform === "win32") {
+    assert.equal(asciiFilesystemAlias, true, "Windows volume must resolve the expected spelling before the loader exercises its filesystem probe")
+  }
+  const asciiBefore = await readFile(asciiAlias, "utf8")
+  await assert.rejects(loadPublicationRuntime(root), (error) => {
+    assert.equal(error instanceof ContractError && error.code === "PATH_CASE_COLLISION", true)
+    assert.equal(JSON.stringify(error).includes(root), false)
+    return true
+  })
+  assert.equal(await readFile(asciiAlias, "utf8"), asciiBefore)
+  await rm(asciiAlias)
+
+  await mkdir(path.join(root, "current-release.json"))
+  await assert.rejects(loadPublicationRuntime(root), (e) => e.code === "RUNTIME_FILE_CLASS_INVALID")
+  await rm(path.join(root, "current-release.json"), { recursive: true })
+
+  await writeFile(path.join(outside, "release-receipt.json"), "sentinel")
+  await symlink(outside, path.join(root, "consumed"), "junction")
+  await writeFile(path.join(root, "current-release.json"), JSON.stringify(pointer))
+  const before = await readFile(path.join(root, "current-release.json"), "utf8")
+  await assert.rejects(loadPublicationRuntime(root), (e) => e.code === "PATH_SYMLINK_NOT_ALLOWED")
+  assert.equal(await readFile(path.join(root, "current-release.json"), "utf8"), before)
+  assert.equal(await readFile(path.join(outside, "release-receipt.json"), "utf8"), "sentinel")
+
+  const rootAlias = path.join(path.dirname(root), `${path.basename(root)}-alias`)
+  await symlink(root, rootAlias, "junction")
+  t.after(() => rm(rootAlias, { recursive: true, force: true }))
+  await assert.rejects(loadPublicationRuntime(rootAlias), (e) => e.code === "PATH_SYMLINK_NOT_ALLOWED")
+
+  await rm(path.join(root, "consumed"), { recursive: true })
+  const finalParent = path.join(root, "consumed", "VPUB-20260728-example")
+  await mkdir(finalParent, { recursive: true })
+  await symlink(outside, path.join(finalParent, "release-receipt.json"), "junction")
+  await assert.rejects(loadPublicationRuntime(root), (e) => e.code === "PATH_SYMLINK_NOT_ALLOWED")
+  assert.equal(await readFile(path.join(root, "current-release.json"), "utf8"), before)
+  assert.equal(await readFile(path.join(outside, "release-receipt.json"), "utf8"), "sentinel")
+})
+
+test("runtime loader probes Windows Unicode UpCase aliases before missing or genesis fallback", async (t) => {
+  const roots = []
+  t.after(() => Promise.all(roots.map((root) => rm(root, { recursive: true, force: true }))))
+  const makeRoot = async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "contract-runtime-unicode-alias-"))
+    roots.push(root)
+    return root
+  }
+  const pointerFixture = await json(path.join(examplesRoot, "current-release-v1.example.json"))
+  const cases = [
+    {
+      label: "long-s/current pointer",
+      expectedName: "current-release.json",
+      aliasName: "current-releaſe.json",
+      arrange: async (root, aliasPath) => writeFile(aliasPath, JSON.stringify(pointerFixture)),
+    },
+    {
+      label: "long-s/consumed history",
+      expectedName: "consumed",
+      aliasName: "conſumed",
+      arrange: async (root, aliasPath) => {
+        await mkdir(aliasPath)
+        await writeFile(path.join(aliasPath, "sentinel.txt"), "unicode-alias-sentinel")
+      },
+      sentinelPath: (root, aliasPath) => path.join(aliasPath, "sentinel.txt"),
+    },
+    {
+      label: "dotless-i/consumed receipt",
+      expectedName: "release-receipt.json",
+      aliasName: "release-receıpt.json",
+      directory: "consumed",
+      arrange: async (root, aliasPath) => {
+        await mkdir(path.dirname(aliasPath), { recursive: true })
+        const pointer = { ...pointerFixture, receipt_path: "consumed/release-receipt.json" }
+        await writeFile(path.join(root, "current-release.json"), JSON.stringify(pointer))
+        await writeFile(aliasPath, "unicode-alias-sentinel")
+      },
+    },
+    {
+      label: "kelvin-sign/consumed receipt",
+      expectedName: "marker-k.json",
+      aliasName: "marker-K.json",
+      directory: "consumed",
+      arrange: async (root, aliasPath) => {
+        await mkdir(path.dirname(aliasPath), { recursive: true })
+        const pointer = { ...pointerFixture, receipt_path: "consumed/marker-k.json" }
+        await writeFile(path.join(root, "current-release.json"), JSON.stringify(pointer))
+        await writeFile(aliasPath, "unicode-alias-sentinel")
+      },
+    },
+  ]
+
+  const matrix = []
+  for (const candidate of cases) {
+    const root = await makeRoot()
+    const directory = candidate.directory ? path.join(root, candidate.directory) : root
+    const aliasPath = path.join(directory, candidate.aliasName)
+    await candidate.arrange(root, aliasPath)
+    const equivalent = await probeFilesystemAlias(path.join(directory, candidate.expectedName))
+    matrix.push({ label: candidate.label, equivalent })
+    if (equivalent) {
+      const sentinelPath = candidate.sentinelPath ? candidate.sentinelPath(root, aliasPath) : aliasPath
+      const before = await readFile(sentinelPath, "utf8")
+      await assert.rejects(loadPublicationRuntime(root), (error) => {
+        assert.equal(error instanceof ContractError && error.code === "PATH_CASE_COLLISION", true, candidate.label)
+        assert.equal(JSON.stringify(error).includes(root), false, candidate.label)
+        return true
+      })
+      assert.equal(await readFile(sentinelPath, "utf8"), before, candidate.label)
+    }
+  }
+
+  assert.deepEqual(matrix.map(({ label }) => label), cases.map(({ label }) => label))
+  if (!matrix.some(({ equivalent }) => equivalent)) {
+    assert.deepEqual(matrix.map(({ equivalent }) => equivalent), [false, false, false, false])
+  }
+})
+
+test("publish-unit baseline identity/source and exact added-set equations have stable codes", async () => {
+  const original = await json(path.join(examplesRoot, "publish-unit-with-baseline-v1.example.json"))
+  const receipt = await json(path.join(examplesRoot, "release-receipt-v1.example.json"))
+  const pointer = await json(path.join(examplesRoot, "current-release-v1.example.json"))
+  const state = { now: "2026-07-28T00:00:00Z", currentPointer: pointer, currentReceipt: receipt, receiptPath: pointer.receipt_path }
+  const cases = [
+    ["BASELINE_NODE_MISSING", (m) => { m.nodes = m.nodes.filter((node) => node.public_id !== "jackman-2021") }],
+    ["BASELINE_NODE_PATH_CHANGED", (m) => { m.nodes.find((node) => node.public_id === "jackman-2021").path = "Literature/Notes/jackman-renamed.md" }],
+    ["BASELINE_NODE_CLASS_CHANGED", (m) => { const node = m.nodes.find((item) => item.public_id === "flow"); node.node_class = "method"; node.path = "Knowledge/Methods/Flow.md" }],
+    ["BASELINE_SOURCE_CHANGED", (m) => { m.nodes.find((node) => node.public_id === "jackman-2021").source_sha256 = "0".repeat(64) }],
+    ["ADDED_NODE_SET_MISMATCH", (m) => { m.action.added_node_ids = ["guo-2024"] }],
+    ["ADDED_NODE_SET_MISMATCH", (m) => { m.action.added_node_ids = ["flow", "guo-2024", "micro-action"] }],
+  ]
+  for (const [code, mutate] of cases) {
+    const manifest = clone(original)
+    mutate(manifest)
+    sealManifest(manifest)
+    await assert.rejects(validateCrossReleaseManifest(manifest, state), (e) => e.code === code, code)
+  }
+})
+
+test("Zotero refresh preserves set, identity, non-target source, target baseline metadata, and permits no-change target", async () => {
+  const original = await json(path.join(examplesRoot, "zotero-refresh-manifest-v1.example.json"))
+  const receipt = await json(path.join(examplesRoot, "release-receipt-v1.example.json"))
+  const pointer = await json(path.join(examplesRoot, "current-release-v1.example.json"))
+  const state = { now: "2026-07-28T00:00:00Z", currentPointer: pointer, currentReceipt: receipt, receiptPath: pointer.receipt_path }
+  const noChange = clone(original)
+  noChange.nodes.find((node) => node.public_id === "jackman-2021").source_sha256 = receipt.nodes.find((node) => node.public_id === "jackman-2021").source_sha256
+  sealManifest(noChange)
+  await validateCrossReleaseManifest(noChange, state)
+
+  const cases = [
+    ["ZOTERO_NODE_SET_CHANGED", (m) => { m.nodes = m.nodes.filter((node) => node.public_id !== "flow") }],
+    ["ZOTERO_NODE_PATH_CHANGED", (m) => { m.nodes.find((node) => node.public_id === "flow").path = "Knowledge/Concepts/Flow-renamed.md" }],
+    ["ZOTERO_NODE_CLASS_CHANGED", (m) => { const node = m.nodes.find((item) => item.public_id === "flow"); node.node_class = "method"; node.path = "Knowledge/Methods/Flow.md" }],
+    ["ZOTERO_NON_TARGET_SOURCE_CHANGED", (m) => { m.nodes.find((node) => node.public_id === "flow").source_sha256 = "0".repeat(64) }],
+  ]
+  for (const [code, mutate] of cases) {
+    const manifest = clone(original)
+    mutate(manifest)
+    sealManifest(manifest)
+    await assert.rejects(validateCrossReleaseManifest(manifest, state), (e) => e.code === code, code)
+  }
+
+  const metadataReceipt = clone(receipt)
+  delete metadataReceipt.nodes.find((node) => node.public_id === "jackman-2021").zotero_baseline
+  sealRelease(metadataReceipt)
+  const metadataPointer = clone(pointer)
+  metadataPointer.release_digest = metadataReceipt.release_digest
+  const metadataManifest = clone(original)
+  metadataManifest.action.baseline_release_digest = metadataReceipt.release_digest
+  sealManifest(metadataManifest)
+  await assert.rejects(validateCrossReleaseManifest(metadataManifest, {
+    now: state.now, currentPointer: metadataPointer, currentReceipt: metadataReceipt, receiptPath: metadataPointer.receipt_path,
+  }), (e) => e.code === "ZOTERO_BASELINE_MISSING")
+})
+
+test("candidate release receipt cross-binding covers top-level, set, identity, and source fields", async () => {
+  const manifest = await json(path.join(examplesRoot, "publish-unit-manifest-v1.example.json"))
+  const original = await json(path.join(examplesRoot, "release-receipt-v1.example.json"))
+  const cases = [
+    ["RELEASE_MANIFEST_BINDING_MISMATCH", (r) => { r.manifest_id = "VPUB-20260728-other" }],
+    ["RELEASE_NODE_SET_MISMATCH", (r) => { r.nodes = r.nodes.filter((node) => node.public_id !== "flow") }],
+    ["RELEASE_NODE_IDENTITY_MISMATCH", (r) => { r.nodes.find((node) => node.public_id === "flow").path = "Knowledge/Concepts/Flow-renamed.md" }],
+    ["RELEASE_NODE_IDENTITY_MISMATCH", (r) => { const node = r.nodes.find((item) => item.public_id === "flow"); node.node_class = "method"; node.path = "Knowledge/Methods/Flow.md" }],
+    ["RELEASE_NODE_SOURCE_MISMATCH", (r) => { r.nodes.find((node) => node.public_id === "flow").source_sha256 = "0".repeat(64) }],
+  ]
+  for (const [code, mutate] of cases) {
+    const receipt = clone(original)
+    mutate(receipt)
+    sealRelease(receipt)
+    await assert.rejects(validateReleaseAgainstManifest(receipt, manifest), (e) => e.code === code, code)
+  }
+})
+
+test("candidate release helper standalone-validates the supplied manifest before cross-binding", async () => {
+  const receipt = await json(path.join(examplesRoot, "release-receipt-v1.example.json"))
+  const original = await json(path.join(examplesRoot, "publish-unit-manifest-v1.example.json"))
+
+  const malformed = clone(original)
+  delete malformed.action
+  await assert.rejects(validateReleaseAgainstManifest(receipt, malformed),
+    (error) => error instanceof ContractError && error.code === "SCHEMA_INVALID")
+
+  const digestInvalid = clone(original)
+  digestInvalid.plan_digest = "0".repeat(64)
+  digestInvalid.approval_receipt.approved_plan_digest = digestInvalid.plan_digest
+  await assert.rejects(validateReleaseAgainstManifest(receipt, digestInvalid),
+    (error) => error instanceof ContractError && error.code === "PLAN_DIGEST_MISMATCH")
+
+  await assert.rejects(validateReleaseAgainstManifest(receipt, original, { now: original.expires_at }),
+    (error) => error instanceof ContractError && error.code === "MANIFEST_EXPIRED")
+})
+
+test("Phase B CLI validates release and candidate current with one JSON object and redacted runtime errors", async (t) => {
+  const genesisRoot = await mkdtemp(path.join(tmpdir(), "contract-cli-release-runtime-"))
+  const candidateRoot = await mkdtemp(path.join(tmpdir(), "contract-cli-current-runtime-"))
+  t.after(() => Promise.all([rm(genesisRoot, { recursive: true, force: true }), rm(candidateRoot, { recursive: true, force: true })]))
+  const manifestPath = path.join(examplesRoot, "publish-unit-manifest-v1.example.json")
+  const receiptPath = path.join(examplesRoot, "release-receipt-v1.example.json")
+  const pointerPath = path.join(examplesRoot, "current-release-v1.example.json")
+  const receipt = await json(receiptPath)
+  const pointer = await json(pointerPath)
+  const runtimeReceipt = path.join(candidateRoot, ...pointer.receipt_path.split("/"))
+  await mkdir(path.dirname(runtimeReceipt), { recursive: true })
+  await writeFile(runtimeReceipt, JSON.stringify(receipt))
+
+  const releaseResult = spawnSync(process.execPath, [cliPath, "validate", "--kind", "release-receipt", "--input", receiptPath, "--manifest", manifestPath, "--now", "2026-07-28T00:00:00Z", "--runtime-root", genesisRoot], { encoding: "utf8" })
+  assert.equal(releaseResult.status, 0, releaseResult.stdout)
+  assert.equal(releaseResult.stderr, "")
+  assert.equal(releaseResult.stdout.trim().split(/\r?\n/).length, 1)
+  assert.equal(JSON.parse(releaseResult.stdout).validationLevel, "preflight")
+
+  const currentResult = spawnSync(process.execPath, [cliPath, "validate", "--kind", "current-release", "--input", pointerPath, "--runtime-root", candidateRoot], { encoding: "utf8" })
+  assert.equal(currentResult.status, 0, currentResult.stdout)
+  assert.equal(currentResult.stderr, "")
+  assert.equal(currentResult.stdout.trim().split(/\r?\n/).length, 1)
+
+  await rm(runtimeReceipt)
+  const failure = spawnSync(process.execPath, [cliPath, "validate", "--kind", "current-release", "--input", pointerPath, "--runtime-root", candidateRoot], { encoding: "utf8" })
+  assert.equal(failure.status, 1)
+  assert.equal(failure.stderr, "")
+  assert.equal(JSON.parse(failure.stdout).error.code, "CURRENT_RECEIPT_MISSING")
+  assert.equal(failure.stdout.includes(candidateRoot), false)
 })
