@@ -20,7 +20,7 @@ Implement paper/support semantic layouts and the quiet scholarly theme while kee
 
 - Desktop 1440×1100 shows bibliography, `One-sentence Takeaway`, and `Research Question` in the initial viewport.
 - Paper and support nodes use different templates; Zotero Annotations are collapsed by default.
-- Mobile 390×844 has no page-level horizontal overflow; wide tables scroll only inside their container.
+- Mobile 390×844 has no page-level horizontal overflow; when the left Explorer and right table of contents collapse, each remains reachable through an accessible 44 px control and usable drawer; wide tables scroll only inside their container.
 - Keyboard focus, semantic headings, reduced motion, 44 px interactive targets, and readable CJK typography pass browser tests.
 - Theme-swap fixture preserves routes, graph/search data, heading text/order, stable IDs, source hashes, and content-projection fingerprints.
 

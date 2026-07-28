@@ -20,6 +20,7 @@ Use read-only staged copies of the two eligible integrated notes plus their seve
 
 - Full type/test/build/browser suite passes and local HTTP read-back succeeds.
 - Exactly the approved real nodes/routes appear; graph endpoint/link leak/PDF/Markdown/secret scans are zero.
+- The first 390×844 mobile check proves the collapsed left Explorer and right table of contents remain discoverable, keyboard/touch reachable, and usable through their mobile controls rather than disappearing.
 - Desktop/mobile visual evidence proves required masthead, templates, tables, collapsed annotations, search, Explorer, graph, focus, and overflow behavior.
 - Source hashes before/after match; canonical Vault/Drive write count is zero.
 - Report explicitly remains `not mature`: only two real integrated papers exist, and synthetic fixtures do not count.
