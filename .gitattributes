@@ -1,4 +1,6 @@
 # Keep source/config text stable across Windows and CI.
+.gitattributes text eol=lf
+.gitignore text eol=lf
 *.md text eol=lf
 *.json text eol=lf
 *.ts text eol=lf

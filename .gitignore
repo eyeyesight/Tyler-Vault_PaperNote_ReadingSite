@@ -9,6 +9,11 @@ build/
 coverage/
 .DS_Store
 Thumbs.db
+node_modules/
+.quartz-toolchain/
+.quartz-cache/
+.artifacts/
+*.log
 
 # Secrets and local runtime
 .env

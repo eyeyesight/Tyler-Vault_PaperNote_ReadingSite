@@ -1,0 +1,9 @@
+{
+  "name": "Quartz",
+  "version": "5.0.0",
+  "upstream": "https://github.com/jackyzha0/quartz",
+  "commit": "41864a0eba8f95deef7ff3cdede7ae03a45d4c70",
+  "defaultIconSha256": "532d053e33c2c6bdefdd8145996cedc4be2fc32cfdac740c8488749457d131cf",
+  "sourceBranch": "v5",
+  "officialInstallGuide": "https://quartz.jzhao.xyz/getting-started/installation"
+}

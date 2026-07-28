@@ -1,0 +1,27 @@
+{
+  "name": "tyler-vault-reading-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22",
+    "npm": ">=10.9.2"
+  },
+  "scripts": {
+    "preflight": "node scripts/site.mjs preflight",
+    "build": "node scripts/site.mjs build",
+    "verify": "node scripts/site.mjs verify",
+    "serve": "node scripts/site.mjs serve",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-concurrency=1",
+    "test:guard": "node --test tests/canonical-vault-guard.test.mjs",
+    "test:serve": "node --test tests/local-serve.test.mjs"
+  },
+  "dependencies": {
+    "@jackyzha0/quartz": "https://github.com/jackyzha0/quartz/archive/41864a0eba8f95deef7ff3cdede7ae03a45d4c70.tar.gz"
+  },
+  "devDependencies": {
+    "@types/node": "25.0.10",
+    "typescript": "5.9.3"
+  }
+}
