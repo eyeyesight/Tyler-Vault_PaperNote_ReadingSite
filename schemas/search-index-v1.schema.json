@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tyler-vault-site.local/schemas/search-index-v1.schema.json",
+  "title": "Tyler-Vault Public Search Index v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "records"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "records": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/record" }
+    }
+  },
+  "$defs": {
+    "publicId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "nodeClass": { "enum": ["paper", "concept", "method", "task", "author", "synthesis", "map"] },
+    "publicUrl": { "type": "string", "pattern": "^/(?:papers|knowledge/(?:concept|method|task|author|synthesis|map))/[a-z0-9]+(?:-[a-z0-9]+)*/$" },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["public_id", "title", "node_class", "url", "authors", "doi", "source_tags", "search_text"],
+      "properties": {
+        "public_id": { "$ref": "#/$defs/publicId" },
+        "title": { "type": "string", "minLength": 1 },
+        "node_class": { "$ref": "#/$defs/nodeClass" },
+        "url": { "$ref": "#/$defs/publicUrl" },
+        "authors": { "type": "array", "items": { "type": "string" } },
+        "doi": { "type": ["string", "null"] },
+        "source_tags": { "type": "array", "items": { "type": "string" } },
+        "search_text": { "type": "string" }
+      }
+    }
+  }
+}

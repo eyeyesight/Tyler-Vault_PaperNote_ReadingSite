@@ -670,7 +670,7 @@ test("T04 generated paper exposes the scholarly three-slot and closed Zotero con
   assert.match(support, /<body\b[^>]*data-tracer-template="support"/)
   for (const html of [paper, support]) {
     assert.equal((html.match(/http-equiv="Content-Security-Policy"/g) ?? []).length, 1)
-    assert.match(html, /content="default-src 'self'; base-uri 'none'; connect-src 'none'; font-src 'self' data:; frame-src 'none'; img-src 'self' data:; media-src 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'none'"/)
+    assert.match(html, /content="default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self' data:; frame-src 'none'; img-src 'self' data:; media-src 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'none'"/)
   }
   assert.match(paper, /<body\b[^>]*data-slug="papers\/synthetic-paper\/index"/)
   assert.match(support, /<body\b[^>]*data-slug="knowledge\/concept\/synthetic-support\/index"/)
@@ -684,12 +684,27 @@ test("T04 generated paper exposes the scholarly three-slot and closed Zotero con
   assert.match(paper, /class="right sidebar"/)
   const cssFiles = (await readdir(fx.output)).filter((name) => name.endsWith(".css"))
   const css = (await Promise.all(cssFiles.map((name) => readFile(path.join(fx.output, name), "utf8")))).join("\n")
+  const graph = JSON.parse(await readFile(path.join(fx.output, "graph.json"), "utf8"))
+  const search = JSON.parse(await readFile(path.join(fx.output, "search-index.json"), "utf8"))
+  const contentIndex = JSON.parse(await readFile(path.join(fx.output, "static", "contentIndex.json"), "utf8"))
+  assert.deepEqual(Object.keys(graph), ["schema_version", "nodes", "edges"])
+  assert.equal(graph.schema_version, 1)
+  assert.deepEqual(graph.nodes.map((node) => node.public_id), ["synthetic-paper", "synthetic-support"])
+  assert.deepEqual(graph.edges, [{ source: "synthetic-paper", target: "synthetic-support" }])
+  assert.ok(graph.edges.every((edge) => graph.nodes.some((node) => node.public_id === edge.source) && graph.nodes.some((node) => node.public_id === edge.target)))
+  assert.deepEqual(Object.keys(search), ["schema_version", "records"])
+  assert.equal(search.schema_version, 1)
+  assert.deepEqual(search.records.map((record) => record.public_id), ["synthetic-paper", "synthetic-support"])
+  assert.deepEqual(contentIndex, search)
   assert.match(css, /--tyler-tracer-theme\s*:\s*warm/)
   assert.match(css, /body\[data-slug\^=papers\\\/\]/)
   assert.match(css, /body\[data-slug\^=knowledge\\\/\]/)
+  assert.match(css, /\.public-graph-glyph/)
   assert.doesNotMatch(css, /(?:@import\s+(?:url\()?|url\()\s*["']?https?:\/\//i)
   assert.doesNotMatch(paper, /<(?:link|script|img|iframe|source|video|audio)\b[^>]*(?:href|src|srcset|poster)="https?:\/\//i)
-  assert.doesNotMatch(paper, /static\/contentIndex\.json|class="search|class="graph/i)
+  assert.match(paper, /class="public-search"/)
+  assert.match(paper, /<section\b(?=[^>]*id="public-graph-local-synthetic-paper")(?=[^>]*data-graph-scope="local")(?=[^>]*data-graph-root-id="synthetic-paper")[^>]*>/)
+  assert.doesNotMatch(paper, /@quartz-community\/graph|cdnjs\.cloudflare\.com/i)
   const protectedAfter = Object.fromEntries(await Promise.all(
     ["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]),
   ))
@@ -770,9 +785,13 @@ test("T04 fixed theme swap changes only theme assets and preserves public semant
   assert.match(warmCss, /--tyler-tracer-theme\s*:\s*warm/)
   assert.match(contrastCss, /--tyler-tracer-theme\s*:\s*contrast/)
   assert.notEqual(digest(warmCss), digest(contrastCss))
-  for (const files of [warmFiles, contrastFiles]) {
-    const names = files.map(([name]) => name)
-    assert.equal(names.some((name) => /contentIndex|graph|search/i.test(name)), false)
+  const ownedDataPaths = ["graph.json", "search-index.json", "static/contentIndex.json"]
+  for (const files of [warmFiles, contrastFiles]) assert.deepEqual(files.map(([name]) => name).filter((name) => /contentIndex|graph|search/i.test(name)), ownedDataPaths)
+  for (const relative of ownedDataPaths) {
+    const warmBytes = warmFiles.find(([name]) => name === relative)?.[1]
+    const contrastBytes = contrastFiles.find(([name]) => name === relative)?.[1]
+    assert.ok(warmBytes && contrastBytes)
+    assert.deepEqual(warmBytes, contrastBytes)
   }
   assert.deepEqual(Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(warm.paths[role])]))), warmProtected)
   assert.deepEqual(Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(contrast.paths[role])]))), contrastProtected)

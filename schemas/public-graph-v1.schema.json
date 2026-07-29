@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tyler-vault-site.local/schemas/public-graph-v1.schema.json",
+  "title": "Tyler-Vault Public Graph v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "nodes", "edges"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "nodes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/node" }
+    },
+    "edges": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/edge" }
+    }
+  },
+  "$defs": {
+    "publicId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "nodeClass": { "enum": ["paper", "concept", "method", "task", "author", "synthesis", "map"] },
+    "publicUrl": { "type": "string", "pattern": "^/(?:papers|knowledge/(?:concept|method|task|author|synthesis|map))/[a-z0-9]+(?:-[a-z0-9]+)*/$" },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["public_id", "title", "node_class", "url"],
+      "properties": {
+        "public_id": { "$ref": "#/$defs/publicId" },
+        "title": { "type": "string", "minLength": 1 },
+        "node_class": { "$ref": "#/$defs/nodeClass" },
+        "url": { "$ref": "#/$defs/publicUrl" }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "target"],
+      "properties": {
+        "source": { "$ref": "#/$defs/publicId" },
+        "target": { "$ref": "#/$defs/publicId" }
+      }
+    }
+  }
+}

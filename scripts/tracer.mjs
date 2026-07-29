@@ -25,7 +25,9 @@ import path from "node:path"
 import { TextDecoder } from "node:util"
 import { fileURLToPath } from "node:url"
 
+import Ajv2020Module from "ajv/dist/2020.js"
 import { fromMarkdown } from "mdast-util-from-markdown"
+import { isAlias, isMap, isScalar, isSeq, parseDocument } from "yaml"
 
 import {
   ContractError,
@@ -40,8 +42,10 @@ import {
   isEqualToOrInside,
   pathsOverlap,
 } from "../lib/filesystem-safety.mjs"
+import { createQuartzPublicNavigation } from "../lib/quartz-public-navigation.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
+const Ajv2020 = /** @type {any} */ (Ajv2020Module)
 const toolchainMetadataPath = path.join(repoRoot, "config", "quartz-toolchain.json")
 const scholarlyThemePath = path.join(repoRoot, "styles", "tracer-scholarly.scss")
 const fixtureDisclaimer = "SYNTHETIC FIXTURE — NOT RESEARCH EVIDENCE."
@@ -176,7 +180,9 @@ function validateMarkdownSafety(markdown, body, role, analysis) {
   // attempting browser-grade HTML parsing. Anything tag-, declaration-,
   // processing-instruction-, comment-, namespace-, or autolink-shaped fails closed.
   const rawHtml = /<!--|-->|<(?:[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*|[^<>\s@]+@[^<>\s@]+)>|<\s*\/?\s*[A-Za-z][A-Za-z0-9:-]*(?=[\s/>]|$)[^<>\r\n]*(?:>|$)|<![A-Za-z][^>\r\n]*(?:>|$)|<\?[^>\r\n]*(?:>|$)/i
-  if (analysis.hasHtml || rawHtml.test(body)) throw new TracerError("SOURCE_ACTIVE_CONTENT_NOT_ALLOWED", `${role} contains raw HTML or an unsupported autolink`)
+  const withoutManagedMarkers = body.replace(/^<!-- zotero-annotations:(?:start|end) -->\r?\n?/gm, "")
+  const markerHtmlOnly = analysis.htmlValues.every((value) => /^<!-- zotero-annotations:(?:start|end) -->$/.test(value.trim()))
+  if ((analysis.hasHtml && !markerHtmlOnly) || rawHtml.test(withoutManagedMarkers)) throw new TracerError("SOURCE_ACTIVE_CONTENT_NOT_ALLOWED", `${role} contains raw HTML or an unsupported autolink`)
   if (analysis.markdownUrls.some((url) => /^(?:javascript|vbscript|data|file)\s*:/i.test(url.replace(/[\u0000-\u0020]+/g, "")))
     || /\]\(\s*(?:javascript|vbscript|data|file)\s*:/i.test(markdown)
     || /\b(?:href|src)\s*=\s*["']?\s*(?:javascript|vbscript|data|file)\s*:/i.test(markdown)) {
@@ -192,18 +198,36 @@ function validateMarkdownSafety(markdown, body, role, analysis) {
 function parseFrontmatter(markdown) {
   const match = /^(?:---)\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(markdown)
   if (!match) throw new TracerError("SOURCE_FRONTMATTER_REQUIRED", "every tracer node requires leading YAML frontmatter")
-  /** @type {Record<string,string|string[]>} */
-  const data = {}
-  for (const line of match[1].split(/\r?\n/)) {
-    if (!line.trim() || /^\s*#/.test(line)) continue
-    const field = /^([A-Za-z][A-Za-z0-9_-]*):\s*(.*?)\s*$/.exec(line)
-    if (!field) continue
-    const raw = field[2]
-    if (raw.startsWith("[") && raw.endsWith("]")) {
-      data[field[1]] = raw.slice(1, -1).split(",").map((item) => item.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean)
-    } else data[field[1]] = raw.replace(/^['"]|['"]$/g, "")
+  try {
+    const document = parseDocument(match[1], {
+      schema: "failsafe",
+      strict: true,
+      stringKeys: true,
+      uniqueKeys: true,
+      customTags: [],
+      merge: false,
+      resolveKnownTags: false,
+      prettyErrors: false,
+    })
+    if (document.errors.length || document.warnings.length || !isMap(document.contents)) throw new Error("invalid YAML document")
+    /** @type {Record<string,string|string[]>} */
+    const data = Object.create(null)
+    const scalarValue = (/** @type {any} */ node) => {
+      if (!isScalar(node) || node.anchor || node.tag) throw new Error("unsupported YAML scalar")
+      return String(node.value ?? "")
+    }
+    for (const pair of document.contents.items) {
+      const key = scalarValue(pair.key)
+      const value = pair.value
+      if (isAlias(value) || value?.anchor || value?.tag) throw new Error("YAML aliases, anchors, and explicit tags are unsupported")
+      if (isScalar(value)) data[key] = scalarValue(value)
+      else if (isSeq(value)) data[key] = value.items.map(scalarValue)
+      else throw new Error("frontmatter values must be scalars or scalar arrays")
+    }
+    return { data, body: markdown.slice(match[0].length) }
+  } catch {
+    throw new TracerError("SOURCE_FRONTMATTER_INVALID", "source frontmatter must be strict YAML with scalar fields or scalar arrays")
   }
-  return { data, body: markdown.slice(match[0].length) }
 }
 
 /** @param {string} value */
@@ -266,6 +290,26 @@ function nodeOffsets(node) {
   return { start, end }
 }
 
+/** Authenticate an optional Zotero marker pair against root-level parser HTML
+ * nodes. Any marker-shaped source that is not one exact ordered pair fails
+ * closed; callers may then operate on the exact parser offsets only. */
+function zoteroManagedRange(/** @type {string} */ markdown, /** @type {any} */ tree) {
+  const startMarker = "<!-- zotero-annotations:start -->"
+  const endMarker = "<!-- zotero-annotations:end -->"
+  const markerMentions = [...markdown.matchAll(/<!--\s*zotero-annotations:(?:start|end)\s*-->/gi)]
+  const markers = tree.children.filter((/** @type {any} */ node) => node.type === "html" && (node.value === startMarker || node.value === endMarker))
+  if (markerMentions.length === 0 && markers.length === 0) return null
+  if (markerMentions.length !== 2 || markers.length !== 2 || markers[0].value !== startMarker || markers[1].value !== endMarker) {
+    throw new TracerError("SOURCE_MARKDOWN_INVALID", "Zotero managed markers must be one exact ordered root-level pair")
+  }
+  const start = nodeOffsets(markers[0])
+  const end = nodeOffsets(markers[1])
+  if (markdown.slice(start.start, start.end) !== startMarker || markdown.slice(end.start, end.end) !== endMarker || start.end > end.start) {
+    throw new TracerError("SOURCE_MARKDOWN_INVALID", "Zotero managed marker offsets are invalid")
+  }
+  return { start: start.start, end: end.end }
+}
+
 /** @param {string} markdown */
 function analyzeMarkdown(markdown) {
   try {
@@ -278,11 +322,13 @@ function analyzeMarkdown(markdown) {
     /** @type {any[]} */
     const linkNodes = []
     let hasHtml = false
+    /** @type {string[]} */
+    const htmlValues = []
     const excluded = new Set(["code", "inlineCode", "definition", "link", "linkReference", "image", "imageReference", "html"])
     /** @param {any} node @param {string[]} ancestors */
     function walk(node, ancestors) {
       if (!node || typeof node.type !== "string") throw new Error("invalid MDAST node")
-      if (node.type === "html") hasHtml = true
+      if (node.type === "html") { hasHtml = true; htmlValues.push(String(node.value ?? "")) }
       if (node.type === "definition" && !definitions.has(node.identifier)) definitions.set(node.identifier, node.url)
       if (node.type === "link" || node.type === "linkReference") linkNodes.push(node)
       if (node.type === "text" && !ancestors.some((type) => excluded.has(type))) {
@@ -313,7 +359,8 @@ function analyzeMarkdown(markdown) {
       if (typeof resolved !== "string") throw new Error("unresolved MDAST link reference")
       return resolved
     })
-    return { tree, links, tokens: allWikiLinkTokens(markdown), connections, disclaimer, hasHtml, markdownUrls }
+    const zoteroManaged = zoteroManagedRange(markdown, tree)
+    return { tree, links, tokens: allWikiLinkTokens(markdown), connections, disclaimer, hasHtml, htmlValues, markdownUrls, zoteroManaged }
   } catch (error) {
     if (error instanceof TracerError) throw error
     throw new TracerError("SOURCE_MARKDOWN_INVALID", "source Markdown could not be parsed with stable MDAST offsets")
@@ -407,7 +454,6 @@ function projectContent(manifest, records) {
     }
   }
 
-  const approved = new Set(manifest.action.direct_connection_edges.map((/** @type {any} */ edge) => `${edge.source}\0${edge.target}`))
   /** @type {Set<string>} */
   const suppressedTargets = new Set()
   /** @type {Set<string>} */
@@ -417,22 +463,25 @@ function projectContent(manifest, records) {
   /** @type {Map<string,string>} */
   const projectedBodies = new Map()
   /** @type {Map<string,string>} */
+  const searchableBodies = new Map()
+  /** @type {Map<string,string>} */
   const projected = new Map()
 
   for (const [id, record] of records) {
     let body = record.body
+    let searchableBody = record.body
     const resolvedTargets = new Set()
-    /** @type {Array<{start:number,end:number,value:string}>} */
+    /** @type {Array<{start:number,end:number,value:string,searchValue:string}>} */
     const replacements = []
     const semanticRanges = new Set(record.analysis.links.map((link) => `${link.start}:${link.end}`))
     for (const link of record.analysis.links) {
       const targetId = aliasOwners.get(aliasKey(link.target))
-      if (targetId && !approved.has(`${id}\0${targetId}`)) throw new TracerError("DIRECT_CONNECTION_MISSING", "a listed wikilink has no approved direct connection")
       if (targetId) {
         const target = records.get(targetId)
         if (!target) throw new TracerError("UNEXPECTED_GRAPH_STATE", "resolved target record is missing")
         resolvedTargets.add(targetId)
-        replacements.push({ start: link.start, end: link.end, value: `[${markdownText(link.display)}](${target.route})` })
+        const value = `[${markdownText(link.display)}](${target.route})`
+        replacements.push({ start: link.start, end: link.end, value, searchValue: value })
       } else {
         const variants = suppressedTargetVariants(link.target)
         const normalizedDisplay = link.display.trim().replace(/\\/g, "/")
@@ -441,12 +490,13 @@ function projectContent(manifest, records) {
         }
         for (const variant of variants) suppressedTargets.add(variant)
         suppressedTargetKeys.add(aliasKey(link.target))
-        replacements.push({ start: link.start, end: link.end, value: markdownText(link.display) })
+        const value = markdownText(link.display)
+        replacements.push({ start: link.start, end: link.end, value, searchValue: value })
       }
     }
     // Hidden/code tokens never create graph edges. Unlisted targets must still
-    // be removed from the derived public bytes rather than leaking as examples
-    // or Markdown title/reference metadata.
+    // be removed from derived metadata even when their safe display remains in
+    // the source-visible page body.
     for (const link of record.analysis.tokens) {
       if (semanticRanges.has(`${link.start}:${link.end}`) || aliasOwners.has(aliasKey(link.target))) continue
       const variants = suppressedTargetVariants(link.target)
@@ -456,7 +506,8 @@ function projectContent(manifest, records) {
       }
       for (const variant of variants) suppressedTargets.add(variant)
       suppressedTargetKeys.add(aliasKey(link.target))
-      replacements.push({ start: link.start, end: link.end, value: markdownText(link.display) })
+      const value = markdownText(link.display)
+      replacements.push({ start: link.start, end: link.end, value, searchValue: value })
     }
     const orderedReplacements = replacements.sort((left, right) => right.start - left.start)
     for (let index = 1; index < orderedReplacements.length; index += 1) {
@@ -466,11 +517,13 @@ function projectContent(manifest, records) {
     }
     for (const replacement of orderedReplacements) {
       body = `${body.slice(0, replacement.start)}${replacement.value}${body.slice(replacement.end)}`
+      searchableBody = `${searchableBody.slice(0, replacement.start)}${replacement.searchValue}${searchableBody.slice(replacement.end)}`
     }
     if (record.analysis.markdownUrls.some(isRelativeLocalMarkdownUrl)) {
       throw new TracerError("SOURCE_LOCAL_LINK_NOT_ALLOWED", "local Markdown links must use resolvable wikilinks")
     }
     outgoing.set(id, resolvedTargets)
+    searchableBodies.set(id, searchableBody)
     projectedBodies.set(id, discloseZoteroAnnotations(body))
   }
 
@@ -491,12 +544,86 @@ function projectContent(manifest, records) {
   for (const edge of manifest.action.direct_connection_edges) {
     const support = records.get(edge.target)
     if (!support) throw new TracerError("TRACER_SHAPE_INVALID", "support record is missing")
+    if (!outgoing.get(edge.source)?.has(edge.target)) {
+      throw new TracerError("DIRECT_CONNECTION_MISSING", "an approved action edge is absent from the public projection")
+    }
     const exactPath = aliasKey(support.node.path)
     if (!connectionRange || !paper.analysis.links.some((link) => link.start >= connectionRange.start && link.end <= connectionRange.end && aliasKey(link.target) === exactPath)) {
       throw new TracerError("DIRECT_CONNECTION_MISSING", "paper Connections lacks the approved support path")
     }
   }
-  return { projected, suppressedTargets, suppressionCount: suppressedTargetKeys.size }
+  return { projected, searchableBodies, outgoing, suppressedTargets, suppressionCount: suppressedTargetKeys.size }
+}
+
+/** @param {string} value */
+function collapseUnicodeWhitespace(value) {
+  return value.replace(/\p{White_Space}+/gu, " ").trim()
+}
+
+/** @param {any} node */
+function visibleNodeText(node) {
+  if (!node || node.type === "html" || node.type === "definition") return ""
+  if (node.type === "text" || node.type === "inlineCode" || node.type === "code") return String(node.value ?? "")
+  return Array.isArray(node.children) ? node.children.map(visibleNodeText).filter(Boolean).join(" ") : ""
+}
+
+/** Exclude only the parser-authenticated managed marker range, then derive
+ * headings and browser-visible body text from privacy-suppressed Markdown. */
+function searchableMarkdownSegments(/** @type {string} */ markdown) {
+  let tree = fromMarkdown(markdown)
+  const managed = zoteroManagedRange(markdown, tree)
+  if (managed) {
+    markdown = `${markdown.slice(0, managed.start)}${markdown.slice(managed.end)}`
+    tree = fromMarkdown(markdown)
+  }
+  const headings = tree.children.filter((node) => node.type === "heading").map(visibleNodeText).map(collapseUnicodeWhitespace).filter(Boolean)
+  const body = tree.children.filter((node) => node.type !== "heading").map(visibleNodeText).map(collapseUnicodeWhitespace).filter(Boolean)
+  return { headings, body }
+}
+
+/** @param {Map<string,any>} records @param {Map<string,Set<string>>} outgoing @param {Map<string,string>} searchableBodies */
+function publicContracts(records, outgoing, searchableBodies) {
+  const compare = (/** @type {string} */ left, /** @type {string} */ right) => Buffer.compare(Buffer.from(left), Buffer.from(right))
+  const ordered = [...records.entries()].sort(([left], [right]) => compare(left, right))
+  const nodes = ordered.map(([publicId, record]) => ({
+    public_id: publicId,
+    title: collapseUnicodeWhitespace(String(record.frontmatter.title ?? publicId)),
+    node_class: record.node.node_class,
+    url: record.route,
+  }))
+  const edgeKeys = new Set()
+  for (const [source, targets] of outgoing) for (const target of targets) edgeKeys.add(`${source}\0${target}`)
+  const edges = [...edgeKeys].sort(compare).map((key) => {
+    const [source, target] = key.split("\0")
+    return { source, target }
+  })
+  const publicIds = new Set(nodes.map((node) => node.public_id))
+  if (edges.some((edge) => !publicIds.has(edge.source) || !publicIds.has(edge.target))) throw new TracerError("UNEXPECTED_GRAPH_STATE", "public graph edge endpoint is not public")
+  const recordsProjection = ordered.map(([publicId, record]) => {
+    const authors = (Array.isArray(record.frontmatter.authors) ? record.frontmatter.authors : []).map((/** @type {string} */ value) => collapseUnicodeWhitespace(String(value))).filter(Boolean)
+    const doiValue = typeof record.frontmatter.doi === "string" ? collapseUnicodeWhitespace(record.frontmatter.doi) : ""
+    const sourceTags = [...new Set((Array.isArray(record.frontmatter.tags) ? record.frontmatter.tags : []).map((/** @type {string} */ value) => collapseUnicodeWhitespace(String(value))).filter(Boolean))].sort(compare)
+    const segments = searchableMarkdownSegments(searchableBodies.get(publicId) ?? "")
+    const searchSegments = [
+      collapseUnicodeWhitespace(String(record.frontmatter.title ?? publicId)),
+      collapseUnicodeWhitespace(authors.join(" ")),
+      doiValue,
+      collapseUnicodeWhitespace(sourceTags.join(" ")),
+      collapseUnicodeWhitespace(segments.headings.join(" ")),
+      collapseUnicodeWhitespace(segments.body.join(" ")),
+    ].filter(Boolean)
+    return {
+      public_id: publicId,
+      title: collapseUnicodeWhitespace(String(record.frontmatter.title ?? publicId)),
+      node_class: record.node.node_class,
+      url: record.route,
+      authors,
+      doi: doiValue || null,
+      source_tags: sourceTags,
+      search_text: searchSegments.join("\n"),
+    }
+  })
+  return { graph: { schema_version: 1, nodes, edges }, search: { schema_version: 1, records: recordsProjection } }
 }
 
 /** Deterministic depth-first package-tree digest with each directory's entries
@@ -576,8 +703,9 @@ function tracerQuartzConfig(source) {
     ["enableInHtmlEmbed: false", "enableInHtmlEmbed: true"],
   ]) replaceOne(before, after)
 
-  const disabledPlugins = ["alias-redirects", "content-index", "og-image", "cname", "canvas-page", "tag-page", "graph", "search", "footer", "quartz-fonts", "latex", "darkmode", "reader-mode", "spacer", "unlisted-pages", "encrypted-pages", "bases-page", "backlinks", "article-title", "content-meta"]
+  const disabledPlugins = ["alias-redirects", "og-image", "cname", "canvas-page", "tag-page", "graph", "search", "footer", "quartz-fonts", "latex", "darkmode", "reader-mode", "spacer", "unlisted-pages", "encrypted-pages", "bases-page", "backlinks", "article-title", "content-meta"]
   for (const plugin of disabledPlugins) replaceOne(`source: "@quartz-community/${plugin}"\n    enabled: true`, `source: "@quartz-community/${plugin}"\n    enabled: false`)
+  replaceOne("source: \"@quartz-community/content-index\"\n    enabled: true\n    options:\n      enableSiteMap: true\n      enableRSS: true", "source: \"@quartz-community/content-index\"\n    enabled: true\n    options:\n      enableSiteMap: false\n      enableRSS: false")
   replaceOne("source: \"@quartz-community/table-of-contents\"\n    enabled: true\n    order: 50", "source: \"@quartz-community/table-of-contents\"\n    enabled: true\n    options:\n      maxDepth: 3\n      minEntries: 1\n      showByDefault: true\n      collapseByDefault: true\n      layout: modern\n    order: 50")
   replaceOne("source: \"@quartz-community/explorer\"\n    enabled: true\n    layout:", "source: \"@quartz-community/explorer\"\n    enabled: true\n    options:\n      title: Library\n      folderDefaultState: collapsed\n      folderClickBehavior: link\n      useSavedState: false\n    layout:")
   replaceOne("    folder:\n      exclude:\n        - reader-mode\n      positions:\n        right: []", "    folder: {}")
@@ -694,19 +822,40 @@ async function immutableCandidateManifest(candidate, run) {
 /** Quartz breadcrumbs include links for synthetic folder pages that are later
  * removed by the exact route gate. Before the immutable baseline, normalize
  * only those renderer-owned breadcrumb links to the approved library root.
- * @param {string} candidate @param {string} run @param {Map<string,{route:string,frontmatter:Record<string,string|string[]>,node:{public_id:string,node_class:string}}>} records */
-async function normalizeBreadcrumbRoutes(candidate, run, records) {
+ * @param {string} candidate @param {string} run
+ * @param {Map<string,{route:string,frontmatter:Record<string,string|string[]>,node:{public_id:string,node_class:string}}>} records
+ * @param {Map<string,Set<string>>} outgoing */
+async function normalizeBreadcrumbRoutes(candidate, run, records, outgoing) {
   const approved = new Set(["/", ...[...records.values()].map((record) => record.route)])
   const explorerEntries = [...records.values()].map((record) => ({
+    publicId: record.node.public_id,
+    nodeClass: record.node.node_class,
     route: record.route,
     label: String(record.frontmatter.title ?? record.node.public_id),
-  }))
-  const explorerScript = `<script data-tracer-extension="t04">(()=>{const entries=${JSON.stringify(explorerEntries).replaceAll("<", "\\u003c")};const mobile=()=>matchMedia("(max-width: 800px)").matches;const setOpen=(explorer,button,content,open)=>{explorer.classList.toggle("collapsed",!open);explorer.setAttribute("aria-expanded",String(open));button.setAttribute("aria-expanded",String(open));content.setAttribute("aria-expanded",String(open));content.style.visibility=open?"visible":"hidden";content.style.display=mobile()?(open?"":"none"):"";content.style.transform=open?"translateX(0)":"translateX(-100vw)";document.documentElement.classList.toggle("mobile-no-scroll",mobile()&&open)};const populate=list=>{if(list.querySelector("[data-tracer-entry]"))return;const end=list.querySelector(".overflow-end");for(const entry of entries){const li=document.createElement("li"),a=document.createElement("a");li.setAttribute("data-tracer-entry","");a.href=entry.route;a.className="nav-file-title tree-item-self";a.textContent=entry.label;li.append(a);list.insertBefore(li,end)}};const setupExplorer=()=>document.querySelectorAll(".explorer").forEach(explorer=>{const button=explorer.querySelector(".mobile-explorer"),content=explorer.querySelector(".explorer-content"),list=explorer.querySelector(".explorer-ul");if(!button||!content||!list)return;button.classList.remove("hide-until-loaded");populate(list);if(!button.hasAttribute("data-tracer-bound")){button.setAttribute("data-tracer-bound","true");new MutationObserver(()=>populate(list)).observe(list,{childList:true});setOpen(explorer,button,content,!mobile());button.addEventListener("click",event=>{if(!mobile())return;const open=button.getAttribute("aria-expanded")!=="true";event.preventDefault();event.stopImmediatePropagation();setOpen(explorer,button,content,open);setTimeout(()=>setOpen(explorer,button,content,open),0)},true);document.addEventListener("keydown",event=>{if(event.key==="Escape"&&mobile()&&button.getAttribute("aria-expanded")==="true"){setOpen(explorer,button,content,false);button.focus()}},true)}});const setTocOpen=(button,content,open)=>{button.classList.toggle("collapsed",!open);button.setAttribute("aria-expanded",String(open));content.classList.toggle("collapsed",!open);content.setAttribute("aria-expanded",String(open));content.style.display=open?"":"none";content.style.visibility=open?"visible":"hidden"};const setupToc=()=>{document.querySelectorAll("button.toc-header").forEach(button=>{const content=document.getElementById(button.getAttribute("aria-controls"))??button.nextElementSibling;if(!content)return;if(!button.hasAttribute("data-tracer-toc-bound")){button.setAttribute("data-tracer-toc-bound","true");button.addEventListener("click",()=>setTimeout(()=>setTocOpen(button,content,button.getAttribute("aria-expanded")==="true"),0))}if(!mobile())setTocOpen(button,content,true)});if(!document.documentElement.hasAttribute("data-tracer-toc-escape-bound")){document.documentElement.setAttribute("data-tracer-toc-escape-bound","true");document.addEventListener("keydown",event=>{if(event.key!=="Escape"||!mobile())return;document.querySelectorAll('button.toc-header[aria-expanded="true"]').forEach(button=>{const content=document.getElementById(button.getAttribute("aria-controls"))??button.nextElementSibling;if(content){setTocOpen(button,content,false);button.focus()}})},true)}};const setup=()=>{setupExplorer();setupToc()};setup();window.addEventListener("load",()=>setTimeout(setup,0),{once:true})})()</script>`
+  })).sort((left, right) => Buffer.compare(Buffer.from(left.publicId), Buffer.from(right.publicId)))
   for (const file of await listRegularTree(candidate, run)) {
     if (!file.relative.endsWith(".html")) continue
     const route = `/${file.relative === "index.html" ? "" : file.relative.slice(0, -"index.html".length)}`
     const html = file.bytes.toString("utf8")
     const record = [...records.values()].find((candidateRecord) => candidateRecord.route === route)
+    const publicPage = route === "/" || Boolean(record)
+    if (!publicPage) {
+      const normalized = html
+        .replace(/<link rel="preconnect" href="https:\/\/cdnjs\.cloudflare\.com" crossorigin="anonymous"\/>/g, "")
+        .replaceAll("https://example.invalid", "")
+      if (normalized !== html) await writeFile(file.absolute, normalized)
+      continue
+    }
+    const backlinks = record ? [...records.entries()]
+      .filter(([sourceId]) => sourceId !== record.node.public_id && outgoing.get(sourceId)?.has(record.node.public_id))
+      .sort(([left], [right]) => Buffer.compare(Buffer.from(left), Buffer.from(right)))
+      .map(([sourceId, source]) => ({ publicId: sourceId, nodeClass: source.node.node_class, route: source.route, label: String(source.frontmatter.title ?? sourceId) })) : []
+    const navigation = createQuartzPublicNavigation({
+      entries: explorerEntries,
+      route,
+      currentPublicId: record?.node.public_id ?? null,
+      backlinks,
+    })
     let normalized = html
     if (record) {
       const template = record.node.node_class === "paper" ? "paper" : "support"
@@ -718,14 +867,48 @@ async function normalizeBreadcrumbRoutes(candidate, run, records) {
       if (!href) return attribute
       let pathname
       try { pathname = new URL(href, `https://example.invalid${route}`).pathname } catch { return attribute }
-      return approved.has(pathname) ? attribute : "href=\"/\""
+      return approved.has(pathname) ? attribute : `href="${navigation.rootHref}"`
     }))
     normalized = normalized
       .replace(/<link rel="preconnect" href="https:\/\/cdnjs\.cloudflare\.com" crossorigin="anonymous"\/>/g, "")
-      .replace(/<script type="application\/javascript" data-persist="true">const fetchData = fetch\("[^"]*static\/contentIndex\.json"\)\.then\(data => data\.json\(\)\)<\/script>/, "<script type=\"application/javascript\" data-persist=\"true\">const fetchData = new Promise(() => {})</script>")
-      .replace("</body>", `${explorerScript}</body>`)
+      .replace(/<script type="application\/javascript" data-persist="true">const fetchData = fetch\("[^"]*static\/contentIndex\.json"\)\.then\(data => data\.json\(\)\)<\/script>/, navigation.contentIndexScript)
+      .replaceAll("https://example.invalid", "")
+    if (publicPage) {
+      const existingExplorerCount = [...normalized.matchAll(/\bclass="([^"]*)"/g)].filter((match) => match[1].split(/\s+/).includes("explorer")).length
+      if (existingExplorerCount > 1 || (record && existingExplorerCount !== 1) || normalized.includes("public-explorer")) {
+        throw new TracerError("CANDIDATE_EXPLORER_INVALID", "generated public page must retain exactly one Quartz Explorer")
+      }
+      const explorerMarkup = route === "/" && existingExplorerCount === 0 ? navigation.explorerShellMarkup : ""
+      normalized = normalized.replace(/<body\b[^>]*>/, (body) => `${body}${navigation.searchMarkup}${explorerMarkup}`)
+      if (!normalized.includes("class=\"public-search\"")) throw new TracerError("CANDIDATE_SEARCH_INVALID", "generated public page lacks the project-owned search surface")
+      const explorerCount = [...normalized.matchAll(/\bclass="([^"]*)"/g)].filter((match) => match[1].split(/\s+/).includes("explorer")).length
+      if (explorerCount !== 1 || normalized.includes("public-explorer")) throw new TracerError("CANDIDATE_EXPLORER_INVALID", "generated public page must retain exactly one Quartz Explorer")
+    }
+    if (record) {
+      const beforeBacklinks = normalized
+      normalized = normalized.replace(/<h2\b[^>]*id="backlinks"[^>]*>[\s\S]*?<\/h2>\s*(?:<ul>[\s\S]*?<\/ul>|<p>[\s\S]*?<\/p>)/, navigation.backlinksMarkup)
+      if (normalized === beforeBacklinks) throw new TracerError("CANDIDATE_BACKLINKS_INVALID", "generated content route lacks the project-owned backlinks surface")
+    }
+    const beforeGraph = normalized
+    normalized = normalized.replace("</article>", `${navigation.graphMarkup}</article>`)
+    if (normalized === beforeGraph) throw new TracerError("CANDIDATE_GRAPH_INVALID", "generated public page lacks an article graph surface")
+    normalized = normalized.replace("</body>", `${navigation.runtimeScripts}</body>`)
     if (normalized !== html) await writeFile(file.absolute, normalized)
   }
+}
+
+/** Replace Quartz's broad content index with the exact public search contract;
+ * fetchData remains the shared runtime seam used by project-owned navigation. */
+async function writePublicDataAssets(/** @type {string} */ candidate, /** @type {string} */ run, /** @type {{graph:any,search:any}} */ contracts) {
+  await assertCandidateRoot(candidate, run)
+  const graphBytes = `${JSON.stringify(contracts.graph)}\n`
+  const searchBytes = `${JSON.stringify(contracts.search)}\n`
+  await mkdir(path.join(candidate, "static"), { recursive: true })
+  await Promise.all([
+    writeFile(path.join(candidate, "graph.json"), graphBytes),
+    writeFile(path.join(candidate, "search-index.json"), searchBytes),
+    writeFile(path.join(candidate, "static", "contentIndex.json"), searchBytes),
+  ])
 }
 
 /** @param {Map<string,{route:string}>} records */
@@ -1042,8 +1225,9 @@ function validateCandidateHtml(html, route, approvedRoutes, expectedAssets) {
  * deferred index/search/graph artifacts and actual external resource loads. */
 async function validateT04Prebaseline(/** @type {string} */ candidate, /** @type {string} */ run) {
   const files = await listRegularTree(candidate, run)
-  const forbiddenArtifact = /^(?:static\/contentindex\.json|sitemap\.xml|index\.xml)$/i
+  const forbiddenArtifact = /^(?:sitemap\.xml|index\.xml)$/i
   const deferredArtifact = /(?:^|\/)(?:graph|search)(?:[-_.][^/]*)?\.json$/i
+  const ownedPublicData = new Set(["graph.json", "search-index.json", "static/contentIndex.json"])
   const external = (/** @type {string} */ value) => /^(?:https?:)?\/\//i.test(decodeHtmlAttribute(value).trim())
   const loadedCss = new Set()
   /** @param {string} css @param {string} base */
@@ -1092,8 +1276,8 @@ async function validateT04Prebaseline(/** @type {string} */ candidate, /** @type
     trackLocalImports(css, `https://example.invalid/${relative}`)
   }
   for (const file of files) {
-    if (forbiddenArtifact.test(file.relative) || deferredArtifact.test(file.relative)) {
-      throw new TracerError("T04_BOUNDARY_VIOLATION", "candidate contains a deferred T05 index, graph, or search artifact")
+    if (forbiddenArtifact.test(file.relative) || (deferredArtifact.test(file.relative) && !ownedPublicData.has(file.relative))) {
+      throw new TracerError("T04_BOUNDARY_VIOLATION", "candidate contains a non-owned index, graph, or search artifact")
     }
     if (file.relative.endsWith(".css") && loadedCss.has(file.relative)) {
       const css = file.bytes.toString("utf8")
@@ -1125,6 +1309,43 @@ async function injectPrebaselineRegression(candidate, run, variant) {
   await assertCandidateRoot(candidate, run)
   const index = path.join(candidate, "index.html")
   const html = await readFile(index, "utf8")
+  if (variant === "percent-double-encoded-suppressed-target") {
+    await writeFile(index, html.replace(/<\/body>/i, "<p>%ZZ Private%252FHidden%252DNeuron</p></body>"))
+    return
+  }
+  if (variant === "percent-four-layer-suppressed-target") {
+    await writeFile(index, html.replace(/<\/body>/i, "<p>Private%2525252FHidden-Neuron</p></body>"))
+    return
+  }
+  if (variant === "html-four-layer-suppressed-target") {
+    await writeFile(index, html.replace(/<\/body>/i, "<p>Private&amp;amp;amp;#x2f;Hidden-Neuron</p></body>"))
+    return
+  }
+  if (variant === "percent-four-layer-full-suppressed-target") {
+    await writeFile(index, html.replace(/<\/body>/i, "<p>Private%2525252FHidden%2525252DNeuron</p></body>"))
+    return
+  }
+  if (variant === "html-four-layer-full-suppressed-target") {
+    await writeFile(index, html.replace(/<\/body>/i, "<p>Private&amp;amp;amp;#x2f;Hidden&amp;amp;amp;#x2d;Neuron</p></body>"))
+    return
+  }
+  if (variant === "percent-disclosure-depth-cap") {
+    let deeplyEncodedSeparator = "%2F"
+    let deeplyEncodedHyphen = "%2D"
+    for (let depth = 0; depth < 300; depth += 1) {
+      deeplyEncodedSeparator = deeplyEncodedSeparator.replaceAll("%", "%25")
+      deeplyEncodedHyphen = deeplyEncodedHyphen.replaceAll("%", "%25")
+    }
+    await writeFile(index, html.replace(/<\/body>/i, `<p>Private${deeplyEncodedSeparator}Hidden${deeplyEncodedHyphen}Neuron</p></body>`))
+    return
+  }
+  if (variant === "public-data-empty-title") {
+    const graphPath = path.join(candidate, "graph.json")
+    const graph = JSON.parse(await readFile(graphPath, "utf8"))
+    graph.nodes[0].title = ""
+    await writeFile(graphPath, `${JSON.stringify(graph)}\n`)
+    return
+  }
   if (variant === "external-script") {
     await writeFile(index, html.replace(/<\/body>/i, '<script src="https://example.invalid/t04-boundary.js"></script></body>'))
     return
@@ -1217,7 +1438,7 @@ async function repairTocAccessibility(candidate, run) {
           .replace(/(<ul\b[^>]*\b)id="[^"]+"/, `$1id="${id}"`)
       },
     )
-    const ids = [...repaired.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1])
+    const ids = [...repaired.matchAll(/(?:^|\s)id="([^"]+)"/g)].map((match) => match[1])
     if (new Set(ids).size !== ids.length) throw new TracerError("CANDIDATE_DUPLICATE_ID", "generated page contains duplicate element IDs")
     const idSet = new Set(ids)
     for (const tag of repaired.matchAll(/<button\b(?=[^>]*\bclass="[^"]*\btoc-header\b)[^>]*>/g)) {
@@ -1228,7 +1449,7 @@ async function repairTocAccessibility(candidate, run) {
   }
 }
 
-const tracerCsp = "default-src 'self'; base-uri 'none'; connect-src 'none'; font-src 'self' data:; frame-src 'none'; img-src 'self' data:; media-src 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'none'"
+const tracerCsp = "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self' data:; frame-src 'none'; img-src 'self' data:; media-src 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'none'"
 const tracerCspMeta = `<meta http-equiv="Content-Security-Policy" content="${tracerCsp}">`
 
 /** Install the browser-enforced no-external-network boundary before the
@@ -1246,11 +1467,155 @@ async function installNetworkCsp(candidate, run) {
   }
 }
 
+/** Decode each maximal run of syntactically valid percent octets without
+ * allowing a malformed literal such as %ZZ (or an invalid UTF-8 octet) to
+ * suppress decoding of neighboring valid escapes. */
+function decodeValidPercentRuns(/** @type {string} */ value) {
+  return value.replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
+    const octets = run.match(/%[0-9a-f]{2}/gi) ?? []
+    let decoded = ""
+    for (let index = 0; index < octets.length;) {
+      const first = Number.parseInt(octets[index].slice(1), 16)
+      const width = first <= 0x7f ? 1
+        : first >= 0xc2 && first <= 0xdf ? 2
+          : first >= 0xe0 && first <= 0xef ? 3
+            : first >= 0xf0 && first <= 0xf4 ? 4
+              : 0
+      if (width > 0 && index + width <= octets.length) {
+        const encoded = octets.slice(index, index + width).join("")
+        try {
+          decoded += decodeURIComponent(encoded)
+          index += width
+          continue
+        } catch {}
+      }
+      decoded += octets[index]
+      index += 1
+    }
+    return decoded
+  })
+}
+
+const disclosureVariantLimit = 256
+const disclosureProcessedCharLimit = 8 * 1024 * 1024
+
+/** Close percent and HTML decoding under composition. Every newly discovered
+ * representation is queued exactly once; bounded accounting rejects hostile
+ * encoding depth instead of treating an incomplete scan as clean. */
+function disclosureComparables(/** @type {string} */ value) {
+  const seen = new Set([value])
+  const queue = [value]
+  const comparables = []
+  let processedChars = 0
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    const candidate = queue[cursor]
+    processedChars += candidate.length
+    if (processedChars > disclosureProcessedCharLimit) {
+      throw new TracerError("CANDIDATE_DISCLOSURE_DEPTH_EXCEEDED", "candidate disclosure decoding exceeded its safety limit")
+    }
+    comparables.push(candidate.replace(/\\/g, "/").toLowerCase())
+    for (const transformed of [decodeValidPercentRuns(candidate), decodeHtmlAttribute(candidate)]) {
+      if (seen.has(transformed)) continue
+      if (seen.size >= disclosureVariantLimit) {
+        throw new TracerError("CANDIDATE_DISCLOSURE_DEPTH_EXCEEDED", "candidate disclosure decoding exceeded its safety limit")
+      }
+      seen.add(transformed)
+      queue.push(transformed)
+    }
+  }
+  return comparables
+}
+
+let publicDataValidatorsPromise
+
+async function publicDataValidators() {
+  publicDataValidatorsPromise ??= (async () => {
+    const ajv = new Ajv2020({ strict: true, allErrors: true })
+    const [graphSchema, searchSchema] = await Promise.all([
+      readFile(path.join(repoRoot, "schemas", "public-graph-v1.schema.json"), "utf8"),
+      readFile(path.join(repoRoot, "schemas", "search-index-v1.schema.json"), "utf8"),
+    ])
+    return {
+      graph: ajv.compile(JSON.parse(graphSchema)),
+      search: ajv.compile(JSON.parse(searchSchema)),
+    }
+  })()
+  return publicDataValidatorsPromise
+}
+
+async function validatePublicDataStructure(/** @type {Array<{relative:string,bytes:Buffer}>} */ files) {
+  const invalid = (/** @type {string} */ message) => new TracerError("CANDIDATE_PUBLIC_DATA_INVALID", message)
+  const byPath = new Map(files.map((file) => [file.relative, file]))
+  const parseExact = (/** @type {string} */ relative) => {
+    const file = byPath.get(relative)
+    if (!file) throw invalid("candidate is missing a required public data artifact")
+    const text = file.bytes.toString("utf8")
+    let value
+    try { value = JSON.parse(text) } catch { throw invalid("candidate public data is not JSON") }
+    if (text !== `${JSON.stringify(value)}\n`) throw invalid("candidate public data is not compact UTF-8 JSON plus LF")
+    return value
+  }
+  const graph = parseExact("graph.json")
+  const search = parseExact("search-index.json")
+  const contentIndex = parseExact("static/contentIndex.json")
+  if (JSON.stringify(search) !== JSON.stringify(contentIndex)) throw invalid("fetchData index differs from public search index")
+
+  let validators
+  try { validators = await publicDataValidators() } catch { throw invalid("normative public data schemas could not be applied") }
+  if (!validators.graph(graph) || !validators.search(search)) throw invalid("candidate public data fails its normative schema")
+
+  if (JSON.stringify(Object.keys(graph)) !== JSON.stringify(["schema_version", "nodes", "edges"])) throw invalid("graph contract key order is invalid")
+  if (JSON.stringify(Object.keys(search)) !== JSON.stringify(["schema_version", "records"])) throw invalid("search contract key order is invalid")
+
+  const ids = new Set()
+  let previousId = null
+  for (const node of graph.nodes) {
+    if (JSON.stringify(Object.keys(node)) !== JSON.stringify(["public_id", "title", "node_class", "url"])
+      || ids.has(node.public_id)
+      || (previousId !== null && Buffer.compare(Buffer.from(previousId), Buffer.from(node.public_id)) >= 0)) {
+      throw invalid("graph node identity, key order, uniqueness, or ordering is invalid")
+    }
+    ids.add(node.public_id)
+    previousId = node.public_id
+  }
+
+  let previousEdge = null
+  for (const edge of graph.edges) {
+    const key = `${edge.source}\0${edge.target}`
+    if (JSON.stringify(Object.keys(edge)) !== JSON.stringify(["source", "target"])
+      || !ids.has(edge.source)
+      || !ids.has(edge.target)
+      || (previousEdge !== null && Buffer.compare(Buffer.from(previousEdge), Buffer.from(key)) >= 0)) {
+      throw invalid("graph edge key order, uniqueness, ordering, or closure is invalid")
+    }
+    previousEdge = key
+  }
+
+  if (search.records.length !== graph.nodes.length) throw invalid("graph and search public ID sets differ")
+  previousId = null
+  for (let index = 0; index < search.records.length; index += 1) {
+    const record = search.records[index]
+    const node = graph.nodes[index]
+    if (JSON.stringify(Object.keys(record)) !== JSON.stringify(["public_id", "title", "node_class", "url", "authors", "doi", "source_tags", "search_text"])
+      || record.public_id !== node.public_id
+      || record.title !== node.title
+      || record.node_class !== node.node_class
+      || record.url !== node.url
+      || (previousId !== null && Buffer.compare(Buffer.from(previousId), Buffer.from(record.public_id)) >= 0)) {
+      throw invalid("graph and search record identity closure is invalid")
+    }
+    const sortedTags = [...new Set(record.source_tags)].sort((left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)))
+    if (JSON.stringify(record.source_tags) !== JSON.stringify(sortedTags)) throw invalid("search source tags are not unique and UTF-8 sorted")
+    previousId = record.public_id
+  }
+}
+
 /** @param {string} candidate @param {string} run @param {Map<string,{route:string,node:{node_class:string}}>} records @param {Set<string>} suppressedTargets @param {string[]} privatePaths @param {ReadonlyArray<{relative:string,fileClass:string,sha256:string}>} baseline */
 async function gateCandidate(candidate, run, records, suppressedTargets, privatePaths, baseline) {
   await assertCandidateRoot(candidate, run)
   if (testHook("TYLER_TRACER_TEST_GATE_FAILURE") === "1") throw new TracerError("CANDIDATE_GATE_FAILED", "candidate gate test injection")
   const files = await listRegularTree(candidate, run)
+  await validatePublicDataStructure(files)
   const html = files.filter((file) => file.relative.endsWith(".html")).map((file) => file.relative)
   const expectedHtml = ["index.html", ...[...records.values()].map((record) => `${record.route.slice(1)}index.html`)].sort()
   if (JSON.stringify(html.sort()) !== JSON.stringify(expectedHtml)) throw new TracerError("CANDIDATE_ROUTE_SET_INVALID", "candidate HTML route set is not exact", { actual: html.sort(), expected: expectedHtml })
@@ -1295,7 +1660,8 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
     if (!/\.(?:css|js|map)$/i.test(file.relative) && /(?:javascript|vbscript|data|file)\s*:/i.test(schemeText)) throw new TracerError("CANDIDATE_UNSAFE_SCHEME", "candidate contains an unsafe URL scheme", { file: file.relative })
     const comparableText = normalizePrivatePath(text)
     if (pathVariants.some((value) => value && comparableText.includes(value)) || /(?:[A-Za-z]:[\\/]+users[\\/]|[\\/](?:home|users)[\\/])/i.test(text)) throw new TracerError("CANDIDATE_ABSOLUTE_PATH_DISCLOSURE", "candidate contains an absolute local path")
-    if ([...suppressedTargets].some((target) => target && text.toLowerCase().includes(target.toLowerCase()))) throw new TracerError("CANDIDATE_SUPPRESSED_TARGET_DISCLOSURE", "candidate contains suppressed target metadata")
+    const disclosureForms = disclosureComparables(text)
+    if ([...suppressedTargets].some((target) => target && disclosureForms.some((form) => form.includes(target.replace(/\\/g, "/").toLowerCase())))) throw new TracerError("CANDIDATE_SUPPRESSED_TARGET_DISCLOSURE", "candidate contains suppressed target metadata")
   }
   return { files: files.length, routes: [...approvedRoutes].sort() }
 }
@@ -1326,13 +1692,13 @@ async function preflight(cli) {
   await validatePublicationPreflight(manifest, { now: cli.now, runtimeRoot })
   const receipt = /** @type {any} */ (await readContractJson(receiptPath))
   await validateContract("export-receipt", receipt, { manifest, exportRoot, now: cli.now })
-  if (manifest.action.kind !== "publish-unit" || manifest.nodes.length !== 2 || manifest.action.support_ids.length !== 1) {
-    throw new TracerError("TRACER_SHAPE_INVALID", "T03 accepts exactly one paper and one support node")
+  if (manifest.action.kind !== "publish-unit") {
+    throw new TracerError("TRACER_SHAPE_INVALID", "tracer requires a publish-unit action")
   }
-  const paperNodes = manifest.nodes.filter((/** @type {any} */ node) => node.node_class === "paper")
-  const supportNodes = manifest.nodes.filter((/** @type {any} */ node) => node.node_class !== "paper")
-  if (paperNodes.length !== 1 || supportNodes.length !== 1 || paperNodes[0].public_id !== manifest.action.primary_id || supportNodes[0].public_id !== manifest.action.support_ids[0]) {
-    throw new TracerError("TRACER_SHAPE_INVALID", "T03 node roles do not match the publish-unit action")
+  const primary = manifest.nodes.find((/** @type {any} */ node) => node.public_id === manifest.action.primary_id)
+  const nodeById = new Map(manifest.nodes.map((/** @type {any} */ node) => [node.public_id, node]))
+  if (!primary || primary.node_class !== "paper" || manifest.action.support_ids.some((/** @type {string} */ id) => nodeById.get(id)?.node_class === "paper" || !nodeById.has(id))) {
+    throw new TracerError("TRACER_SHAPE_INVALID", "publish-unit action roles do not match listed nodes")
   }
 
   /** @type {Map<string,{node:any,bytes:Buffer,markdown:string,body:string,frontmatter:Record<string,string|string[]>,route:string,mtimeMs:number,analysis:ReturnType<typeof analyzeMarkdown>}>} */
@@ -1354,9 +1720,10 @@ async function preflight(cli) {
     records.set(node.public_id, { node, bytes, markdown, body: parsed.body, frontmatter: parsed.data, route, mtimeMs: metadata.mtimeMs, analysis })
   }
   const projection = projectContent(manifest, records)
+  const contracts = publicContracts(records, projection.outgoing, projection.searchableBodies)
   validateSemanticTemplates(records)
   const toolchain = await readToolchainMetadata()
-  return { runtimeRoot, exportRoot, vaultRoot, workRoot, output, manifestPath, receiptPath, manifest, receipt, records, ...projection, ...toolchain }
+  return { runtimeRoot, exportRoot, vaultRoot, workRoot, output, manifestPath, receiptPath, manifest, receipt, records, contracts, ...projection, ...toolchain }
 }
 
 /** @param {Awaited<ReturnType<typeof preflight>>} safe */
@@ -1391,10 +1758,11 @@ async function build(safe) {
       if (!projected) throw new TracerError("UNEXPECTED_GRAPH_STATE", "projected node is missing")
       await writeFile(derivedPath, projected, { flag: "wx" })
     }
-    const paper = safe.records.get(safe.manifest.action.primary_id)
-    const support = safe.records.get(safe.manifest.action.support_ids[0])
-    if (!paper || !support) throw new TracerError("TRACER_SHAPE_INVALID", "paper or support record is missing")
-    await writeFile(path.join(content, "index.md"), `---\ntitle: "Manifest Quartz Tracer"\n---\n\n# Manifest Quartz Tracer\n\n> **${homeDisclaimer}**\n\n- [Synthetic paper](${paper.route})\n- [Synthetic support node](${support.route})\n`, { flag: "wx" })
+    const homeLinks = [...safe.records.values()]
+      .sort((left, right) => Buffer.compare(Buffer.from(left.node.public_id), Buffer.from(right.node.public_id)))
+      .map((record) => `- [${markdownText(String(record.frontmatter.title ?? record.node.public_id))}](${record.route})`)
+      .join("\n")
+    await writeFile(path.join(content, "index.md"), `---\ntitle: "Manifest Quartz Tracer"\n---\n\n# Manifest Quartz Tracer\n\n> **${homeDisclaimer}**\n\n${homeLinks}\n`, { flag: "wx" })
     await Promise.all([
       cp(path.join(safe.installedRoot, "quartz"), path.join(toolchain, "quartz"), { recursive: true, errorOnExist: true, force: false }),
       copyFile(path.join(safe.installedRoot, "package.json"), path.join(toolchain, "package.json"), constants.COPYFILE_EXCL),
@@ -1408,9 +1776,10 @@ async function build(safe) {
     const executable = path.join(toolchain, "quartz", "bootstrap-cli.mjs")
     const quartz = /** @type {{code:number,logs:string}} */ (await spawnCaptured(executable, ["build", "--directory", content, "--output", candidate, "--concurrency", "1"], toolchain))
     if (quartz.code !== 0) throw new TracerError("QUARTZ_BUILD_FAILED", "pinned Quartz build failed", testHook("TYLER_TRACER_TEST_DEBUG") === "1" ? { logs: quartz.logs } : {})
-    await normalizeBreadcrumbRoutes(candidate, run, safe.records)
+    await normalizeBreadcrumbRoutes(candidate, run, safe.records, safe.outgoing)
     await repairTocAccessibility(candidate, run)
     await installNetworkCsp(candidate, run)
+    await writePublicDataAssets(candidate, run, safe.contracts)
     const prebaselineCase = testHook("TYLER_TRACER_TEST_PREBASELINE_CASE")
     if (prebaselineCase) await injectPrebaselineRegression(candidate, run, prebaselineCase)
     await validateT04Prebaseline(candidate, run)
@@ -1455,11 +1824,11 @@ async function main() {
     throw new TracerError("TEST_DISCLOSURE", "synthetic redaction failure", { logs: testHook("TYLER_TRACER_TEST_DISCLOSURE_ERROR") })
   }
   if (cli.command === "preflight") {
-    process.stdout.write(`${JSON.stringify({ ok: true, command: "preflight", manifestId: safe.manifest.manifest_id, nodes: 2, suppressionCount: safe.suppressionCount, quartz: safe.metadata.version })}\n`)
+    process.stdout.write(`${JSON.stringify({ ok: true, command: "preflight", manifestId: safe.manifest.manifest_id, nodes: safe.records.size, suppressionCount: safe.suppressionCount, quartz: safe.metadata.version })}\n`)
     return
   }
   const gate = await build(safe)
-  process.stdout.write(`${JSON.stringify({ ok: true, command: "build", manifestId: safe.manifest.manifest_id, nodes: 2, routes: gate.routes, files: gate.files, suppressionCount: safe.suppressionCount, quartz: safe.metadata.version })}\n`)
+  process.stdout.write(`${JSON.stringify({ ok: true, command: "build", manifestId: safe.manifest.manifest_id, nodes: safe.records.size, routes: gate.routes, files: gate.files, suppressionCount: safe.suppressionCount, quartz: safe.metadata.version })}\n`)
 }
 
 main().catch((error) => {
