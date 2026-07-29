@@ -6,7 +6,7 @@
 
 - **Priority:** P0
 - **Labels:** `integration`, `qa`, `evidence`
-- **Blocked by:** T04, T05, T06, T07
+- **Blocked by:** T05, T06, T07
 
 ### Problem
 

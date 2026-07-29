@@ -1,12 +1,12 @@
 ## T05 — Add Explorer, search, public graph, backlinks, and link suppression
 
-- **Status:** `blocked`
+- **Status:** `ready-for-agent`
 - **Source spec:** `specs/tyler-vault-reading-site.md`
 - **Scope guard:** local only; no Vault/Drive writes, no remote, no deployment, no Hermes changes
 
 - **Priority:** P1
 - **Labels:** `navigation`, `search`, `graph`
-- **Blocked by:** T04
+- **Blocked by:** none (T04 completed)
 
 ### Problem
 

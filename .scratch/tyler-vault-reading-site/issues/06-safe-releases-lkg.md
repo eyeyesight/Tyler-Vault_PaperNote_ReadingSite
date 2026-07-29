@@ -6,7 +6,7 @@
 
 - **Priority:** P0
 - **Labels:** `security`, `release`, `reliability`
-- **Blocked by:** T02, T03
+- **Blocked by:** T05
 
 ### Problem
 

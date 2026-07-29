@@ -6,7 +6,7 @@
 
 - **Priority:** P0
 - **Labels:** `zotero`, `safety`, `delta`
-- **Blocked by:** T02, T03
+- **Blocked by:** T05, T06
 
 ### Problem
 
