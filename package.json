@@ -18,6 +18,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test --test-concurrency=1",
     "test:tracer": "node --test tests/manifest-quartz-tracer.test.mjs",
+    "test:theme": "node --test --test-name-pattern=^T04 tests/manifest-quartz-tracer.test.mjs",
     "test:contracts": "node --test tests/publication-contracts.test.mjs",
     "test:guard": "node --test tests/canonical-vault-guard.test.mjs",
     "test:serve": "node --test tests/local-serve.test.mjs"

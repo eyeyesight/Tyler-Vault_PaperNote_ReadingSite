@@ -4,6 +4,10 @@
   "upstream": "https://github.com/jackyzha0/quartz",
   "commit": "41864a0eba8f95deef7ff3cdede7ae03a45d4c70",
   "defaultIconSha256": "532d053e33c2c6bdefdd8145996cedc4be2fc32cfdac740c8488749457d131cf",
+  "quartzPackageTreeFiles": 310,
+  "quartzPackageTreeSha256": "9e538a7acb7d67b1ab7f2dcf7496e1ea8fc8496a2d2e8dd5a398484e5a71bc5f",
+  "quartzCommunityTreeFiles": 495,
+  "quartzCommunityTreeSha256": "f5e95caad8187e79b68de08d57b6c27a855365a11c2d2c948a6f74c983fabd49",
   "sourceBranch": "v5",
   "officialInstallGuide": "https://quartz.jzhao.xyz/getting-started/installation"
 }

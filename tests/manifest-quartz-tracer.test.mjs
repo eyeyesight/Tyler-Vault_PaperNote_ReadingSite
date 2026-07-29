@@ -4,7 +4,8 @@ import { createHash } from "node:crypto"
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
+import { createServer } from "node:http"
 import test from "node:test"
 
 import { computePlanDigest, computePublicSetDigest } from "../lib/publication-contracts.mjs"
@@ -14,6 +15,8 @@ const cli = path.join(repoRoot, "scripts", "tracer.mjs")
 const now = "2026-07-28T12:00:00Z"
 const disclaimer = "SYNTHETIC FIXTURE — NOT RESEARCH EVIDENCE."
 const disclaimerParagraph = /<p>\s*SYNTHETIC FIXTURE — NOT RESEARCH EVIDENCE\.\s*<\/p>/
+const edgeExecutable = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+const edgeSpawnOptions = Object.freeze({ stdio: "ignore", windowsHide: true })
 
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex")
 
@@ -47,7 +50,7 @@ async function fixture(prefix = "tracer-fixture-") {
   const supportPath = "Knowledge/Concepts/synthetic-support.md"
   const paperPath = "Literature/Notes/synthetic-paper.md"
   const supportBytes = Buffer.from(`---\ntitle: Synthetic Support\ntype: concept\naliases: [support-alias]\n---\n\n# Synthetic Support\n\n${disclaimer}\n`)
-  const paperBytes = Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\naliases: [paper-alias]\n---\n\n# Synthetic Paper\n\n${disclaimer}\n\n## Connections\n\nCode example: \`[[Knowledge/Concepts/synthetic-support|approved support alias]]\`\n\n- [[Knowledge/Concepts/synthetic-support|approved support alias]]\n- [[Private/Hidden-Neuron|neutral withheld reference]]\n`)
+  const paperBytes = Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\naliases: [paper-alias]\n---\n\n# Synthetic Paper\n\n${disclaimer}\n\n## Bibliography\n\nSynthetic fixture bibliography entry; not a research citation.\n\n## One-sentence Takeaway\n\nSynthetic fixture takeaway; no research claim is made.\n\n## Research Question\n\nSynthetic fixture question: how is this non-research layout rendered?\n\n## Citation\n\nSynthetic fixture citation text; not bibliographic evidence.\n\n## Zotero Annotations\n\nSynthetic source annotation preserved for disclosure testing.\n\n## Body\n\n這是合成且非研究內容，僅供繁體中文排版驗收。\n\nSynthetic table used only for responsive layout acceptance.\n\n| Synthetic column one | Synthetic column two | Synthetic column three | Synthetic column four |\n| --- | --- | --- | --- |\n| fixture-only value | fixture-only value | fixture-only value | fixture-only value |\n\n## Connections\n\nCode example: \`[[Knowledge/Concepts/synthetic-support|approved support alias]]\`\n\n- [[Knowledge/Concepts/synthetic-support|approved support alias]]\n- [[Private/Hidden-Neuron|neutral withheld reference]]\n`)
   for (const [relative, bytes] of [[supportPath, supportBytes], [paperPath, paperBytes]]) {
     const absolute = path.join(paths.export, ...relative.split("/"))
     await mkdir(path.dirname(absolute), { recursive: true })
@@ -138,6 +141,206 @@ async function replaceSource(fx, nodeId, bytes) {
   await rewriteContracts(fx)
 }
 
+async function outputTree(root) {
+  const files = []
+  async function walk(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name)
+      if (entry.isDirectory()) await walk(absolute)
+      else files.push([path.relative(root, absolute).split(path.sep).join("/"), await readFile(absolute)])
+    }
+  }
+  await walk(root)
+  return files.sort((a, b) => a[0].localeCompare(b[0]))
+}
+
+function semanticHeadings(html) {
+  return [...html.matchAll(/<h([1-6])\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/h\1>/gi)].map((match) => ({
+    level: Number(match[1]), id: match[2], text: match[3].replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").trim(),
+  }))
+}
+
+function routeHrefs(html, route) {
+  return [...html.matchAll(/\bhref="([^"]*)"/g)]
+    .map((match) => match[1])
+    .filter((href) => href && !/\.(?:css|js|png|svg|ico)(?:$|[?#])/i.test(href))
+    .map((href) => {
+      const url = new URL(href, `http://example.invalid${route}`)
+      return `${url.pathname}${url.hash}`
+    })
+    .sort()
+}
+
+class CdpClient {
+  constructor(url) {
+    this.socket = new WebSocket(url)
+    this.nextId = 1
+    this.pending = new Map()
+    this.events = new Map()
+  }
+  async open() {
+    await new Promise((resolve, reject) => {
+      this.socket.addEventListener("open", resolve, { once: true })
+      this.socket.addEventListener("error", reject, { once: true })
+    })
+    this.socket.addEventListener("message", (event) => {
+      const message = JSON.parse(event.data)
+      if (message.id) {
+        const pending = this.pending.get(message.id)
+        if (!pending) return
+        this.pending.delete(message.id)
+        if (message.error) pending.reject(new Error(message.error.message))
+        else pending.resolve(message.result)
+      } else if (message.method) {
+        const waiters = this.events.get(message.method) ?? []
+        this.events.delete(message.method)
+        for (const resolve of waiters) resolve(message.params)
+      }
+    })
+  }
+  send(method, params = {}) {
+    const id = this.nextId++
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject })
+      this.socket.send(JSON.stringify({ id, method, params }))
+    })
+  }
+  once(method) {
+    return new Promise((resolve) => this.events.set(method, [...(this.events.get(method) ?? []), resolve]))
+  }
+  close() { this.socket.close() }
+}
+
+async function waitFor(read, timeoutMs = 15_000) {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const value = await read()
+      if (value) return value
+    } catch {}
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  throw new Error("timed out waiting for browser state")
+}
+
+function processExists(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    if (error?.code === "ESRCH") return false
+    throw error
+  }
+}
+
+async function edgeSession(output) {
+  const server = createServer(async (request, response) => {
+    try {
+      const pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname)
+      const relative = pathname.replace(/^\/+/, "")
+      let target = path.resolve(output, relative)
+      if (!target.startsWith(path.resolve(output))) throw new Error("path escaped output")
+      if (pathname.endsWith("/")) target = path.join(target, "index.html")
+      const bytes = await readFile(target)
+      response.writeHead(200, { "content-type": target.endsWith(".html") ? "text/html; charset=utf-8" : target.endsWith(".css") ? "text/css" : "application/javascript" })
+      response.end(bytes)
+    } catch {
+      response.writeHead(404)
+      response.end("not found")
+    }
+  })
+  await new Promise((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", resolve)
+  })
+  const port = server.address().port
+  const profile = await mkdtemp(path.join(os.tmpdir(), "tracer-edge-"))
+  const edgeArgs = [
+    "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=0", `--user-data-dir=${profile}`,
+    `http://127.0.0.1:${port}/papers/synthetic-paper/`,
+  ]
+  const edge = spawn(edgeExecutable, edgeArgs, edgeSpawnOptions)
+  if (!Number.isInteger(edge.pid)) throw new Error("Edge did not expose its spawned PID")
+  const edgePid = edge.pid
+  const stopEdge = async () => {
+    const waitUntilGone = async (timeout) => {
+      try {
+        await waitFor(() => !processExists(edgePid), timeout)
+      } catch {}
+      return !processExists(edgePid)
+    }
+    if (processExists(edgePid)) edge.kill()
+    if (!(await waitUntilGone(2_000))) {
+      edge.kill("SIGKILL")
+      await waitUntilGone(2_000)
+    }
+    if (processExists(edgePid)) throw new Error(`spawned Edge PID ${edgePid} did not exit`)
+    await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
+    const profileRemoved = await lstat(profile).then(() => false, (error) => error?.code === "ENOENT")
+    return { pid: edgePid, exited: !processExists(edgePid), profileRemoved }
+  }
+  let client
+  let closePromise
+  try {
+    const active = await waitFor(async () => {
+      const lines = (await readFile(path.join(profile, "DevToolsActivePort"), "utf8")).trim().split(/\r?\n/)
+      return lines[0] ? lines : null
+    })
+    const targets = await waitFor(async () => {
+      const response = await fetch(`http://127.0.0.1:${active[0]}/json/list`)
+      const list = await response.json()
+      return list.find((item) => item.type === "page" && item.webSocketDebuggerUrl)
+    })
+    client = new CdpClient(targets.webSocketDebuggerUrl)
+    await client.open()
+    await Promise.all([client.send("Page.enable"), client.send("Runtime.enable")])
+    return {
+      client,
+      baseUrl: `http://127.0.0.1:${port}`,
+      edgePid,
+      edgeArgs,
+      close() {
+        closePromise ??= (async () => {
+          await client?.send("Browser.close").catch(() => {})
+          client?.close()
+          await new Promise((resolve) => server.close(resolve))
+          return stopEdge()
+        })()
+        return closePromise
+      },
+    }
+  } catch (error) {
+    client?.close()
+    await new Promise((resolve) => server.close(resolve))
+    await stopEdge()
+    throw error
+  }
+}
+
+async function cdpNavigate(session, route, width, height) {
+  await session.client.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width <= 800 })
+  const loaded = session.client.once("Page.loadEventFired")
+  await session.client.send("Page.navigate", { url: `${session.baseUrl}${route}` })
+  await loaded
+  await session.client.send("Runtime.evaluate", { expression: "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))", awaitPromise: true })
+}
+
+async function cdpValue(session, expression) {
+  const result = await session.client.send("Runtime.evaluate", { expression: `(${expression})()`, returnByValue: true, awaitPromise: true })
+  if (result.exceptionDetails) {
+    throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text)
+  }
+  return result.result.value
+}
+
+async function capturePage(session, filename) {
+  const directory = process.env.TYLER_TRACER_CAPTURE_DIR
+  if (!directory) return
+  await mkdir(directory, { recursive: true })
+  const screenshot = await session.client.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false })
+  await writeFile(path.join(directory, filename), Buffer.from(screenshot.data, "base64"))
+}
+
 test("T03 public preflight is read-only and build produces the exact gated Quartz routes", async (t) => {
   const fx = await fixture()
   t.after(() => rm(fx.root, { recursive: true, force: true }))
@@ -206,7 +409,7 @@ test("T03 public preflight is read-only and build produces the exact gated Quart
 test("T03 MDAST semantics accept nested-list continuation links after unmatched visible backticks", async (t) => {
   const fx = await fixture("tracer-mdast-positive-")
   t.after(() => rm(fx.root, { recursive: true, force: true }))
-  await replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n# Synthetic Paper\n\n${disclaimer}\n\nAn unmatched \` remains ordinary visible CommonMark text.\n\n## Connections\n\n- Nested list item\n    continuation [[Knowledge/Concepts/synthetic-support|approved support alias]]\n`))
+  await replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n# Synthetic Paper\n\n${disclaimer}\n\n## Bibliography\n\nNot stated\n\n## One-sentence Takeaway\n\nNot stated\n\n## Research Question\n\nNot stated\n\n## Citation\n\nNot stated\n\nAn unmatched \` remains ordinary visible CommonMark text.\n\n## Connections\n\n- Nested list item\n    continuation [[Knowledge/Concepts/synthetic-support|approved support alias]]\n`))
   const before = await snapshot(fx.root)
   const result = invoke(fx, "preflight")
   assert.equal(result.status, 0, result.stdout)
@@ -446,4 +649,236 @@ test("T03 test hooks require the explicit regression capability", async (t) => {
   assert.equal(oneJson(result).ok, true)
   await assert.rejects(lstat(fx.output), (error) => error.code === "ENOENT")
   assert.equal((await readdir(fx.paths.work)).length, 0)
+})
+
+test("T04 generated paper exposes the scholarly three-slot and closed Zotero contracts", async (t) => {
+  const fx = await fixture("tracer-theme-static-")
+  t.after(() => rm(fx.root, { recursive: true, force: true }))
+  const protectedBefore = Object.fromEntries(await Promise.all(
+    ["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]),
+  ))
+  const result = invoke(fx, "build")
+  assert.equal(result.status, 0, result.stdout)
+  assert.deepEqual(oneJson(result).routes, ["/", "/knowledge/concept/synthetic-support/", "/papers/synthetic-paper/"])
+  const paper = await readFile(path.join(fx.output, "papers", "synthetic-paper", "index.html"), "utf8")
+  const support = await readFile(path.join(fx.output, "knowledge", "concept", "synthetic-support", "index.html"), "utf8")
+  const headings = [...paper.matchAll(/<h([1-6])\b[^>]*\bid="([^"]+)"[^>]*>[\s\S]*?<\/h\1>/gi)].map((match) => match[2])
+  const scholarly = ["bibliography", "one-sentence-takeaway", "research-question", "citation"]
+  assert.deepEqual(headings.filter((id) => scholarly.includes(id)), scholarly)
+  for (const id of scholarly) assert.equal(support.includes(`id="${id}"`), false)
+  assert.match(paper, /<body\b[^>]*data-tracer-template="paper"/)
+  assert.match(support, /<body\b[^>]*data-tracer-template="support"/)
+  for (const html of [paper, support]) {
+    assert.equal((html.match(/http-equiv="Content-Security-Policy"/g) ?? []).length, 1)
+    assert.match(html, /content="default-src 'self'; base-uri 'none'; connect-src 'none'; font-src 'self' data:; frame-src 'none'; img-src 'self' data:; media-src 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'none'"/)
+  }
+  assert.match(paper, /<body\b[^>]*data-slug="papers\/synthetic-paper\/index"/)
+  assert.match(support, /<body\b[^>]*data-slug="knowledge\/concept\/synthetic-support\/index"/)
+  assert.match(paper, /<details class="zotero-annotations">\s*<summary>Zotero Annotations<\/summary>[\s\S]*Synthetic source annotation preserved for disclosure testing\.[\s\S]*<\/details>/)
+  assert.doesNotMatch(paper, /<details class="zotero-annotations"\s+open\b/)
+  assert.match(paper, /<button\b(?=[^>]*class="[^"]*explorer-toggle mobile-explorer)(?=[^>]*aria-controls="[^"]+")[^>]*>/)
+  assert.match(paper, /<div class="toc">[\s\S]*?<button\b(?=[^>]*class="[^"]*toc-header)(?=[^>]*aria-controls="[^"]+")[^>]*>/)
+  assert.match(paper, /class="breadcrumb-container"/)
+  assert.match(paper, /id="backlinks"/)
+  assert.match(paper, /class="left sidebar"/)
+  assert.match(paper, /class="right sidebar"/)
+  const cssFiles = (await readdir(fx.output)).filter((name) => name.endsWith(".css"))
+  const css = (await Promise.all(cssFiles.map((name) => readFile(path.join(fx.output, name), "utf8")))).join("\n")
+  assert.match(css, /--tyler-tracer-theme\s*:\s*warm/)
+  assert.match(css, /body\[data-slug\^=papers\\\/\]/)
+  assert.match(css, /body\[data-slug\^=knowledge\\\/\]/)
+  assert.doesNotMatch(css, /(?:@import\s+(?:url\()?|url\()\s*["']?https?:\/\//i)
+  assert.doesNotMatch(paper, /<(?:link|script|img|iframe|source|video|audio)\b[^>]*(?:href|src|srcset|poster)="https?:\/\//i)
+  assert.doesNotMatch(paper, /static\/contentIndex\.json|class="search|class="graph/i)
+  const protectedAfter = Object.fromEntries(await Promise.all(
+    ["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]),
+  ))
+  assert.deepEqual(protectedAfter, protectedBefore)
+})
+
+test("T04 semantic template preflight rejects missing/reordered paper mastheads and paper-only support headings", async (t) => {
+  const paperPrefix = `---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n# Synthetic Paper\n\n${disclaimer}\n\n`
+  const connection = `\n\n## Connections\n\n[[Knowledge/Concepts/synthetic-support|approved support alias]]\n`
+  const cases = [
+    ["missing paper field", "synthetic-paper", Buffer.from(`${paperPrefix}## Bibliography\n\nNot stated\n\n## One-sentence Takeaway\n\nNot stated\n\n## Research Question\n\nNot stated${connection}`)],
+    ["reordered paper fields", "synthetic-paper", Buffer.from(`${paperPrefix}## One-sentence Takeaway\n\nNot stated\n\n## Bibliography\n\nNot stated\n\n## Research Question\n\nNot stated\n\n## Citation\n\nNot stated${connection}`)],
+    ["support claims paper masthead", "synthetic-support", Buffer.from(`---\ntitle: Synthetic Support\ntype: concept\n---\n\n# Synthetic Support\n\n${disclaimer}\n\n## Bibliography\n\nNot stated\n`)],
+  ]
+  for (const [name, nodeId, bytes] of cases) await t.test(name, async (t) => {
+    const fx = await fixture("tracer-template-negative-")
+    t.after(() => rm(fx.root, { recursive: true, force: true }))
+    await replaceSource(fx, nodeId, bytes)
+    const before = await snapshot(fx.root)
+    const result = invoke(fx, "build")
+    assert.equal(result.status, 1, `${name}: ${result.stdout}`)
+    assert.equal(oneJson(result).error.code, "SEMANTIC_TEMPLATE_INVALID")
+    assert.deepEqual(await snapshot(fx.root), before)
+    await assert.rejects(lstat(fx.output), (error) => error.code === "ENOENT")
+    assert.equal((await readdir(fx.paths.work)).length, 0)
+  })
+})
+
+test("T04 build fails closed on config quote drift and prebaseline external resources", async (t) => {
+  const cases = [
+    ["content-index single-quote drift", { TYLER_TRACER_TEST_CONFIG_CASE: "content-index-single-quote" }, "QUARTZ_CONFIG_TRANSFORM_FAILED"],
+    ["external script before baseline", { TYLER_TRACER_TEST_PREBASELINE_CASE: "external-script" }, "T04_BOUNDARY_VIOLATION"],
+    ["commented nested CSS import before baseline", { TYLER_TRACER_TEST_PREBASELINE_CASE: "commented-css-import" }, "T04_BOUNDARY_VIOLATION"],
+    ["spaced quoted CSS import before baseline", { TYLER_TRACER_TEST_PREBASELINE_CASE: "spaced-css-import" }, "T04_BOUNDARY_VIOLATION"],
+    ["escaped CSS scheme before baseline", { TYLER_TRACER_TEST_PREBASELINE_CASE: "escaped-css-scheme" }, "T04_BOUNDARY_VIOLATION"],
+  ]
+  for (const [name, env, expectedCode] of cases) await t.test(name, async (t) => {
+    const fx = await fixture("tracer-t04-boundary-")
+    t.after(() => rm(fx.root, { recursive: true, force: true }))
+    const protectedBefore = Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault"].map(async (role) => [role, await snapshot(fx.paths[role])])))
+    const result = invoke(fx, "build", {}, env)
+    assert.equal(result.status, 1, `${name}: ${result.stdout}`)
+    assert.equal(oneJson(result).error.code, expectedCode)
+    const protectedAfter = Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault"].map(async (role) => [role, await snapshot(fx.paths[role])])))
+    assert.deepEqual(protectedAfter, protectedBefore)
+    await assert.rejects(lstat(fx.output), (error) => error.code === "ENOENT")
+    assert.equal((await readdir(fx.paths.work)).length, 0)
+  })
+})
+
+test("T04 fixed theme swap changes only theme assets and preserves public semantics", async (t) => {
+  const warm = await fixture("tracer-theme-warm-")
+  const contrast = await fixture("tracer-theme-contrast-")
+  t.after(() => Promise.all([rm(warm.root, { recursive: true, force: true }), rm(contrast.root, { recursive: true, force: true })]))
+  const warmProtected = Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(warm.paths[role])])))
+  const contrastProtected = Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(contrast.paths[role])])))
+  const warmBuild = invoke(warm, "build")
+  const contrastBuild = invoke(contrast, "build", {}, { TYLER_TRACER_TEST_THEME_VARIANT: "contrast" })
+  assert.equal(warmBuild.status, 0, warmBuild.stdout)
+  assert.equal(contrastBuild.status, 0, contrastBuild.stdout)
+  assert.deepEqual(oneJson(warmBuild).routes, oneJson(contrastBuild).routes)
+  const warmFiles = await outputTree(warm.output)
+  const contrastFiles = await outputTree(contrast.output)
+  const htmlPaths = warmFiles.filter(([name]) => name.endsWith(".html")).map(([name]) => name)
+  assert.deepEqual(htmlPaths, contrastFiles.filter(([name]) => name.endsWith(".html")).map(([name]) => name))
+  assert.deepEqual(htmlPaths, ["index.html", "knowledge/concept/synthetic-support/index.html", "papers/synthetic-paper/index.html"])
+  for (const [relative, route] of [["papers/synthetic-paper/index.html", "/papers/synthetic-paper/"], ["knowledge/concept/synthetic-support/index.html", "/knowledge/concept/synthetic-support/"]]) {
+    const warmHtml = warmFiles.find(([name]) => name === relative)[1].toString("utf8")
+    const contrastHtml = contrastFiles.find(([name]) => name === relative)[1].toString("utf8")
+    assert.deepEqual(semanticHeadings(warmHtml), semanticHeadings(contrastHtml))
+    assert.deepEqual(routeHrefs(warmHtml, route), routeHrefs(contrastHtml, route))
+    const warmArticle = /<article\b[^>]*>([\s\S]*?)<\/article>/.exec(warmHtml)?.[1]
+    const contrastArticle = /<article\b[^>]*>([\s\S]*?)<\/article>/.exec(contrastHtml)?.[1]
+    assert.equal(digest(warmArticle), digest(contrastArticle))
+  }
+  const warmCss = warmFiles.filter(([name]) => name.endsWith(".css")).map(([, bytes]) => bytes).join("\n")
+  const contrastCss = contrastFiles.filter(([name]) => name.endsWith(".css")).map(([, bytes]) => bytes).join("\n")
+  assert.match(warmCss, /--tyler-tracer-theme\s*:\s*warm/)
+  assert.match(contrastCss, /--tyler-tracer-theme\s*:\s*contrast/)
+  assert.notEqual(digest(warmCss), digest(contrastCss))
+  for (const files of [warmFiles, contrastFiles]) {
+    const names = files.map(([name]) => name)
+    assert.equal(names.some((name) => /contentIndex|graph|search/i.test(name)), false)
+  }
+  assert.deepEqual(Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(warm.paths[role])]))), warmProtected)
+  assert.deepEqual(Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(contrast.paths[role])]))), contrastProtected)
+})
+
+test("T04 Edge CDP acceptance covers desktop three-slot and mobile Explorer/ToC drawers", async (t) => {
+  const fx = await fixture("tracer-theme-browser-")
+  t.after(() => rm(fx.root, { recursive: true, force: true }))
+  const buildResult = invoke(fx, "build")
+  assert.equal(buildResult.status, 0, buildResult.stdout)
+  const session = await edgeSession(fx.output)
+  t.after(() => session.close())
+  assert.ok(session.edgeArgs.includes("--headless=new"))
+  assert.equal(edgeSpawnOptions.windowsHide, true)
+
+  await cdpNavigate(session, "/papers/synthetic-paper/", 1440, 1100)
+  const desktop = await cdpValue(session, `() => {
+    const rect = (selector) => { const element = document.querySelector(selector), value = element?.getBoundingClientRect(), style = element && getComputedStyle(element); return value && { top: value.top, bottom: value.bottom, width: value.width, height: value.height, display: style.display, visibility: style.visibility, opacity: style.opacity } }
+    const readable = (selector) => [...document.querySelectorAll(selector)].map(element => {
+      const bounds = element.getBoundingClientRect(), style = getComputedStyle(element)
+      return { text: element.textContent.trim(), top: bounds.top, left: bounds.left, right: bounds.right, bottom: bounds.bottom, width: bounds.width, height: bounds.height, display: style.display, visibility: style.visibility, opacity: style.opacity, color: style.color }
+    }).filter(item => item.text && item.width > 0 && item.height > 0 && item.right > 0 && item.left < innerWidth && item.bottom > 0 && item.top < innerHeight && item.display !== "none" && item.visibility !== "hidden" && item.opacity !== "0")
+    const bodyStyle = getComputedStyle(document.body), cjkText = "這是合成且非研究內容，僅供繁體中文排版驗收。", walker = document.createTreeWalker(document.querySelector("article"), NodeFilter.SHOW_TEXT); let cjkRect = null
+    while (walker.nextNode()) { const index = walker.currentNode.data.indexOf(cjkText); if (index >= 0) { const range = document.createRange(); range.setStart(walker.currentNode, index); range.setEnd(walker.currentNode, index + cjkText.length); const value = range.getBoundingClientRect(); cjkRect = { width: value.width, height: value.height, top: value.top, bottom: value.bottom }; break } }
+    const focus = selector => { const element = document.querySelector(selector); element?.focus(); const style = element && getComputedStyle(element); return element && { active: document.activeElement === element, style: style.outlineStyle, width: parseFloat(style.outlineWidth), color: style.outlineColor } }
+    return { slug: document.body.dataset.slug, template: document.body.dataset.tracerTemplate, bibliography: rect("#bibliography"), takeaway: rect("#one-sentence-takeaway"), question: rect("#research-question"), explorer: rect(".sidebar.left .explorer"), toc: rect(".sidebar.right .toc"), explorerRoutes: readable(".sidebar.left .explorer a[href]"), tocSections: readable(".sidebar.right .toc-content a[href^='#']"), typography: { fontFamily: bodyStyle.fontFamily, fontSize: parseFloat(bodyStyle.fontSize), lineHeight: parseFloat(bodyStyle.lineHeight), cjkRect }, controls: { tocHeading: document.querySelector("button.toc-header h3")?.textContent.trim(), explorerHeading: document.querySelector("button.desktop-explorer h2")?.textContent.trim(), explorerFocus: focus("button.desktop-explorer"), tocFocus: focus("button.toc-header") } }
+  }`)
+  assert.equal(desktop.slug, "papers/synthetic-paper/index")
+  assert.equal(desktop.template, "paper")
+  for (const section of [desktop.bibliography, desktop.takeaway, desktop.question]) assert.ok(section && section.top >= 0 && section.height > 0 && section.bottom < 1100 && section.display !== "none" && section.visibility !== "hidden" && section.opacity !== "0", JSON.stringify(section))
+  assert.ok(desktop.typography.lineHeight / desktop.typography.fontSize >= 1.75, JSON.stringify(desktop.typography))
+  assert.match(desktop.typography.fontFamily, /Georgia/)
+  assert.match(desktop.typography.fontFamily, /Noto Serif CJK TC/)
+  assert.ok(desktop.typography.cjkRect?.width > 0 && desktop.typography.cjkRect?.height > 0, JSON.stringify(desktop.typography.cjkRect))
+  assert.equal(desktop.controls.tocHeading, "Table of Contents")
+  assert.equal(desktop.controls.explorerHeading, "Library")
+  for (const control of [desktop.controls.explorerFocus, desktop.controls.tocFocus]) assert.ok(control.active && control.style !== "none" && control.width >= 3, JSON.stringify(control))
+  assert.ok(desktop.explorer?.width > 0)
+  assert.ok(desktop.toc?.width > 0)
+  assert.deepEqual(desktop.explorerRoutes.map((entry) => entry.text), ["Synthetic Paper", "Synthetic Support"])
+  assert.ok(desktop.explorerRoutes.every((entry) => entry.left >= 0 && entry.right <= 1440), JSON.stringify(desktop.explorerRoutes))
+  assert.ok(desktop.tocSections.some((entry) => entry.text === "Bibliography"), JSON.stringify(desktop.tocSections))
+  assert.ok(desktop.tocSections.every((entry) => entry.left >= 0 && entry.right <= 1440), JSON.stringify(desktop.tocSections))
+  assert.ok(desktop.tocSections.every((entry) => ["rgb(32, 29, 26)", "rgb(63, 58, 52)"].includes(entry.color)), JSON.stringify(desktop.tocSections))
+  assert.ok(desktop.tocSections.every((entry) => entry.opacity === "1"), JSON.stringify(desktop.tocSections))
+  await capturePage(session, "t04-desktop-1440x1100.png")
+
+  await cdpNavigate(session, "/knowledge/concept/synthetic-support/", 1440, 1100)
+  const supportTemplate = await cdpValue(session, `() => ({ slug: document.body.dataset.slug, template: document.body.dataset.tracerTemplate, hasPaperMasthead: Boolean(document.querySelector("#bibliography")) })`)
+  assert.deepEqual(supportTemplate, { slug: "knowledge/concept/synthetic-support/index", template: "support", hasPaperMasthead: false })
+
+  await cdpNavigate(session, "/papers/synthetic-paper/", 390, 844)
+  const mobile = await cdpValue(session, `async () => {
+    const measure = (selector) => { const element = document.querySelector(selector), rect = element?.getBoundingClientRect(), style = element && getComputedStyle(element); return element && { width: rect.width, height: rect.height, display: style.display, visibility: style.visibility } }
+    const explorerButton = document.querySelector(".explorer-toggle.mobile-explorer"), tocButton = document.querySelector("button.toc-header"), explorer = document.querySelector(".explorer")
+    const explorerContent = explorerButton && document.getElementById(explorerButton.getAttribute("aria-controls")), tocContent = tocButton && document.getElementById(tocButton.getAttribute("aria-controls")), table = document.querySelector(".table-container")
+    const missing = [["explorerButton", explorerButton], ["explorer", explorer], ["explorerContent", explorerContent], ["tocButton", tocButton], ["tocContent", tocContent], ["table", table]].filter(([, value]) => !value).map(([name]) => name)
+    if (missing.length) return { missing, diagnostics: { tocButton: tocButton?.outerHTML, tocParent: tocButton?.parentElement?.outerHTML } }
+    explorerButton.focus(); const explorerFocused = document.activeElement === explorerButton; explorerButton.click(); await new Promise(resolve => setTimeout(resolve, 300))
+    const linkTargets = root => [...root.querySelectorAll("a[href]")].map(anchor => { const rect = anchor.getBoundingClientRect(), style = getComputedStyle(anchor); return { text: anchor.textContent.trim(), href: anchor.getAttribute("href"), width: rect.width, height: rect.height, display: style.display, visibility: style.visibility } }).filter(item => item.width > 0 && item.height > 0 && item.display !== "none" && item.visibility !== "hidden")
+    const explorerState = { buttonExpanded: explorerButton.getAttribute("aria-expanded"), contentExpanded: explorerContent.getAttribute("aria-expanded"), explorerClass: explorer.className, style: explorerContent.getAttribute("style"), display: getComputedStyle(explorerContent).display, visibility: getComputedStyle(explorerContent).visibility, transform: getComputedStyle(explorerContent).transform, hrefs: [...explorerContent.querySelectorAll("a[href]")].map((anchor) => anchor.getAttribute("href")), labels: [...explorerContent.querySelectorAll("a[href]")].map((anchor) => anchor.textContent.trim()), targets: linkTargets(explorerContent) }
+    const explorerOpen = explorerState.buttonExpanded === "true" && explorerState.contentExpanded === "true" && explorerState.visibility === "visible" && explorerState.hrefs.includes("/papers/synthetic-paper/")
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await new Promise(resolve => setTimeout(resolve, 10)); const explorerEscaped = explorerButton.getAttribute("aria-expanded") === "false" && explorerContent.getAttribute("aria-expanded") === "false" && document.activeElement === explorerButton; const explorerClosedDisplay = getComputedStyle(explorerContent).display
+    tocButton.focus(); const tocFocused = document.activeElement === tocButton; tocButton.click(); await new Promise(resolve => setTimeout(resolve, 10))
+    const tocState = { buttonExpanded: tocButton.getAttribute("aria-expanded"), buttonClass: tocButton.className, contentClass: tocContent.className, display: getComputedStyle(tocContent).display, visibility: getComputedStyle(tocContent).visibility, entries: [...tocContent.querySelectorAll("a[href]")].map(item => { const rect = item.getBoundingClientRect(), style = getComputedStyle(item); return { text: item.textContent.trim(), width: rect.width, height: rect.height, left: rect.left, right: rect.right, opacity: style.opacity, color: style.color, display: style.display, visibility: style.visibility } }).filter(item => item.width > 0 && item.height > 0 && item.display !== "none" && item.visibility !== "hidden") }
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await new Promise(resolve => setTimeout(resolve, 10))
+    const tocEscaped = tocButton.getAttribute("aria-expanded") === "false" && tocContent.classList.contains("collapsed") && getComputedStyle(tocContent).display === "none" && document.activeElement === tocButton
+    const closedTocDrawer = document.querySelector(".sidebar.right").getBoundingClientRect()
+    return { missing, explorerState, explorerEscaped, explorerClosedDisplay, overflow: document.documentElement.scrollWidth <= innerWidth && document.body.scrollWidth <= innerWidth, explorerButton: measure(".explorer-toggle.mobile-explorer"), tocButton: measure("button.toc-header"), explorerFocused, explorerOpen, tocFocused, tocState, tocOpen: tocState.buttonExpanded === "true" && tocState.display !== "none", tocEscaped, closedTocDrawer: { width: closedTocDrawer.width, height: closedTocDrawer.height }, table: measure(".table-container"), tableContained: table.scrollWidth > table.clientWidth && getComputedStyle(table).overflowX === "auto" }
+  }`)
+  assert.deepEqual(mobile.missing, [], JSON.stringify(mobile.diagnostics))
+  assert.equal(mobile.overflow, true)
+  for (const control of [mobile.explorerButton, mobile.tocButton]) {
+    assert.ok(control.width >= 44 && control.height >= 44)
+    assert.notEqual(control.display, "none")
+    assert.notEqual(control.visibility, "hidden")
+  }
+  assert.equal(mobile.explorerFocused, true)
+  assert.equal(mobile.explorerOpen, true, JSON.stringify(mobile.explorerState))
+  assert.deepEqual(mobile.explorerState.labels, ["Synthetic Paper", "Synthetic Support"])
+  assert.equal(mobile.explorerState.labels.includes("Paper") || mobile.explorerState.labels.includes("Support"), false)
+  assert.equal(mobile.explorerState.targets.length, 2, JSON.stringify(mobile.explorerState.targets))
+  assert.ok(mobile.explorerState.targets.every((target) => target.height >= 44), JSON.stringify(mobile.explorerState.targets))
+  assert.equal(mobile.explorerEscaped, true)
+  assert.equal(mobile.explorerClosedDisplay, "none")
+  assert.equal(mobile.tocFocused, true)
+  assert.equal(mobile.tocOpen, true, JSON.stringify(mobile.tocState))
+  assert.ok(mobile.tocState.entries.some((entry) => entry.text === "Bibliography" && entry.width > 0 && entry.height > 0 && entry.left >= 0 && entry.right <= 390), JSON.stringify(mobile.tocState.entries))
+  assert.ok(mobile.tocState.entries.every((entry) => entry.opacity === "1"), JSON.stringify(mobile.tocState.entries))
+  assert.ok(mobile.tocState.entries.every((entry) => ["rgb(32, 29, 26)", "rgb(63, 58, 52)"].includes(entry.color)), JSON.stringify(mobile.tocState.entries))
+  assert.ok(mobile.tocState.entries.every((entry) => entry.height >= 44), JSON.stringify(mobile.tocState.entries))
+  assert.equal(mobile.tocEscaped, true)
+  assert.ok(mobile.closedTocDrawer.width <= 44 && mobile.closedTocDrawer.height <= 44, JSON.stringify(mobile.closedTocDrawer))
+  assert.equal(mobile.tableContained, true)
+  await cdpValue(session, `async () => { const toc = document.querySelector("button.toc-header"); toc.click(); await new Promise(resolve => setTimeout(resolve, 10)); return true }`)
+  await capturePage(session, "t04-mobile-toc-390x844.png")
+  if (process.env.TYLER_TRACER_CAPTURE_DIR) {
+    await cdpValue(session, `async () => { const toc = document.querySelector("button.toc-header"), explorer = document.querySelector(".explorer-toggle.mobile-explorer"); if (toc?.getAttribute("aria-expanded") === "true") toc.click(); explorer?.click(); await new Promise(resolve => setTimeout(resolve, 300)); return true }`)
+    await capturePage(session, "t04-mobile-explorer-390x844.png")
+  }
+
+  await session.client.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] })
+  const reduced = await cdpValue(session, `() => ({ transition: getComputedStyle(document.querySelector(".explorer-content")).transitionDuration, scroll: getComputedStyle(document.documentElement).scrollBehavior })`)
+  assert.match(reduced.transition, /^(?:0s(?:, 0s)*)$/)
+  assert.equal(reduced.scroll, "auto")
+  const cleanup = await session.close()
+  assert.deepEqual(cleanup, { pid: session.edgePid, exited: true, profileRemoved: true })
+  t.diagnostic(`Edge cleanup ${JSON.stringify(cleanup)}`)
 })

@@ -1,0 +1,325 @@
+@use "./variables.scss" as *;
+
+/* T04 project-owned scholarly theme. This marker is asserted in public output. */
+:root {
+  --tyler-tracer-theme: __THEME_VARIANT__;
+  --light: __LIGHT__;
+  --lightgray: __LIGHTGRAY__;
+  --gray: __GRAY__;
+  --darkgray: __DARKGRAY__;
+  --dark: __DARK__;
+  --secondary: __SECONDARY__;
+  --tertiary: __TERTIARY__;
+  --highlight: __HIGHLIGHT__;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#quartz-root,
+#quartz-body {
+  max-width: 100%;
+}
+
+body {
+  background: var(--light);
+  color: var(--darkgray);
+  font-family: ui-serif, Georgia, "Noto Serif CJK TC", serif;
+  font-size: 17px;
+  line-height: 1.78;
+  overflow-x: clip;
+}
+
+button,
+summary,
+.page-title,
+.breadcrumbs,
+.sidebar,
+.content-meta,
+.toc,
+.explorer {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+button,
+summary {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+:where(a, button, summary, [tabindex]):focus-visible {
+  outline: 3px solid var(--secondary);
+  outline-offset: 3px;
+}
+
+p,
+li,
+td,
+th {
+  line-height: 1.78;
+}
+
+.page {
+  max-width: 1440px;
+}
+
+article {
+  min-width: 0;
+}
+
+article .markdown-preview-view {
+  min-width: 0;
+}
+
+article .table-container {
+  width: 100%;
+  max-width: 100%;
+  margin: 1rem 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+article table {
+  width: max-content;
+  min-width: 42rem;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+article th,
+article td {
+  padding: 0.55rem 0.75rem;
+  border-color: var(--lightgray);
+}
+
+body[data-slug^="papers/"] .center {
+  --tyler-template: paper;
+}
+
+body[data-slug^="knowledge/"] .center {
+  --tyler-template: support;
+}
+
+body[data-slug^="papers/"] article h1,
+body[data-slug^="knowledge/"] article h1 {
+  margin: 0 0 0.55rem;
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  line-height: 1.22;
+  letter-spacing: -0.015em;
+}
+
+body[data-slug^="papers/"] article :is(#bibliography, #one-sentence-takeaway, #research-question, #citation) {
+  margin: 1.15rem 0 0.25rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--lightgray);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+body[data-slug^="papers/"] article :is(#bibliography, #one-sentence-takeaway, #research-question, #citation) + p {
+  margin: 0 0 0.25rem;
+}
+
+body[data-slug^="knowledge/"] article {
+  border-top: 3px solid var(--secondary);
+  padding-top: 1.25rem;
+}
+
+.zotero-annotations {
+  margin: 2rem 0;
+  border-block: 1px solid var(--lightgray);
+}
+
+.zotero-annotations > summary {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--dark);
+  font-weight: 650;
+}
+
+.zotero-annotations > summary::marker {
+  color: var(--secondary);
+}
+
+.zotero-annotations[open] {
+  padding-bottom: 0.75rem;
+}
+
+.sidebar .explorer-toggle,
+.sidebar .toc-header,
+.sidebar .folder-button {
+  color: var(--dark);
+}
+
+/* Vendor ToC fades non-current links below readable contrast. All visible
+ * scholarly navigation remains fully opaque; only color may transition. */
+.toc-content a,
+.toc-content a.in-view {
+  color: var(--dark);
+  opacity: 1 !important;
+  transition-property: color;
+}
+
+@media (min-width: 1200px) {
+  .page > #quartz-body {
+    grid-template-columns: minmax(210px, 1fr) minmax(720px, 780px) minmax(210px, 1fr);
+    column-gap: 1.5rem;
+  }
+
+  .page > #quartz-body .sidebar {
+    top: 0;
+    height: 100vh;
+    padding: 2rem 1.25rem;
+  }
+
+  .page > #quartz-body .sidebar.left {
+    border-right: 1px solid var(--lightgray);
+  }
+
+  .page > #quartz-body .sidebar.right {
+    border-left: 1px solid var(--lightgray);
+  }
+
+  .page > #quartz-body .page-header {
+    margin-top: 2rem;
+  }
+
+  .page > #quartz-body .center {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 800px) {
+  html {
+    width: 100%;
+  }
+
+  .page > #quartz-body {
+    width: 100%;
+    padding: 0 1rem;
+  }
+
+  .page > #quartz-body .sidebar.left {
+    z-index: 110;
+    min-height: 60px;
+    padding-top: 0.5rem;
+  }
+
+  .explorer .mobile-explorer {
+    width: 44px;
+    height: 44px;
+    padding: 10px;
+  }
+
+  .explorer .explorer-content {
+    width: min(88vw, 22rem);
+    max-width: 100%;
+    padding: 4.5rem 1rem 2rem;
+    border-right: 1px solid var(--lightgray);
+  }
+
+  .explorer .explorer-content a[href],
+  .toc .toc-content a[href] {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  .page > #quartz-body .sidebar.right:has(.toc) {
+    position: fixed;
+    inset: 0 0 auto auto;
+    z-index: 120;
+    display: block;
+    width: 44px;
+    height: 44px;
+    max-height: none;
+    padding: 0;
+    pointer-events: none;
+  }
+
+  .page > #quartz-body .sidebar.right > .toc {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  .page > #quartz-body .sidebar.right .toc-header {
+    position: fixed;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 122;
+    display: flex;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 8px;
+    overflow: hidden;
+    background: var(--light);
+    border: 1px solid var(--lightgray);
+    pointer-events: auto;
+  }
+
+  .page > #quartz-body .sidebar.right .toc-header h3 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .page > #quartz-body .sidebar.right .toc-header .fold {
+    margin: 0;
+  }
+
+  .page > #quartz-body .sidebar.right:has(.toc-header[aria-expanded="true"]) {
+    width: min(88vw, 22rem);
+    height: 100dvh;
+    background: var(--light);
+    border-left: 1px solid var(--lightgray);
+    pointer-events: auto;
+  }
+
+  .page > #quartz-body .sidebar.right:has(.toc-header[aria-expanded="true"]) .toc {
+    padding: 4.5rem 1rem 2rem;
+    pointer-events: auto;
+  }
+
+  .page > #quartz-body .sidebar.right:has(.toc-header[aria-expanded="true"]) .toc-content {
+    display: block;
+    max-height: calc(100dvh - 7rem);
+    overflow-y: auto;
+  }
+
+  article table {
+    min-width: 42rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0s !important;
+    animation-duration: 0s !important;
+    animation-iteration-count: 1 !important;
+  }
+}
