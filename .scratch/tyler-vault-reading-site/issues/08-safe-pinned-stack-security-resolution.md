@@ -1,6 +1,6 @@
 ## T08 — Resolve the pinned-stack public-deployment security gate
 
-- **Status:** `blocked`
+- **Status:** `in-progress`
 - **Source spec:** `specs/tyler-vault-reading-site.md`
 - **Scope guard:** local dependency/security work only; no real Vault content, Drive write, remote mutation, deployment, repository visibility change, or Hermes change
 
@@ -29,3 +29,16 @@ Map every current advisory to the pinned dependency graph and reachable producti
 ### Non-goals
 
 No Pages workflow, repository visibility change, real note, generated real-note HTML, custom domain, Hermes command, cron change, or unrelated package modernization.
+
+### Current evidence — 2026-07-31
+
+- Tyler accepted the time-bounded project-owned bridge: Quartz exact `507ad7f3d4601d83482f61930fccf1c77f42a072`, root Sharp exact override `0.35.3`, and a checked-in compatibility adapter wrapping exact `brace-expansion@5.0.8`. This is not a claim of upstream Sharp 0.35 support.
+- Final-lock full and production-only audit artifacts both report zero findings and are byte/hash-bound in `security/t08-advisory-baseline.json`; canonical CycloneDX evidence is reproduced in two differently named isolated checkouts.
+- Parent-run focused security: **9/9 pass**. Typecheck, production build/verify, random-basename fresh `npm ci`, lock/source no-drift, and direct T04/T05 hidden Chromium acceptance pass.
+- Parent-run complete repository suite: **381/381 pass**, 0 fail/cancel/skip, including desktop `1440×1100`, mobile `390×844`, path containment, source/output scans, local serve isolation, release authority, Zotero delta, and last-known-good behavior.
+- Independent corrected-implementation reviews: **Spec APPROVE**, **Standards APPROVE**, **Security APPROVE**; 0 open Blocker/High/Medium.
+- `.github/workflows/t08-pinned-stack.yml` is a read-only Ubuntu PR acceptance gate, not a Pages/deployment workflow. It repeats fresh install, immutable-source checks, audit/SBOM, typecheck, production build/verify, the complete suite, and headless Chromium QA.
+
+### Remaining gate
+
+- Keep status `in-progress` and public rehearsal/deployment blocked until the pull request's Ubuntu acceptance job completes successfully against the exact committed bytes. After that result is read back, update this ticket to `completed`; merge remains Tyler's review decision.

@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-07-30",
+  "command": "npm audit --json",
+  "toolchain": {
+    "node": "22.23.0",
+    "npm": "10.9.8",
+    "platform": "win32",
+    "architecture": "x64"
+  },
+  "before": {
+    "quartz_commit": "41864a0eba8f95deef7ff3cdede7ae03a45d4c70",
+    "audit_summary": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 7,
+      "critical": 0,
+      "total": 7
+    },
+    "propagated_audit_nodes": [
+      "@jackyzha0/quartz",
+      "@quartz-community/bases-page",
+      "@quartz-community/canvas-page",
+      "brace-expansion",
+      "minimatch",
+      "serve-handler",
+      "sharp"
+    ]
+  },
+  "after": {
+    "quartz_commit": "507ad7f3d4601d83482f61930fccf1c77f42a072",
+    "package_lock_sha256": "c8b5bd368d64ffa7f8c94b513bb066aefb4d868cd985adc3101878f506de413f",
+    "audit_summary": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "production_audit_summary": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "audit_evidence": {
+      "npm": "10.9.8",
+      "full": {
+        "command": "npm audit --package-lock-only --json",
+        "artifact": "security/t08-audit-full.json",
+        "sha256": "0e19045ab1f4932f15220277b32aeeb51970c1166b34df431ba493eeea9de3e2",
+        "dependencies": {
+          "prod": 304,
+          "dev": 3,
+          "optional": 138,
+          "peer": 85,
+          "peerOptional": 0,
+          "total": 470
+        }
+      },
+      "production": {
+        "command": "npm audit --package-lock-only --omit=dev --json",
+        "artifact": "security/t08-audit-production.json",
+        "sha256": "0e19045ab1f4932f15220277b32aeeb51970c1166b34df431ba493eeea9de3e2",
+        "dependencies": {
+          "prod": 304,
+          "dev": 3,
+          "optional": 138,
+          "peer": 85,
+          "peerOptional": 0,
+          "total": 470
+        },
+        "count_note": "npm 10.9.8 audit metadata reports complete lockfile dependency counts even when --omit=dev limits vulnerability evaluation."
+      }
+    },
+    "sbom": {
+      "command": "npm sbom --package-lock-only --sbom-format=cyclonedx",
+      "format": "CycloneDX",
+      "spec_version": "1.5",
+      "canonicalization": "Remove random serialNumber and metadata.timestamp, normalize metadata.component.name to package.json name, then RFC 8785 JCS canonicalize the remaining CycloneDX document.",
+      "canonical_sha256": "76c77fd3e401d18e483d7e7b073323449b4083f1c7aa50b66844375d575cf6ac",
+      "canonical_bytes": 333321,
+      "component_count": 469,
+      "dependency_count": 470,
+      "reproducibility_runs": 2
+    }
+  },
+  "advisories": [
+    {
+      "id": "GHSA-f88m-g3jw-g9cj",
+      "severity": "high",
+      "package": "sharp",
+      "installed_version": "0.34.5",
+      "dependency_paths": [
+        "tyler-vault-reading-site > @jackyzha0/quartz > sharp"
+      ],
+      "affected_range": "<0.35.0",
+      "first_fixed_version": "0.35.0",
+      "target_version": "0.35.3",
+      "classification": "production",
+      "vulnerable_primitive": "libvips-backed image decoding and processing",
+      "project_invokes_dependency_path": true,
+      "untrusted_exploit_input_reachable": false,
+      "reachable_path": "Quartz invokes Sharp through the favicon plugin against the fixed quartz/static/icon.png whose digest is pinned by the project. The source gate rejects untrusted GIF, TIFF, VIPS and other binary or image inputs before Quartz, so no known untrusted exploit input reaches Sharp; this boundary supplements rather than replaces the exact 0.35.3 fix.",
+      "source_url": "https://github.com/advisories/GHSA-f88m-g3jw-g9cj",
+      "source_checked_at": "2026-07-30"
+    },
+    {
+      "id": "GHSA-mh99-v99m-4gvg",
+      "severity": "high",
+      "package": "brace-expansion",
+      "installed_version": "1.1.16",
+      "dependency_paths": [
+        "tyler-vault-reading-site > @jackyzha0/quartz > serve-handler > minimatch@3.1.5 > brace-expansion@1.1.16"
+      ],
+      "affected_range": "<=5.0.7",
+      "first_fixed_version": "5.0.8",
+      "target_version": "5.0.8",
+      "classification": "production",
+      "vulnerable_primitive": "unbounded brace expansion causing process memory exhaustion",
+      "project_invokes_dependency_path": false,
+      "untrusted_exploit_input_reachable": false,
+      "reachable_path": "Quartz bootstrap statically imports serve-handler, but project build never passes --serve and project serve uses its own loopback-only traversal-safe HTTP server. No request or user glob reaches serve-handler; the installed primitive is nevertheless replaced by the exact 5.0.8 implementation through the project-owned compatibility adapter.",
+      "source_url": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
+      "source_checked_at": "2026-07-30"
+    }
+  ],
+  "resolution": {
+    "bridge": {
+      "kind": "temporary-project-owned-bridge",
+      "status": "accepted",
+      "temporary": true,
+      "upstream_support": false,
+      "accepted_by": "Tyler",
+      "accepted_at": "2026-07-30",
+      "owner": "Tyler-Vault reading site project maintainers",
+      "requirements_first_principle": "Retain this implementation only while it continuously satisfies the approved product, privacy, security, readability and maintenance contract; Quartz and Sharp are replaceable implementation means."
+    },
+    "quartz_commit": "507ad7f3d4601d83482f61930fccf1c77f42a072",
+    "quartz_commit_url": "https://github.com/jackyzha0/quartz/commit/507ad7f3d4601d83482f61930fccf1c77f42a072",
+    "quartz_compare_url": "https://github.com/jackyzha0/quartz/compare/41864a0eba8f95deef7ff3cdede7ae03a45d4c70...507ad7f3d4601d83482f61930fccf1c77f42a072",
+    "quartz_change_scope": "one upstream package-lock.json regeneration commit; renderer source and package.json unchanged",
+    "quartz_pin_purpose": "Pinned for upstream lock completeness only; commit 507ad7f is not a Sharp security fix and does not declare Sharp 0.35 support.",
+    "sharp_override": {
+      "version": "0.35.3",
+      "upstream_declared_range": "^0.34.5",
+      "upstream_range_includes_override": false,
+      "ownership": "Project-owned exact root override outside Quartz's declared range; not upstream-supported.",
+      "security_fix_provided_by": "root override to sharp 0.35.3"
+    },
+    "overrides": {
+      "brace-expansion": "$brace-expansion",
+      "sharp": "0.35.3"
+    },
+    "compatibility_adapter": {
+      "dependency_spec": "file:vendor/brace-expansion-compat",
+      "package_sha256": "099fd2725d17b1863685df5c7b965f8acfe6274e73251ab1650d1c205daaf5e3",
+      "entrypoint_sha256": "1f352a82186cba8374fe8151ae54e2e8aaea99d89682d0f6b873174ff95d65a5",
+      "wrapped_package": "brace-expansion-safe",
+      "wrapped_spec": "npm:brace-expansion@5.0.8",
+      "ownership": "Project-owned checked-in adapter; npm audit does not review its wrapper logic.",
+      "purpose": "Expose patched brace-expansion 5 as both the historical callable CommonJS contract required by minimatch 3 and a Node-statically-detectable expand named export required by minimatch 10 ESM."
+    },
+    "gates": [
+      "focused security ownership, Sharp favicon, minimatch 3 CommonJS and minimatch 10 ESM tests",
+      "typecheck and complete repository regression suite",
+      "fresh isolated npm ci with no lock drift or unexpected source mutation",
+      "production build and verify plus isolated headless synthetic browser QA",
+      "npm audit, production-only audit, dependency graph read-back and independent security review"
+    ],
+    "review_cadence": "Review at least every 30 days while retained, before every public rehearsal or deployment, and whenever Quartz, Sharp, serve-handler, minimatch, brace-expansion, an advisory, or the accepted input boundary changes.",
+    "removal_triggers": [
+      "Replace the Sharp override when Quartz publishes merged, reviewed and green formal Sharp 0.35-or-newer support that passes all project gates.",
+      "Remove the brace adapter when serve-handler publishes a safe dependency graph compatible with its real consumers and that graph passes all project gates.",
+      "Stop and re-review or remove the bridge immediately when advisory facts or the source/input boundary change, including any path that makes untrusted image or glob input reachable."
+    ],
+    "serve_handler_release_url": "https://www.npmjs.com/package/serve-handler/v/6.1.7",
+    "serve_handler_compatibility_reference_url": "https://github.com/vercel/serve-handler/pull/226",
+    "sharp_release_url": "https://github.com/lovell/sharp/releases/tag/v0.35.3",
+    "quartz_sharp_update_evidence_url": "https://github.com/jackyzha0/quartz/pull/2506",
+    "brace_expansion_tag_url": "https://github.com/juliangruber/brace-expansion/releases/tag/v5.0.8",
+    "primary_sources_checked_at": "2026-07-30"
+  }
+}

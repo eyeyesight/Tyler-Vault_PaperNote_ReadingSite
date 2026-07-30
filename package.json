@@ -25,13 +25,18 @@
     "test:serve": "node --test tests/local-serve.test.mjs"
   },
   "dependencies": {
-    "@jackyzha0/quartz": "https://github.com/jackyzha0/quartz/archive/41864a0eba8f95deef7ff3cdede7ae03a45d4c70.tar.gz",
+    "@jackyzha0/quartz": "https://github.com/jackyzha0/quartz/archive/507ad7f3d4601d83482f61930fccf1c77f42a072.tar.gz",
     "ajv": "8.20.0",
+    "brace-expansion": "file:vendor/brace-expansion-compat",
     "mdast-util-from-markdown": "2.0.3",
     "yaml": "2.9.0"
   },
   "devDependencies": {
     "@types/node": "25.0.10",
     "typescript": "5.9.3"
+  },
+  "overrides": {
+    "brace-expansion": "$brace-expansion",
+    "sharp": "0.35.3"
   }
 }

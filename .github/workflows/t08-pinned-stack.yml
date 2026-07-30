@@ -1,0 +1,85 @@
+name: T08 pinned-stack Linux gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: t08-pinned-stack-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-pinned-stack:
+    name: Ubuntu pinned-stack acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out exact pull-request bytes
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install exact Node toolchain
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.23.0
+          cache: npm
+
+      - name: Verify the evidence-generating toolchain
+        run: |
+          test "$(node --version)" = "v22.23.0"
+          test "$(npm --version)" = "10.9.8"
+
+      - name: Capture a clean immutable checkout
+        run: |
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          echo "T08_CHECKOUT_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Install the exact locked dependency graph
+        run: npm ci
+
+      - name: Prove install did not rewrite reviewed inputs
+        run: |
+          test "$(git rev-parse HEAD)" = "$T08_CHECKOUT_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Select the runner Chromium browser
+        run: |
+          browser="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          test -n "$browser"
+          echo "TYLER_TRACER_BROWSER_EXECUTABLE=$browser" >> "$GITHUB_ENV"
+          "$browser" --version
+
+      - name: Read back advisories and dependency graph
+        run: |
+          npm audit --audit-level=high
+          npm audit --omit=dev --audit-level=high
+          npm ls sharp brace-expansion minimatch serve-handler
+
+      - name: Validate bridge ownership and compatibility
+        run: |
+          node --test tests/security-stack.test.mjs
+          npm run typecheck
+
+      - name: Build and verify the synthetic production site
+        run: |
+          mkdir -p "$RUNNER_TEMP/canonical-vault"
+          node scripts/site.mjs build --vault-root "$RUNNER_TEMP/canonical-vault"
+          node scripts/site.mjs verify --vault-root "$RUNNER_TEMP/canonical-vault"
+
+      - name: Run the complete regression and headless browser acceptance suite
+        run: npm test
+
+      - name: Generate and parse the exact-stack SBOM
+        run: |
+          npm sbom --package-lock-only --sbom-format=cyclonedx > "$RUNNER_TEMP/t08-sbom.cdx.json"
+          node -e 'const fs=require("node:fs"); const data=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/t08-sbom.cdx.json","utf8")); if (!Array.isArray(data.components) || data.components.length === 0) process.exit(1); console.log(`SBOM_COMPONENTS=${data.components.length}`)'
+
+      - name: Prove acceptance left reviewed source unchanged
+        run: |
+          test "$(git rev-parse HEAD)" = "$T08_CHECKOUT_SHA"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
