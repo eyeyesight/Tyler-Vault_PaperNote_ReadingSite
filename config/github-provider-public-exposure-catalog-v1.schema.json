@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tyler-vault.invalid/contracts/github-provider-public-exposure-catalog-v1.schema.json",
+  "title": "GitHub provider public exposure catalog v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "catalog_id", "provider", "required_surfaces"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "catalog_id": { "const": "github-provider-public-exposure-v1" },
+    "provider": { "const": "github.com" },
+    "required_surfaces": {
+      "type": "array",
+      "minItems": 31,
+      "items": { "$ref": "#/$defs/catalog_surface" }
+    }
+  },
+  "$defs": {
+    "catalog_surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "provider_surface", "public_visibility", "anonymous_probe_required", "derived_bytes_required"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "provider_surface": { "type": "string", "minLength": 1 },
+        "public_visibility": { "enum": ["public", "public-metadata", "authorization-sensitive", "control-plane"] },
+        "anonymous_probe_required": { "type": "boolean" },
+        "derived_bytes_required": { "type": "boolean" }
+      }
+    },
+    "non_empty_string_array": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "contract_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "policy", "allowlist", "paginated_scan", "authenticated_readback", "anonymous_probe", "derived_bytes", "block_on_unknown"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "policy": { "enum": ["allow", "deny", "allow-if-empty", "allow-by-manifest"] },
+        "allowlist": { "$ref": "#/$defs/non_empty_string_array" },
+        "paginated_scan": { "$ref": "#/$defs/non_empty_string_array" },
+        "authenticated_readback": { "$ref": "#/$defs/non_empty_string_array" },
+        "anonymous_probe": { "$ref": "#/$defs/non_empty_string_array" },
+        "derived_bytes": { "$ref": "#/$defs/non_empty_string_array" },
+        "block_on_unknown": { "const": true }
+      }
+    }
+  }
+}
