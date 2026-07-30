@@ -30,7 +30,7 @@
   },
   "after": {
     "quartz_commit": "507ad7f3d4601d83482f61930fccf1c77f42a072",
-    "package_lock_sha256": "c8b5bd368d64ffa7f8c94b513bb066aefb4d868cd985adc3101878f506de413f",
+    "package_lock_sha256": "10563431743449b63fbcbd0b9fe11e82815f4e049a10d678ac01fbbd8c459411",
     "audit_summary": {
       "info": 0,
       "low": 0,
@@ -82,8 +82,8 @@
       "format": "CycloneDX",
       "spec_version": "1.5",
       "canonicalization": "Remove random serialNumber and metadata.timestamp, normalize metadata.component.name to package.json name, then RFC 8785 JCS canonicalize the remaining CycloneDX document.",
-      "canonical_sha256": "76c77fd3e401d18e483d7e7b073323449b4083f1c7aa50b66844375d575cf6ac",
-      "canonical_bytes": 333321,
+      "canonical_sha256": "30a725fbf29deb48c0eb72b6722241b1188286d3e7e75e7b7a32cf31822b83ae",
+      "canonical_bytes": 333349,
       "component_count": 469,
       "dependency_count": 470,
       "reproducibility_runs": 2

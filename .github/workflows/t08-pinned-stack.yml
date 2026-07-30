@@ -47,44 +47,6 @@ jobs:
           test "$(git rev-parse HEAD)" = "$T08_CHECKOUT_SHA"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
 
-      - name: Emit temporary expanded-tree diagnostic
-        run: |
-          node --input-type=module <<'NODE'
-          import { createHash } from "node:crypto"
-          import { lstat, readFile, readdir } from "node:fs/promises"
-          import path from "node:path"
-          import { fileURLToPath } from "node:url"
-          import { gzipSync } from "node:zlib"
-          const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex")
-          async function inventory(root) {
-            const files = []
-            async function walk(directory) {
-              const entries = await readdir(directory, { withFileTypes: true })
-              entries.sort((left, right) => Buffer.compare(Buffer.from(left.name), Buffer.from(right.name)))
-              for (const entry of entries) {
-                const absolute = path.join(directory, entry.name)
-                const metadata = await lstat(absolute)
-                if (metadata.isSymbolicLink()) throw new Error(`unexpected link: ${entry.name}`)
-                if (metadata.isDirectory()) await walk(absolute)
-                else if (metadata.isFile()) {
-                  const bytes = await readFile(absolute)
-                  files.push({ path: path.relative(root, absolute).split(path.sep).join("/"), sha256: sha256(bytes), bytes: bytes.length })
-                } else throw new Error(`unexpected entry: ${entry.name}`)
-              }
-            }
-            await walk(root)
-            const rows = files.map((file) => `${file.path}\0${file.sha256}\n`)
-            return { count: files.length, sha256: sha256(Buffer.from(rows.join(""))), files }
-          }
-          const quartzRoot = path.dirname(fileURLToPath(import.meta.resolve("@jackyzha0/quartz/package.json")))
-          const communityRoot = path.resolve(quartzRoot, "..", "..", "@quartz-community")
-          const payload = { quartz: await inventory(quartzRoot), community: await inventory(communityRoot) }
-          console.log(`T08_TREE_SUMMARY=${JSON.stringify({ quartz: { count: payload.quartz.count, sha256: payload.quartz.sha256 }, community: { count: payload.community.count, sha256: payload.community.sha256 } })}`)
-          const encoded = gzipSync(Buffer.from(JSON.stringify(payload))).toString("base64")
-          const chunks = encoded.match(/.{1,4000}/g) ?? []
-          chunks.forEach((chunk, index) => console.log(`T08_TREE_MANIFEST_CHUNK=${index + 1}/${chunks.length}:${chunk}`))
-          NODE
-
       - name: Select the runner Chromium browser
         run: |
           browser="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"

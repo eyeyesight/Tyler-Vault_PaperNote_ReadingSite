@@ -294,8 +294,17 @@ test("T08 toolchain receipt is rebound to the reviewed Quartz commit and complet
   assert.equal(metadata.version, "5.0.0")
   assert.equal(metadata.commit, quartzCommit)
   assert.match(metadata.defaultIconSha256, /^[0-9a-f]{64}$/)
-  assert.equal(Number.isInteger(metadata.quartzPackageTreeFiles) && metadata.quartzPackageTreeFiles > 0, true)
-  assert.match(metadata.quartzPackageTreeSha256, /^[0-9a-f]{64}$/)
+  assert.deepEqual(metadata.quartzPackageTrees, {
+    "linux-x64": {
+      files: 313,
+      sha256: "0021794c834ef39cd11660e76a9a6e411bdef502e4ef957d23253f45a956d95d",
+    },
+    "win32-x64": {
+      files: 310,
+      sha256: "e795fd1911dbf02b125bdf081d2438a154ae768787024496cf98691d3b7913f8",
+    },
+  })
+  assert.ok(metadata.quartzPackageTrees[`${process.platform}-${process.arch}`])
   assert.equal(Number.isInteger(metadata.quartzCommunityTreeFiles) && metadata.quartzCommunityTreeFiles > 0, true)
   assert.match(metadata.quartzCommunityTreeSha256, /^[0-9a-f]{64}$/)
 })

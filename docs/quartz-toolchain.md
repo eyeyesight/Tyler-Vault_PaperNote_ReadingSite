@@ -20,6 +20,13 @@ T01 uses Quartz as the only renderer. Synthetic Markdown under
   Every `build` and `serve` hashes the installed bytes before materializing or
   executing Quartz; a mismatch fails closed before Quartz/sharp or output
   mutation.
+- The complete installed Quartz package tree is fail-closed against an exact
+  `config/quartz-toolchain.json` fingerprint for each supported runtime platform.
+  Windows x64 and Linux x64 differ only because npm installs different nested
+  optional Typst native compiler packages; those binaries remain included in,
+  rather than excluded from, each platform's full-tree fingerprint. The
+  `@quartz-community` tree is byte-identical and has one shared exact fingerprint.
+  An unlisted platform is invalid metadata and cannot materialize Quartz.
 - The authoritative installation guide says to clone/template Quartz, run
   `npm i` initially, use `npm ci` on later clones, then run
   `npx quartz build --serve`.
