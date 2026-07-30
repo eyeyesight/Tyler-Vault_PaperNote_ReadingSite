@@ -1,6 +1,6 @@
 # Tyler-Vault Generated Reading Site — Production Specification (Draft)
 
-**Status:** Ready for local implementation; renderer ADR and publication contracts passed independent review with no remaining blocking/major finding. Public deployment and Hermes integration remain blocked.
+**Status:** Ready for local implementation; renderer ADR and publication contracts passed independent review with no remaining blocking/major finding. A public GitHub repository plus free GitHub Pages is the confirmed final hosting target, but public exposure remains gated on the integrated local rehearsal and deployment-contract verification. Hermes integration remains blocked.
 
 ## Problem Statement
 
@@ -22,6 +22,7 @@ Canonical Drive Vault Markdown (read-only)
   → reproducible static build in staging
   → static + browser validation
   → atomic promotion of validated output
+  → deployment of the validated generated site to GitHub Pages
 ```
 
 The site adopts the accepted prototype direction:
@@ -66,6 +67,10 @@ No generated website artifact is ever written into Tyler-Vault.
 - This website is an independent repository outside Tyler-Vault.
 - Tyler-Vault owns canonical Markdown and existing governed Vault material only.
 - The website repository owns renderer code, theme code, tests, generated/deployed artifacts, and release evidence.
+- The confirmed first public host is a public GitHub repository plus free GitHub Pages. GitHub receives only the MIT-licensed renderer/theme and manifest-approved generated HTML, search, graph, and required static assets.
+- Canonical Vault Markdown, PDFs, Drafts, Queue, Logs, credentials, local runtime state, and unapproved nodes never enter the GitHub repository or Pages deployment.
+- Tyler-authored note content remains all rights reserved; the MIT license applies only to the renderer/theme and explicitly identified code assets.
+- The exact Pages delivery mechanism, project-site base path, permissions, last-known-good rollback, and artifact-retention contract must be locked by a bounded deployment spike before public deployment begins.
 - No HTML, CSS, JavaScript, search/graph JSON, deployment file, ZIP, site mirror, or website runtime state may be written into Tyler-Vault.
 - The renderer never edits source Markdown. It reads an isolated export set and writes only to repository-external staging or the repository's generated-output area.
 
@@ -244,7 +249,9 @@ Behavior:
 
 ### 12. Hosting boundary
 
-- The initial accepted target remains a public GitHub repository plus free GitHub Pages, but repository creation, remote setup, deployment, public naming, and access policy require a separate Tyler-approved ticket.
+- The existing private repository and remote `eyeyesight/Tyler-Vault_PaperNote_ReadingSite` are approved. The confirmed target remains that repository made public plus free GitHub Pages; only the visibility change, Pages enablement, first deployment, and later naming/access-policy mutations remain gated operations.
+- Public exposure is blocked until the pinned-stack security gate, integrated local rehearsal, authorized publication-input handoff, and deployment-contract verification all pass. A functional test suite does not waive unresolved high/critical dependency findings.
+- Before a private-to-public visibility change, the complete Git/GitHub exposure surface—not only the Pages artifact—must satisfy the approved allowlist, secret/privacy/path/content-rights scan, and provider read-back contract.
 - A private repository must never be presented as equivalent to a private website.
 - PWA/offline installation, custom domain, analytics, comments, and access-controlled hosting are deferred.
 
@@ -279,7 +286,8 @@ Tests observe public CLI/output/browser behavior rather than private parser func
 - Replacing the current `/vault_paper_*` commands during this implementation slice.
 - Implementing `/vault_papernote_publish` before the renderer contract is production-ready.
 - Changing the 04:00 Zotero cron or using a fixed-delay website build.
-- Creating a GitHub repository, enabling GitHub Pages, deploying publicly, choosing a site name, or setting a custom domain without a separate approval.
+- Public deployment before the pinned-stack security resolution, integrated local rehearsal, authorized publication-input handoff, and deployment-contract spike pass. The hosting target itself is already approved as a public GitHub repository plus free GitHub Pages.
+- Choosing a final site name, changing the confirmed repository name, or setting a custom domain without a separate approval.
 - PWA/offline installation, analytics, comments, authentication, or access-controlled hosting.
 - AI-generated summaries, rewritten research claims, inferred metadata, or recursive publication of the Vault graph.
 - Claiming maturity before 3–5 structurally different real integrated notes pass all five maturity tests.
@@ -287,6 +295,7 @@ Tests observe public CLI/output/browser behavior rather than private parser func
 ## Further Notes
 
 - Prototype evidence and reports remain at `C:\Users\Arke\AppData\Local\hermes\prototypes\20260728-tyler-vault-reading-prototype`; they are not production dependencies.
-- The production repository is local and has no remote. Local Markdown tickets are used until Tyler approves a tracker.
+- The production repository has an approved private GitHub remote at `eyeyesight/Tyler-Vault_PaperNote_ReadingSite`; Pages is not enabled and the repository remains private until the public-exposure deployment gate passes.
 - The renderer ADR and publication contracts passed independent review; Tyler's prior authorization covers local implementation and sub-agent execution.
-- Work is split into tracer-bullet tickets; only dependency-unblocked tickets are dispatched. Public deployment and Hermes integration require separate explicit approval.
+- Work is split into tracer-bullet tickets; only dependency-unblocked tickets are dispatched. Hermes command/UI integration remains a separate approval-gated scope.
+- Tyler has already approved the final hosting target (public repository plus free GitHub Pages). The actual visibility change and first deployment occur only in the dedicated deployment ticket after all public-exposure blockers pass, and only for a still-current explicitly approved manifest/public route set.

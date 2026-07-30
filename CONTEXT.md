@@ -27,6 +27,7 @@ A generated public reading layer for explicitly approved Tyler-Vault research no
 - User-facing controls and section headings are English; approved note body remains Traditional Chinese.
 - Theme replacement must not alter source Markdown or semantic page structure.
 - Build/validation failure must not replace last-known-good output.
+- Final cross-device delivery is a public GitHub repository plus free GitHub Pages. GitHub receives only renderer/theme code and manifest-approved generated HTML/search/graph/static assets; canonical Vault Markdown and excluded material remain on Drive.
 
 ## Evidence status
 
