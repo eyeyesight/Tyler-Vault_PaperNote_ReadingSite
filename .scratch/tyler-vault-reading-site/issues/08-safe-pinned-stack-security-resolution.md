@@ -1,6 +1,6 @@
 ## T08 — Resolve the pinned-stack public-deployment security gate
 
-- **Status:** `in-progress`
+- **Status:** `completed`
 - **Source spec:** `specs/tyler-vault-reading-site.md`
 - **Scope guard:** local dependency/security work only; no real Vault content, Drive write, remote mutation, deployment, repository visibility change, or Hermes change
 
@@ -34,11 +34,11 @@ No Pages workflow, repository visibility change, real note, generated real-note 
 
 - Tyler accepted the time-bounded project-owned bridge: Quartz exact `507ad7f3d4601d83482f61930fccf1c77f42a072`, root Sharp exact override `0.35.3`, and a checked-in compatibility adapter wrapping exact `brace-expansion@5.0.8`. This is not a claim of upstream Sharp 0.35 support.
 - Final-lock full and production-only audit artifacts both report zero findings and are byte/hash-bound in `security/t08-advisory-baseline.json`; canonical CycloneDX evidence is reproduced in two differently named isolated checkouts.
-- Parent-run post-#3 focused gates: security **9/9 pass**, Pages contract **25/25 pass**, typecheck, full/production audit zero, fresh merged-lock `npm ci`, production build/verify, and the first failing T05 slice-A acceptance now pass.
-- The pre-#3 complete repository suite was **381/381 pass**, 0 fail/cancel/skip. After #3 merged, the first Ubuntu run exposed one cross-platform receipt defect: optional Typst native packages make the complete expanded Quartz tree platform-specific. The fix retains full binary coverage with exact `win32-x64` and `linux-x64` fingerprints; post-merge complete Windows and Ubuntu suites are pending.
-- Independent corrected-implementation reviews before the #3 integration were **Spec APPROVE**, **Standards APPROVE**, **Security APPROVE** with 0 open Blocker/High/Medium. The platform-fingerprint delta requires one final narrow security re-review.
+- Parent-run post-#3 focused gates: security **9/9 pass**, Pages contract **25/25 pass**, typecheck, full/production audit zero, fresh merged-lock `npm ci`, production build/verify, T05 slice-A, and raw/percent-encoded local-serve backslash rejection pass.
+- Complete latest-main suites pass on both supported platforms: Windows **406/406 pass** in 38m53s and Ubuntu **406/406 pass** in 5m48s, each with 0 fail/cancel/skip/todo. Ubuntu run `30577735498` also passed fresh install, audit/SBOM, production build/verify, hidden Chromium acceptance, and final source immutability against exact implementation head `6e9fb9a002d162d445235bbe59fbc53b7f5fda3f`.
+- Independent reviews are **Spec APPROVE**, **Standards APPROVE**, **Security APPROVE**, platform-fingerprint **Security APPROVE**, and raw-backslash P1 closure **APPROVE**; 0 open Blocker/High/Medium or actionable finding.
 - `.github/workflows/t08-pinned-stack.yml` is a read-only Ubuntu PR acceptance gate, not a Pages/deployment workflow. It repeats fresh install, immutable-source checks, audit/SBOM, typecheck, production build/verify, the complete suite, and headless Chromium QA.
 
-### Remaining gate
+### Completion
 
-- Keep status `in-progress` and public rehearsal/deployment blocked until the pull request's Ubuntu acceptance job completes successfully against the exact committed bytes. After that result is read back, update this ticket to `completed`; merge remains Tyler's review decision.
+- T08 is complete after exact-stack Windows and Ubuntu acceptance and independent read-back. The pull-request workflow continues to rerun the same gates on every later commit; merge remains Tyler's manual review decision, and this ticket itself does not authorize deployment.
