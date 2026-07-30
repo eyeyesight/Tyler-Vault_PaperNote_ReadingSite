@@ -22,7 +22,8 @@
     "test:theme": "node --test --test-name-pattern=^T04 tests/manifest-quartz-tracer.test.mjs",
     "test:contracts": "node --test tests/publication-contracts.test.mjs",
     "test:guard": "node --test tests/canonical-vault-guard.test.mjs",
-    "test:serve": "node --test tests/local-serve.test.mjs"
+    "test:serve": "node --test tests/local-serve.test.mjs",
+    "test:pages-contract": "node --test tests/github-pages-deployment-contract.test.mjs tests/verified-sealed-release.test.mjs"
   },
   "dependencies": {
     "@jackyzha0/quartz": "https://github.com/jackyzha0/quartz/archive/507ad7f3d4601d83482f61930fccf1c77f42a072.tar.gz",
@@ -33,6 +34,7 @@
   },
   "devDependencies": {
     "@types/node": "25.0.10",
+    "hast-util-from-html": "^2.0.3",
     "typescript": "5.9.3"
   },
   "overrides": {
