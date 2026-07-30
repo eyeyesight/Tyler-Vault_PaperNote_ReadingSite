@@ -173,9 +173,14 @@ test("serve binds only IPv4 loopback, serves generated routes, and releases the 
       new Set(["GET", "HEAD"]),
     )
 
-    const traversal = await fetch(`http://127.0.0.1:${port}/..%5cpackage.json`)
+    const [traversal, ambiguousSeparator] = await Promise.all([
+      fetch(`http://127.0.0.1:${port}/..%5cpackage.json`),
+      fetch(`http://127.0.0.1:${port}/support%5cnode`),
+    ])
     assert.equal(traversal.status, 400)
     assert.doesNotMatch(await traversal.text(), /tyler-vault-reading-site/)
+    assert.equal(ambiguousSeparator.status, 400)
+    assert.equal(await ambiguousSeparator.text(), "Bad Request\n")
 
     child.kill("SIGINT")
     await waitForExit(child)
