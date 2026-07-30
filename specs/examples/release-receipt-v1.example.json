@@ -53,5 +53,17 @@
       "sha256": "e908df5774489433e39a851ff07992c8618a28237d765671b944ad409fd69abb"
     }
   ],
-  "release_digest": "a5ace67336f87faaf1da05161be07ca4e71ee260783b2afcb06e02ef2a76cf0d"
+  "content_fingerprints": [
+    {
+      "public_id": "flow",
+      "route": "/knowledge/concept/flow/",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "public_id": "jackman-2021",
+      "route": "/papers/jackman-2021/",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ],
+  "release_digest": "264aaff3e57a1b0c27a1db243987ae67e3a451be814558c13d3a56431a302d3e"
 }

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "renderer": {
+    "name": "Quartz",
+    "version": "5.0.0",
+    "commit": "41864a0eba8f95deef7ff3cdede7ae03a45d4c70"
+  },
+  "fixed_assets": [
+    "component-1ea6ad18.css",
+    "component-274a3dfe.css",
+    "component-53b25b2b.css",
+    "component-735924e0.css",
+    "component-788c9ca3.css",
+    "component-94cb6c84.css",
+    "component-bbc3f7c0.css",
+    "favicon.ico",
+    "graph.json",
+    "index-710d8449.css",
+    "postscript-0aeed4f1.js",
+    "prescript-e3b0c442.js",
+    "search-index.json",
+    "static/contentIndex.json",
+    "static/giscus/dark.css",
+    "static/giscus/light.css",
+    "static/icon.png",
+    "static/og-image.png",
+    "static/resource-after-5eb75950.js",
+    "static/resource-after-8b336f9a.js",
+    "static/resource-after-baba652b.js",
+    "static/resource-after-e13fffa1.js",
+    "static/resource-style-6bd36952.css",
+    "static/resource-style-a5c806d2.css",
+    "static/scripts/script-0-f7c52b6a.js",
+    "static/scripts/script-1-1f9394e6.js",
+    "static/scripts/script-2-cc8afa9d.js",
+    "static/scripts/script-3-7e107d7e.js",
+    "static/scripts/script-4-51ee2d22.js"
+  ]
+}

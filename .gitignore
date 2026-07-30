@@ -21,6 +21,12 @@ node_modules/
 !.env.example
 *.pem
 *.key
+*.p12
+*.pfx
+.npmrc
+.pypirc
+credentials.json
+service-account.json
 runtime/
 
 # Local planning tickets are retained in this repository for now

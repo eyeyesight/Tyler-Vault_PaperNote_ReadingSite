@@ -12,7 +12,8 @@
     "public_set_digest",
     "created_at",
     "nodes",
-    "artifacts"
+    "artifacts",
+    "content_fingerprints"
   ],
   "properties": {
     "schema_version": { "const": 1 },
@@ -35,6 +36,12 @@
       "minItems": 1,
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/artifact" }
+    },
+    "content_fingerprints": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/contentFingerprint" }
     }
   },
   "$defs": {
@@ -118,6 +125,19 @@
       "required": ["path", "sha256"],
       "properties": {
         "path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "contentFingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["public_id", "route", "sha256"],
+      "properties": {
+        "public_id": { "$ref": "#/$defs/publicId" },
+        "route": {
+          "type": "string",
+          "pattern": "^/(?:papers|knowledge/[a-z]+)/[a-z0-9]+(?:-[a-z0-9]+)*/$"
+        },
         "sha256": { "$ref": "#/$defs/sha256" }
       }
     }

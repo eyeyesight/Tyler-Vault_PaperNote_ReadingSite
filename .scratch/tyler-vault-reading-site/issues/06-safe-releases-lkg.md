@@ -1,6 +1,6 @@
 ## T06 — Implement safe releases and last-known-good protection
 
-- **Status:** `ready-for-agent`
+- **Status:** `completed`
 - **Source spec:** `specs/tyler-vault-reading-site.md`
 - **Scope guard:** local only; no Vault/Drive writes, no remote, no deployment, no Hermes changes
 

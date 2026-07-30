@@ -52,11 +52,13 @@ function sealRelease(receipt) {
   receipt.release_digest = sha256Jcs(unsigned)
   return receipt
 }
-async function writeRuntimeCurrent(root, receipt, pointer) {
+async function writeRuntimeCurrent(root, receipt, pointer, manifest) {
+  manifest ??= await json(path.join(examplesRoot, "publish-unit-manifest-v1.example.json"))
   const receiptFile = path.join(root, ...pointer.receipt_path.split("/"))
   await mkdir(path.dirname(receiptFile), { recursive: true })
-  await writeFile(receiptFile, JSON.stringify(receipt))
-  await writeFile(path.join(root, "current-release.json"), JSON.stringify(pointer))
+  await writeFile(path.join(path.dirname(receiptFile), "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`)
+  await writeFile(receiptFile, `${jcsCanonicalize(receipt)}\n`)
+  await writeFile(path.join(root, "current-release.json"), `${jcsCanonicalize(pointer)}\n`)
 }
 
 async function probeFilesystemAlias(expectedPath) {
@@ -172,9 +174,36 @@ test("manifest digest functions reproduce literal specification examples", async
 
 test("release digest recomputation reproduces literal specification example", async () => {
   const receipt = await json(path.join(examplesRoot, "release-receipt-v1.example.json"))
+  assert.equal(receipt.release_digest, "264aaff3e57a1b0c27a1db243987ae67e3a451be814558c13d3a56431a302d3e")
   const copy = clone(receipt)
   delete copy.release_digest
   assert.equal(sha256Jcs(copy), receipt.release_digest)
+})
+
+test("release receipt v1 requires exact digest-bound content fingerprints", async () => {
+  const original = await json(path.join(examplesRoot, "release-receipt-v1.example.json"))
+  assert.deepEqual(original.content_fingerprints, [
+    { public_id: "flow", route: "/knowledge/concept/flow/", sha256: "1".repeat(64) },
+    { public_id: "jackman-2021", route: "/papers/jackman-2021/", sha256: "2".repeat(64) },
+  ])
+
+  const missing = clone(original)
+  delete missing.content_fingerprints
+  await assert.rejects(validateContract("release-receipt", missing), (error) => error.code === "SCHEMA_INVALID")
+
+  const cases = [
+    ["ARRAY_NOT_SORTED", (r) => r.content_fingerprints.reverse()],
+    ["ARRAY_NOT_UNIQUE", (r) => r.content_fingerprints.push(clone(r.content_fingerprints[0]))],
+    ["RELEASE_FINGERPRINT_SET_MISMATCH", (r) => r.content_fingerprints.pop()],
+    ["RELEASE_FINGERPRINT_ROUTE_MISMATCH", (r) => { r.content_fingerprints[0].route = "/knowledge/method/flow/" }],
+    ["SCHEMA_INVALID", (r) => { r.content_fingerprints[0].sha256 = "A".repeat(64) }],
+  ]
+  for (const [code, mutate] of cases) {
+    const receipt = clone(original)
+    mutate(receipt)
+    sealRelease(receipt)
+    await assert.rejects(validateContract("release-receipt", receipt), (error) => error.code === code, code)
+  }
 })
 
 test("schema validator is Draft 2020-12 and rejects unknown/invalid shape deterministically", async () => {
@@ -690,6 +719,10 @@ test("Phase B positive current publish, Zotero refresh, release binding, and can
   const genesis = await json(path.join(examplesRoot, "publish-unit-manifest-v1.example.json"))
   assert.equal((await validateReleaseAgainstManifest(receipt, genesis)).kind, "release-receipt")
   assert.equal((await validateCurrentReleaseCandidate(pointer, { runtimeRoot: root })).receipt.release_digest, pointer.release_digest)
+  const unselected = clone(pointer)
+  unselected.receipt_path = "consumed/VPUB-20260728-other/release-receipt.json"
+  await assert.rejects(validateCurrentReleaseCandidate(unselected, { runtimeRoot: root }),
+    (error) => error instanceof ContractError && error.code === "CURRENT_POINTER_MISMATCH")
 })
 
 test("Phase B current-presence versus baseline decision table fails closed", async () => {
@@ -724,14 +757,15 @@ test("runtime loader distinguishes absent pointer from corrupt pointer and bad/m
   await assert.rejects(loadPublicationRuntime(corruptPointer), (e) => e.code === "INPUT_INVALID_JSON")
 
   const missingReceipt = await makeRoot()
-  await writeFile(path.join(missingReceipt, "current-release.json"), JSON.stringify(pointer))
+  await writeFile(path.join(missingReceipt, "current-release.json"), `${jcsCanonicalize(pointer)}\n`)
   await assert.rejects(loadPublicationRuntime(missingReceipt), (e) => e.code === "CURRENT_RECEIPT_MISSING")
 
   const badReceipt = await makeRoot()
   const receiptFile = path.join(badReceipt, ...pointer.receipt_path.split("/"))
   await mkdir(path.dirname(receiptFile), { recursive: true })
+  await writeFile(path.join(path.dirname(receiptFile), "manifest.json"), await readFile(path.join(examplesRoot, "publish-unit-manifest-v1.example.json")))
   await writeFile(receiptFile, "{")
-  await writeFile(path.join(badReceipt, "current-release.json"), JSON.stringify(pointer))
+  await writeFile(path.join(badReceipt, "current-release.json"), `${jcsCanonicalize(pointer)}\n`)
   await assert.rejects(loadPublicationRuntime(badReceipt), (e) => e.code === "INPUT_INVALID_JSON")
 
   const pointerMismatch = await makeRoot()
@@ -751,6 +785,33 @@ test("runtime loader distinguishes absent pointer from corrupt pointer and bad/m
   changedBytes.artifacts[0].sha256 = "0".repeat(64)
   await writeRuntimeCurrent(recomputedMismatch, changedBytes, pointer)
   await assert.rejects(loadPublicationRuntime(recomputedMismatch), (e) => e.code === "RELEASE_DIGEST_MISMATCH")
+})
+
+test("sealed current authority rejects malformed historical manifest bindings", async (t) => {
+  const roots = []
+  t.after(() => Promise.all(roots.map((root) => rm(root, { recursive: true, force: true }))))
+  const receipt = await json(path.join(examplesRoot, "release-receipt-v1.example.json"))
+  const pointer = await json(path.join(examplesRoot, "current-release-v1.example.json"))
+  const originalManifest = await json(path.join(examplesRoot, "publish-unit-manifest-v1.example.json"))
+  const cases = [
+    ["RELEASE_MANIFEST_BINDING_MISMATCH", (manifest) => { manifest.manifest_id = "VPUB-20260728-other" }],
+    ["RELEASE_NODE_SOURCE_MISMATCH", (manifest, candidateReceipt, candidatePointer) => {
+      candidateReceipt.nodes[0].source_sha256 = "0".repeat(64)
+      sealRelease(candidateReceipt)
+      candidatePointer.release_digest = candidateReceipt.release_digest
+    }],
+  ]
+  for (const [code, mutate] of cases) {
+    const root = await mkdtemp(path.join(tmpdir(), "contract-runtime-historical-binding-"))
+    roots.push(root)
+    const manifest = clone(originalManifest)
+    const candidateReceipt = clone(receipt)
+    const candidatePointer = clone(pointer)
+    mutate(manifest, candidateReceipt, candidatePointer)
+    sealManifest(manifest)
+    await writeRuntimeCurrent(root, candidateReceipt, candidatePointer, manifest)
+    await assert.rejects(loadPublicationRuntime(root), (error) => error instanceof ContractError && error.code === code, code)
+  }
 })
 
 test("pointer absence is genesis only when consumed history is absent or empty, with zero mutation", async (t) => {
@@ -832,7 +893,7 @@ test("runtime loader rejects case aliases, nonregular files, and junction layers
 
   const asciiAlias = path.join(root, "CURRENT-RELEASE.JSON")
   const expectedPointer = path.join(root, "current-release.json")
-  await writeFile(asciiAlias, JSON.stringify(pointer))
+  await writeFile(asciiAlias, `${jcsCanonicalize(pointer)}\n`)
   const asciiFilesystemAlias = await probeFilesystemAlias(expectedPointer)
   if (process.platform === "win32") {
     assert.equal(asciiFilesystemAlias, true, "Windows volume must resolve the expected spelling before the loader exercises its filesystem probe")
@@ -852,7 +913,7 @@ test("runtime loader rejects case aliases, nonregular files, and junction layers
 
   await writeFile(path.join(outside, "release-receipt.json"), "sentinel")
   await symlink(outside, path.join(root, "consumed"), "junction")
-  await writeFile(path.join(root, "current-release.json"), JSON.stringify(pointer))
+  await writeFile(path.join(root, "current-release.json"), `${jcsCanonicalize(pointer)}\n`)
   const before = await readFile(path.join(root, "current-release.json"), "utf8")
   await assert.rejects(loadPublicationRuntime(root), (e) => e.code === "PATH_SYMLINK_NOT_ALLOWED")
   assert.equal(await readFile(path.join(root, "current-release.json"), "utf8"), before)
@@ -866,6 +927,7 @@ test("runtime loader rejects case aliases, nonregular files, and junction layers
   await rm(path.join(root, "consumed"), { recursive: true })
   const finalParent = path.join(root, "consumed", "VPUB-20260728-example")
   await mkdir(finalParent, { recursive: true })
+  await writeFile(path.join(finalParent, "manifest.json"), await readFile(path.join(examplesRoot, "publish-unit-manifest-v1.example.json")))
   await symlink(outside, path.join(finalParent, "release-receipt.json"), "junction")
   await assert.rejects(loadPublicationRuntime(root), (e) => e.code === "PATH_SYMLINK_NOT_ALLOWED")
   assert.equal(await readFile(path.join(root, "current-release.json"), "utf8"), before)
@@ -906,7 +968,7 @@ test("runtime loader probes Windows Unicode UpCase aliases before missing or gen
       arrange: async (root, aliasPath) => {
         await mkdir(path.dirname(aliasPath), { recursive: true })
         const pointer = { ...pointerFixture, receipt_path: "consumed/release-receipt.json" }
-        await writeFile(path.join(root, "current-release.json"), JSON.stringify(pointer))
+        await writeFile(path.join(root, "current-release.json"), `${jcsCanonicalize(pointer)}\n`)
         await writeFile(aliasPath, "unicode-alias-sentinel")
       },
     },
@@ -918,7 +980,7 @@ test("runtime loader probes Windows Unicode UpCase aliases before missing or gen
       arrange: async (root, aliasPath) => {
         await mkdir(path.dirname(aliasPath), { recursive: true })
         const pointer = { ...pointerFixture, receipt_path: "consumed/marker-k.json" }
-        await writeFile(path.join(root, "current-release.json"), JSON.stringify(pointer))
+        await writeFile(path.join(root, "current-release.json"), `${jcsCanonicalize(pointer)}\n`)
         await writeFile(aliasPath, "unicode-alias-sentinel")
       },
     },
@@ -1012,9 +1074,9 @@ test("candidate release receipt cross-binding covers top-level, set, identity, a
   const original = await json(path.join(examplesRoot, "release-receipt-v1.example.json"))
   const cases = [
     ["RELEASE_MANIFEST_BINDING_MISMATCH", (r) => { r.manifest_id = "VPUB-20260728-other" }],
-    ["RELEASE_NODE_SET_MISMATCH", (r) => { r.nodes = r.nodes.filter((node) => node.public_id !== "flow") }],
+    ["RELEASE_NODE_SET_MISMATCH", (r) => { r.nodes = r.nodes.filter((node) => node.public_id !== "flow"); r.content_fingerprints = r.content_fingerprints.filter((fingerprint) => fingerprint.public_id !== "flow") }],
     ["RELEASE_NODE_IDENTITY_MISMATCH", (r) => { r.nodes.find((node) => node.public_id === "flow").path = "Knowledge/Concepts/Flow-renamed.md" }],
-    ["RELEASE_NODE_IDENTITY_MISMATCH", (r) => { const node = r.nodes.find((item) => item.public_id === "flow"); node.node_class = "method"; node.path = "Knowledge/Methods/Flow.md" }],
+    ["RELEASE_NODE_IDENTITY_MISMATCH", (r) => { const node = r.nodes.find((item) => item.public_id === "flow"); node.node_class = "method"; node.path = "Knowledge/Methods/Flow.md"; r.content_fingerprints.find((fingerprint) => fingerprint.public_id === "flow").route = "/knowledge/method/flow/" }],
     ["RELEASE_NODE_SOURCE_MISMATCH", (r) => { r.nodes.find((node) => node.public_id === "flow").source_sha256 = "0".repeat(64) }],
   ]
   for (const [code, mutate] of cases) {
@@ -1054,8 +1116,7 @@ test("Phase B CLI validates release and candidate current with one JSON object a
   const receipt = await json(receiptPath)
   const pointer = await json(pointerPath)
   const runtimeReceipt = path.join(candidateRoot, ...pointer.receipt_path.split("/"))
-  await mkdir(path.dirname(runtimeReceipt), { recursive: true })
-  await writeFile(runtimeReceipt, JSON.stringify(receipt))
+  await writeRuntimeCurrent(candidateRoot, receipt, pointer)
 
   const releaseResult = spawnSync(process.execPath, [cliPath, "validate", "--kind", "release-receipt", "--input", receiptPath, "--manifest", manifestPath, "--now", "2026-07-28T00:00:00Z", "--runtime-root", genesisRoot], { encoding: "utf8" })
   assert.equal(releaseResult.status, 0, releaseResult.stdout)

@@ -6,7 +6,7 @@
   "action": {
     "kind": "zotero-refresh",
     "target_id": "jackman-2021",
-    "baseline_release_digest": "a5ace67336f87faaf1da05161be07ca4e71ee260783b2afcb06e02ef2a76cf0d",
+    "baseline_release_digest": "264aaff3e57a1b0c27a1db243987ae67e3a451be814558c13d3a56431a302d3e",
     "baseline_receipt_path": "consumed/VPUB-20260728-example/release-receipt.json"
   },
   "nodes": [
@@ -28,8 +28,8 @@
     "approver": "tyler",
     "channel": "telegram",
     "source_event_id": "example-refresh-not-an-approval",
-    "approved_plan_digest": "c94248424864311552bb28cbf8c13608c7e8b1ef97c189fe75b7de01ec465629",
+    "approved_plan_digest": "c4096ea8c86f9af773307277ee4e716c98cd2d1f1002a64a769b114ac93f90be",
     "approved_at": "2026-07-28T00:01:00Z"
   },
-  "plan_digest": "c94248424864311552bb28cbf8c13608c7e8b1ef97c189fe75b7de01ec465629"
+  "plan_digest": "c4096ea8c86f9af773307277ee4e716c98cd2d1f1002a64a769b114ac93f90be"
 }

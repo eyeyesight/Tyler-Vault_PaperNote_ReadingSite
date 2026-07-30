@@ -15,6 +15,7 @@
     "contracts:validate": "node scripts/contracts.mjs validate",
     "tracer:preflight": "node scripts/tracer.mjs preflight",
     "tracer:build": "node scripts/tracer.mjs build",
+    "tracer:release": "node scripts/tracer.mjs release",
     "typecheck": "tsc --noEmit",
     "test": "node --test --test-concurrency=1",
     "test:tracer": "node --test tests/manifest-quartz-tracer.test.mjs",

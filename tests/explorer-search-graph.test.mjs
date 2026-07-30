@@ -9,7 +9,7 @@ import { createServer } from "node:http"
 import test from "node:test"
 
 import Ajv2020 from "ajv/dist/2020.js"
-import { computePlanDigest, computePublicSetDigest, sha256Jcs } from "../lib/publication-contracts.mjs"
+import { computePlanDigest, computePublicSetDigest, jcsCanonicalize, sha256Jcs } from "../lib/publication-contracts.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const cli = path.join(repoRoot, "scripts", "tracer.mjs")
@@ -123,15 +123,38 @@ async function fullManifestFixture() {
     baselineNodes.push({ public_id, path: sourcePath, node_class, source_sha256: digest(bytes) })
   }
   baselineNodes.sort((left, right) => utf8Sort(left.public_id, right.public_id))
+  const baselineManifest = {
+    schema_version: 1,
+    manifest_id: "VPUB-20260727-existing-baseline",
+    created_at: "2026-07-27T00:00:00Z",
+    expires_at: "2026-07-28T00:00:00Z",
+    action: {
+      kind: "publish-unit",
+      baseline: { kind: "genesis" },
+      primary_id: "existing-paper",
+      support_ids: ["existing-node"],
+      added_node_ids: ["existing-node", "existing-paper"],
+      direct_connection_edges: [{ source: "existing-paper", target: "existing-node" }],
+    },
+    nodes: baselineNodes,
+    public_set_digest: "0".repeat(64),
+    approval_receipt: { approver: "tyler", channel: "telegram", source_event_id: "synthetic-t05-baseline", approved_plan_digest: "0".repeat(64), approved_at: "2026-07-27T00:01:00Z" },
+    plan_digest: "0".repeat(64),
+  }
+  sealManifest(baselineManifest)
   const baselineReceipt = {
     schema_version: 1,
     release_digest: "0".repeat(64),
     manifest_id: "VPUB-20260727-existing-baseline",
-    plan_digest: "1".repeat(64),
+    plan_digest: baselineManifest.plan_digest,
     public_set_digest: computePublicSetDigest(baselineNodes),
     created_at: "2026-07-27T12:00:00Z",
     nodes: baselineNodes,
     artifacts: [{ path: "index.html", sha256: "2".repeat(64) }],
+    content_fingerprints: [
+      { public_id: "existing-node", route: "/knowledge/concept/existing-node/", sha256: "3".repeat(64) },
+      { public_id: "existing-paper", route: "/papers/existing-paper/", sha256: "4".repeat(64) },
+    ],
   }
   const unsignedBaseline = structuredClone(baselineReceipt)
   delete unsignedBaseline.release_digest
@@ -139,8 +162,9 @@ async function fullManifestFixture() {
   const receiptPath = "consumed/VPUB-20260727-existing-baseline/release-receipt.json"
   const runtimeReceipt = path.join(fx.paths.runtime, ...receiptPath.split("/"))
   await mkdir(path.dirname(runtimeReceipt), { recursive: true })
-  await writeFile(runtimeReceipt, JSON.stringify(baselineReceipt))
-  await writeFile(path.join(fx.paths.runtime, "current-release.json"), JSON.stringify({ schema_version: 1, release_digest: baselineReceipt.release_digest, receipt_path: receiptPath }))
+  await writeFile(path.join(path.dirname(runtimeReceipt), "manifest.json"), `${JSON.stringify(baselineManifest, null, 2)}\n`)
+  await writeFile(runtimeReceipt, `${jcsCanonicalize(baselineReceipt)}\n`)
+  await writeFile(path.join(fx.paths.runtime, "current-release.json"), `${jcsCanonicalize({ schema_version: 1, release_digest: baselineReceipt.release_digest, receipt_path: receiptPath })}\n`)
 
   fx.manifest.action.baseline = { kind: "release", release_digest: baselineReceipt.release_digest, receipt_path: receiptPath }
   fx.manifest.nodes.push(...baselineNodes)

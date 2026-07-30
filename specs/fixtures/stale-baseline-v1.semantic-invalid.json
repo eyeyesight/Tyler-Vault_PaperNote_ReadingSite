@@ -3,7 +3,7 @@
   "expected_error": "STALE_BASELINE",
   "current_pointer": {
     "schema_version": 1,
-    "release_digest": "d1853ed816967f2b7e5a343cf03ad89a542385177e46214e89f958abe6572376",
+    "release_digest": "ae929d066a30a7733563a012596107ca272ea2d93d63573d076d885dd9c404fb",
     "receipt_path": "consumed/VPUB-20260728-example-next/release-receipt.json"
   },
   "current_receipt": {
@@ -81,7 +81,29 @@
         "sha256": "3a09604c1f6b7eab2b74075c73562501bb3df500dd46c20a7531a792876777b5"
       }
     ],
-    "release_digest": "d1853ed816967f2b7e5a343cf03ad89a542385177e46214e89f958abe6572376"
+    "release_digest": "ae929d066a30a7733563a012596107ca272ea2d93d63573d076d885dd9c404fb",
+    "content_fingerprints": [
+      {
+        "public_id": "flow",
+        "route": "/knowledge/concept/flow/",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "public_id": "guo-2024",
+        "route": "/papers/guo-2024/",
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      {
+        "public_id": "jackman-2021",
+        "route": "/papers/jackman-2021/",
+        "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+      },
+      {
+        "public_id": "micro-action",
+        "route": "/knowledge/concept/micro-action/",
+        "sha256": "4444444444444444444444444444444444444444444444444444444444444444"
+      }
+    ]
   },
   "stale_receipt_path": "consumed/VPUB-20260728-example/release-receipt.json",
   "stale_receipt": {
@@ -139,7 +161,19 @@
         "sha256": "e908df5774489433e39a851ff07992c8618a28237d765671b944ad409fd69abb"
       }
     ],
-    "release_digest": "a5ace67336f87faaf1da05161be07ca4e71ee260783b2afcb06e02ef2a76cf0d"
+    "release_digest": "264aaff3e57a1b0c27a1db243987ae67e3a451be814558c13d3a56431a302d3e",
+    "content_fingerprints": [
+      {
+        "public_id": "flow",
+        "route": "/knowledge/concept/flow/",
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "public_id": "jackman-2021",
+        "route": "/papers/jackman-2021/",
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    ]
   },
   "replayed_manifest": {
     "schema_version": 1,
@@ -150,7 +184,7 @@
       "kind": "publish-unit",
       "baseline": {
         "kind": "release",
-        "release_digest": "a5ace67336f87faaf1da05161be07ca4e71ee260783b2afcb06e02ef2a76cf0d",
+        "release_digest": "264aaff3e57a1b0c27a1db243987ae67e3a451be814558c13d3a56431a302d3e",
         "receipt_path": "consumed/VPUB-20260728-example/release-receipt.json"
       },
       "primary_id": "guo-2024",
@@ -204,9 +238,9 @@
       "approver": "tyler",
       "channel": "telegram",
       "source_event_id": "example-baseline-not-an-approval",
-      "approved_plan_digest": "76e4c2551887f3bb42174202f2c1928cc72d951c2ace21c6a9d3f95cab44d691",
+      "approved_plan_digest": "d76428b469e406fd1bdbe5547faa23db09aeec3b18a8b4a1c13b5109086d2614",
       "approved_at": "2026-07-28T00:01:00Z"
     },
-    "plan_digest": "76e4c2551887f3bb42174202f2c1928cc72d951c2ace21c6a9d3f95cab44d691"
+    "plan_digest": "d76428b469e406fd1bdbe5547faa23db09aeec3b18a8b4a1c13b5109086d2614"
   }
 }

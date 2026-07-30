@@ -518,13 +518,13 @@ test("T03 source permits ordinary less-than text but rejects every raw HTML tag 
   })
 })
 
-test("T03 candidate gate rejects lowercase mixed-separator Windows paths and cleans work", async (t) => {
+test("T03 source gate rejects lowercase mixed-separator Windows paths before build and cleans work", async (t) => {
   const fx = await fixture("tracer-windows-disclosure-")
   t.after(() => rm(fx.root, { recursive: true, force: true }))
   await replaceSource(fx, "synthetic-support", Buffer.from(`---\ntitle: Synthetic Support\ntype: concept\n---\n\n${disclaimer}\n\nLocal path: c:\\users\\arke\\private\n`))
   const result = invoke(fx, "build")
   assert.equal(result.status, 1, result.stdout)
-  assert.equal(oneJson(result).error.code, "CANDIDATE_ABSOLUTE_PATH_DISCLOSURE")
+  assert.equal(oneJson(result).error.code, "SOURCE_ABSOLUTE_PATH_NOT_ALLOWED")
   await assert.rejects(lstat(fx.output), (error) => error.code === "ENOENT")
   assert.equal((await readdir(fx.paths.work)).length, 0)
 })

@@ -31,10 +31,17 @@ import { isAlias, isMap, isScalar, isSeq, parseDocument } from "yaml"
 
 import {
   ContractError,
+  jcsCanonicalize,
+  loadSealedCustodyByManifestId,
+  loadPublicationRuntime,
   readContractJson,
+  sha256Jcs,
   validateContract,
+  validateCrossReleaseManifest,
   validatePublicationPreflight,
+  validateReleaseAgainstManifest,
 } from "../lib/publication-contracts.mjs"
+import { createOwnedRunLifecycle, promoteRelease, selectExistingRelease } from "../lib/release-promotion.mjs"
 import {
   assertNoLinkAncestors,
   canonicalPath,
@@ -43,23 +50,53 @@ import {
   pathsOverlap,
 } from "../lib/filesystem-safety.mjs"
 import { createQuartzPublicNavigation } from "../lib/quartz-public-navigation.mjs"
+import {
+  constructReleaseReceipt,
+  readCandidateArtifactTree,
+  verifyCandidateArtifactTree,
+  verifySealedArtifactTree,
+} from "../lib/safe-release.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const Ajv2020 = /** @type {any} */ (Ajv2020Module)
 const toolchainMetadataPath = path.join(repoRoot, "config", "quartz-toolchain.json")
+const outputAllowlistPath = path.join(repoRoot, "config", "public-output-allowlist-v1.json")
+const secretRulesPath = path.join(repoRoot, "config", "public-secret-rules.toml")
 const scholarlyThemePath = path.join(repoRoot, "styles", "tracer-scholarly.scss")
 const fixtureDisclaimer = "SYNTHETIC FIXTURE — NOT RESEARCH EVIDENCE."
 const homeDisclaimer = "SYNTHETIC / NON-RESEARCH: This generated site is a tracer fixture only. It contains no research evidence."
-const requiredFlags = ["manifest", "exportReceipt", "runtimeRoot", "exportRoot", "vaultRoot", "workRoot", "output", "now"]
+const sharedRequiredFlags = ["manifest", "exportReceipt", "runtimeRoot", "exportRoot", "vaultRoot", "workRoot", "now"]
 const testCapability = "t03-regression-v1"
-
+const releaseTestCapability = "t06-regression-v1"
+const preSealReleaseCases = new Set([
+  "gate-marker", "output-extra-asset", "output-extra-route", "output-missing-asset",
+  "output-markdown", "output-pdf", "output-receipt", "output-runtime",
+  "candidate-token-html", "candidate-token-binary", "candidate-empty-env",
+  "candidate-empty-credential", "candidate-empty-key",
+  "candidate-absolute-path-html", "candidate-absolute-path-binary", "candidate-absolute-root-token",
+  "candidate-unc-tail-binary",
+])
+const postSealReleaseCases = new Set([
+  "artifact-content-tamper-after-seal", "artifact-extra-after-seal",
+  "artifact-remove-after-seal", "artifact-class-after-seal",
+  "receipt-digest-tamper", "receipt-fingerprint-reseal-tamper",
+])
 function testHooksEnabled() {
   return process.env.TYLER_TRACER_TEST_CAPABILITY === testCapability
 }
 
+function releaseTestHooksEnabled() {
+  return process.env.TYLER_RELEASE_TEST_CAPABILITY === releaseTestCapability
+}
+
+/** @param {string} name @param {boolean} [releaseMode] */
+function testHook(name, releaseMode = false) {
+  return !releaseMode && testHooksEnabled() ? process.env[name] : undefined
+}
+
 /** @param {string} name */
-function testHook(name) {
-  return testHooksEnabled() ? process.env[name] : undefined
+function releaseTestHook(name) {
+  return releaseTestHooksEnabled() ? process.env[name] : undefined
 }
 
 class TracerError extends Error {
@@ -74,7 +111,7 @@ class TracerError extends Error {
 /** @param {string[]} argv */
 function parseArgs(argv) {
   const [command, ...rest] = argv
-  if (command !== "preflight" && command !== "build") throw new TracerError("USAGE", "expected command: preflight or build")
+  if (command !== "preflight" && command !== "build" && command !== "release") throw new TracerError("USAGE", "expected command: preflight, build, or release")
   /** @type {Record<string,string>} */
   const options = {}
   const flags = new Map([
@@ -85,6 +122,7 @@ function parseArgs(argv) {
     ["--vault-root", "vaultRoot"],
     ["--work-root", "workRoot"],
     ["--output", "output"],
+    ["--releases-root", "releasesRoot"],
     ["--now", "now"],
   ])
   for (let index = 0; index < rest.length; index += 2) {
@@ -98,9 +136,11 @@ function parseArgs(argv) {
     if (Object.hasOwn(options, property)) throw new TracerError("USAGE", "duplicate flag")
     options[property] = value
   }
+  const requiredFlags = [...sharedRequiredFlags, command === "release" ? "releasesRoot" : "output"]
+  if (command === "release" ? options.output : options.releasesRoot) throw new TracerError("USAGE", "output and releases-root are command-specific")
   const missing = requiredFlags.filter((flag) => !options[flag])
   if (missing.length) throw new TracerError("CONTEXT_REQUIRED", "all tracer path and time flags are required")
-  return /** @type {{command:"preflight"|"build",manifest:string,exportReceipt:string,runtimeRoot:string,exportRoot:string,vaultRoot:string,workRoot:string,output:string,now:string}} */ ({ command, ...options })
+  return /** @type {{command:"preflight"|"build"|"release",manifest:string,exportReceipt:string,runtimeRoot:string,exportRoot:string,vaultRoot:string,workRoot:string,output?:string,releasesRoot?:string,now:string}} */ ({ command, ...options })
 }
 
 /** @param {string} name @param {string} input @param {"directory"|"file"|"missing"} kind */
@@ -156,6 +196,230 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex")
 }
 
+function utf8Order(/** @type {string} */ left, /** @type {string} */ right) {
+  return Buffer.compare(Buffer.from(left), Buffer.from(right))
+}
+
+async function readOutputAllowlist(/** @type {{name:string,version:string,commit:string}} */ metadata) {
+  let value
+  try { value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readFile(outputAllowlistPath))) } catch {
+    throw new TracerError("OUTPUT_ALLOWLIST_INVALID", "project output allowlist could not be loaded")
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || JSON.stringify(Object.keys(value)) !== JSON.stringify(["schema_version", "renderer", "fixed_assets"])
+    || value.schema_version !== 1
+    || !value.renderer || typeof value.renderer !== "object" || Array.isArray(value.renderer)
+    || JSON.stringify(Object.keys(value.renderer)) !== JSON.stringify(["name", "version", "commit"])
+    || value.renderer.name !== metadata.name || value.renderer.version !== metadata.version || value.renderer.commit !== metadata.commit
+    || !Array.isArray(value.fixed_assets) || value.fixed_assets.length < 1) {
+    throw new TracerError("OUTPUT_ALLOWLIST_INVALID", "project output allowlist schema or renderer pin is invalid")
+  }
+  const fixedAssets = /** @type {unknown[]} */ (value.fixed_assets)
+  if (fixedAssets.some((/** @type {unknown} */ entry) => typeof entry !== "string" || entry.normalize("NFC") !== entry || !/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/.test(entry)
+      || entry.startsWith("/") || entry.includes("..") || /[*?\[\]{}]/.test(entry) || /\.(?:html|md|pdf)$/i.test(entry))
+    || new Set(fixedAssets).size !== fixedAssets.length) {
+    throw new TracerError("OUTPUT_ALLOWLIST_INVALID", "project output allowlist assets are not exact unique normalized paths")
+  }
+  const normalizedAssets = /** @type {string[]} */ (fixedAssets)
+  if (JSON.stringify(normalizedAssets) !== JSON.stringify([...normalizedAssets].sort(utf8Order))) {
+    throw new TracerError("OUTPUT_ALLOWLIST_INVALID", "project output allowlist assets are not UTF-8 sorted")
+  }
+  return Object.freeze([...normalizedAssets])
+}
+
+/** Strictly parse the repository-owned TOML subset: one integer schema and
+ * six quoted-string arrays. General TOML syntax and arbitrary regex are not
+ * accepted at this security boundary. @param {Buffer} bytes @param {boolean} [releaseMode] */
+function parseSecretRules(bytes, releaseMode = false) {
+  let source
+  try { source = new TextDecoder("utf-8", { fatal: true }).decode(bytes) } catch { throw new TracerError("SECRET_RULES_INVALID", "public secret rules are not strict UTF-8") }
+  const injected = releaseMode ? releaseTestHook("TYLER_RELEASE_TEST_RULES_CASE") : undefined
+  if (injected) {
+    const cases = new Map([
+      ["unknown", `${source}unknown_rule = ["value"]\n`],
+      ["duplicate", `${source}schema_version = 1\n`],
+      ["malformed", source.replace(/token_prefixes = .*\n/, "token_prefixes = [\"ghp_\"\n")],
+      ["empty", source.replace(/token_prefixes = .*\n/, "token_prefixes = [\"\"]\n")],
+      ["non-nfc", source.replace("ghp_", "ghp_é".normalize("NFD"))],
+      ["duplicate-value", source.replace('"ghp_", ', '"ghp_", "ghp_", ')],
+      ["control-character", source.replace('"ghp_"', '"ghp_\\u0000"')],
+      ["unknown-class", source.replace('"windows-unc-root"]', '"windows-unc-root", "network-url-root"]')],
+      ["missing-path-classes", source.replace(/absolute_path_classes = .*\n/, "")],
+      ["unsorted-path-root", source.replace('posix_local_roots = ["/Applications/", "/Library/",', 'posix_local_roots = ["/Library/", "/Applications/",')],
+      ["duplicate-path-root", source.replace('"/etc/", ', '"/etc/", "/etc/", ')],
+    ])
+    if (!cases.has(injected)) throw new TracerError("TEST_INJECTION_INVALID", "secret-rule regression injection is not a fixed supported variant")
+    source = /** @type {string} */ (cases.get(injected))
+  }
+  if (source.normalize("NFC") !== source || source.startsWith("\ufeff")) throw new TracerError("SECRET_RULES_INVALID", "public secret rules must be NFC without BOM")
+  const expected = new Set(["schema_version", "absolute_path_classes", "posix_local_roots", "private_key_delimiters", "token_prefixes", "credential_filenames", "credential_suffixes"])
+  /** @type {Record<string,number|string[]>} */
+  const parsed = Object.create(null)
+  for (const line of source.split("\n")) {
+    if (line === "") continue
+    const match = /^([a-z_]+) = (.+)$/.exec(line)
+    if (!match || !expected.has(match[1]) || Object.hasOwn(parsed, match[1])) throw new TracerError("SECRET_RULES_INVALID", "public secret rules contain an unknown, duplicate, or malformed field")
+    if (match[1] === "schema_version") {
+      if (match[2] !== "1") throw new TracerError("SECRET_RULES_INVALID", "public secret rules schema version is unsupported")
+      parsed[match[1]] = 1
+      continue
+    }
+    let values
+    try { values = JSON.parse(match[2]) } catch { throw new TracerError("SECRET_RULES_INVALID", "public secret rules arrays must contain quoted strings") }
+    if (!Array.isArray(values) || values.length < 1 || values.some((value) => typeof value !== "string" || value.length < 1
+      || value.normalize("NFC") !== value || /[\u0000-\u001f\u007f]/u.test(value))
+      || new Set(values).size !== values.length
+      || JSON.stringify(values) !== JSON.stringify([...values].sort(utf8Order))) {
+      throw new TracerError("SECRET_RULES_INVALID", "public secret rule arrays must be nonempty, unique, NFC, and UTF-8 sorted")
+    }
+    parsed[match[1]] = values
+  }
+  if ([...expected].some((key) => !Object.hasOwn(parsed, key))) throw new TracerError("SECRET_RULES_INVALID", "public secret rules are incomplete")
+  const absolutePathClasses = /** @type {string[]} */ (parsed.absolute_path_classes)
+  const requiredPathClasses = ["posix-local-root", "windows-drive-root", "windows-unc-root"]
+  if (JSON.stringify(absolutePathClasses) !== JSON.stringify(requiredPathClasses)) {
+    throw new TracerError("SECRET_RULES_INVALID", "absolute local path grammar classes must be the complete supported set")
+  }
+  const posixLocalRoots = /** @type {string[]} */ (parsed.posix_local_roots)
+  if (posixLocalRoots.some((root) => !root.startsWith("/") || !root.endsWith("/") || root.includes("\\") || root.includes("//")
+    || root.split("/").slice(1, -1).some((segment) => segment === "" || segment === "." || segment === ".."))) {
+    throw new TracerError("SECRET_RULES_INVALID", "POSIX local roots must be normalized absolute component prefixes")
+  }
+  return Object.freeze({
+    absolutePathClasses: Object.freeze(absolutePathClasses),
+    posixLocalRoots: Object.freeze(posixLocalRoots),
+    privateKeyDelimiters: Object.freeze(/** @type {string[]} */ (parsed.private_key_delimiters)),
+    tokenPrefixes: Object.freeze(/** @type {string[]} */ (parsed.token_prefixes)),
+    credentialFilenames: Object.freeze(/** @type {string[]} */ (parsed.credential_filenames)),
+    credentialSuffixes: Object.freeze(/** @type {string[]} */ (parsed.credential_suffixes)),
+  })
+}
+
+async function readSecretRules(releaseMode = false) {
+  try { return parseSecretRules(await readFile(secretRulesPath), releaseMode) } catch (error) {
+    if (error instanceof TracerError) throw error
+    throw new TracerError("SECRET_RULES_INVALID", "public secret rules could not be loaded")
+  }
+}
+
+/** A local-path token may begin at byte zero or after punctuation/whitespace,
+ * but never inside a hostname, URL scheme, identifier, or existing path token.
+ * This makes `https://host/etc/x` nonlocal while retaining quoted `/etc/x`.
+ * @param {string} value @param {number} index */
+function hasAbsolutePathTokenBoundary(value, index) {
+  if (index === 0) return true
+  const previous = value.charCodeAt(index - 1)
+  const identifier = (previous >= 0x30 && previous <= 0x39)
+    || (previous >= 0x41 && previous <= 0x5a)
+    || (previous >= 0x61 && previous <= 0x7a)
+    || previous === 0x5f
+  return !identifier && !"+.-:/\\".includes(value[index - 1])
+}
+
+/** A configured POSIX root also matches its exact component token without the
+ * policy's normalization slash. Only path/syntax delimiters terminate the
+ * token; ordinary filename bytes keep lookalikes such as `/data.json`,
+ * `/binary`, and `/workspace-public` outside the configured root.
+ * @param {string} value @param {number} end */
+function hasPosixRootComponentEndBoundary(value, end) {
+  if (end >= value.length) return true
+  const next = value.charCodeAt(end)
+  if (next <= 0x20 || next === 0x7f) return true
+  return next === 0x2f || next === 0x5c || next === 0x22 || next === 0x27
+    || next === 0x60 || next === 0x3c || next === 0x3e || next === 0x7b
+    || next === 0x7d || next === 0x5b || next === 0x5d || next === 0x28
+    || next === 0x29 || next === 0x2c || next === 0x3b || next === 0x3a
+    || next === 0x21 || next === 0x3f || next === 0x25 || next === 0x23
+}
+
+/** UNC components are scanned as raw one-byte values. They may contain any
+ * non-control Windows-legal byte (including high bytes, spaces after the first
+ * byte, and common terminal punctuation), except reserved path characters.
+ * @param {number} byte */
+function isUncComponentByte(byte) {
+  return byte >= 0x20 && byte !== 0x7f && !'<>:"/\\|?*'.includes(String.fromCharCode(byte))
+}
+
+/** Slash-form UNC and protocol-relative URLs are lexically identical when the
+ * host is a single label. Exempt only a DNS-shaped public host; backslash UNC
+ * and single-label slash UNC remain fail-closed. @param {string} host */
+function isDnsProtocolRelativeHost(host) {
+  return /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+(?:\:[0-9]+)?$/.test(host)
+}
+
+/** @param {string} value */
+function hasWindowsUncPath(value) {
+  for (const opener of value.matchAll(/(?:\\\\|\/\/)/g)) {
+    const index = /** @type {number} */ (opener.index)
+    if (!hasAbsolutePathTokenBoundary(value, index)) continue
+    let cursor = index + 2
+    const serverStart = cursor
+    if (value.charCodeAt(cursor) <= 0x20) continue
+    while (cursor < value.length && isUncComponentByte(value.charCodeAt(cursor))) cursor += 1
+    if (cursor === serverStart || (value[cursor] !== "/" && value[cursor] !== "\\")) continue
+    const server = value.slice(serverStart, cursor)
+    cursor += 1
+    const shareStart = cursor
+    if (value.charCodeAt(cursor) <= 0x20) continue
+    while (cursor < value.length && isUncComponentByte(value.charCodeAt(cursor))) cursor += 1
+    if (cursor === shareStart) continue
+    if (value[index] === "/" && isDnsProtocolRelativeHost(server)) continue
+    return true
+  }
+  return false
+}
+
+/** Grammar-based raw-byte absolute local path policy. Slash-form UNC requires
+ * server/share components, so ordinary `// comment` syntax is not classified;
+ * a preceding colon also prevents the `//` in an HTTP(S) URL from becoming UNC.
+ * @param {Buffer} bytes @param {Awaited<ReturnType<typeof readSecretRules>>} rules */
+function hasAbsoluteLocalPath(bytes, rules) {
+  const ascii = bytes.toString("latin1")
+  const classes = new Set(rules.absolutePathClasses)
+  if (classes.has("posix-local-root")) {
+    for (const root of rules.posixLocalRoots) {
+      const componentRoot = root.slice(0, -1)
+      let cursor = 0
+      while ((cursor = ascii.indexOf(componentRoot, cursor)) !== -1) {
+        if (hasAbsolutePathTokenBoundary(ascii, cursor)
+          && hasPosixRootComponentEndBoundary(ascii, cursor + componentRoot.length)) return true
+        cursor += componentRoot.length
+      }
+    }
+  }
+  if (classes.has("windows-drive-root")) {
+    for (const match of ascii.matchAll(/[A-Za-z]:[\\/]/g)) {
+      if (hasAbsolutePathTokenBoundary(ascii, /** @type {number} */ (match.index))) return true
+    }
+  }
+  if (classes.has("windows-unc-root") && hasWindowsUncPath(ascii)) return true
+  return false
+}
+
+/** Raw ASCII-safe scanner shared by source and candidate bytes. It never relies
+ * on UTF-8 replacement decoding to recognize token prefixes. */
+function secretFinding(/** @type {Buffer} */ bytes, /** @type {string} */ relative, /** @type {Awaited<ReturnType<typeof readSecretRules>>} */ rules, /** @type {string[]} */ privatePaths) {
+  const normalizedRelative = relative.replace(/\\/g, "/").toLowerCase()
+  const basename = normalizedRelative.slice(normalizedRelative.lastIndexOf("/") + 1)
+  if (rules.credentialFilenames.some((name) => basename === name.toLowerCase())
+    || rules.credentialSuffixes.some((suffix) => basename.endsWith(suffix.toLowerCase()))) return "credential-filename"
+  for (const delimiter of rules.privateKeyDelimiters) if (bytes.includes(Buffer.from(delimiter, "ascii"))) return "private-key"
+  for (const prefix of rules.tokenPrefixes) {
+    const needle = Buffer.from(prefix, "ascii")
+    let cursor = 0
+    while ((cursor = bytes.indexOf(needle, cursor)) !== -1) {
+      let end = cursor + needle.length
+      while (end < bytes.length && ((bytes[end] >= 0x30 && bytes[end] <= 0x39) || (bytes[end] >= 0x41 && bytes[end] <= 0x5a) || (bytes[end] >= 0x61 && bytes[end] <= 0x7a) || bytes[end] === 0x5f || bytes[end] === 0x2d)) end += 1
+      if (end - (cursor + needle.length) >= 8) return "token-prefix"
+      cursor += needle.length
+    }
+  }
+  const ascii = bytes.toString("latin1").replace(/\\/g, "/").toLowerCase()
+  const normalizedPrivate = privatePaths.map((value) => value.replace(/\\/g, "/").toLowerCase())
+  if (normalizedPrivate.some((value) => value && ascii.includes(value)) || hasAbsoluteLocalPath(bytes, rules)) return "absolute-path"
+  return null
+}
+
 /** @param {Buffer} bytes @param {string} role */
 function decodeMarkdown(bytes, role) {
   if (bytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))) throw new TracerError("SOURCE_BOM_NOT_ALLOWED", `${role} has a UTF-8 BOM`)
@@ -189,9 +453,6 @@ function validateMarkdownSafety(markdown, body, role, analysis) {
     throw new TracerError("SOURCE_UNSAFE_URL_SCHEME", `${role} contains an unsafe URL scheme`)
   }
   if (/!\[|!\[\[|<img\b/i.test(markdown)) throw new TracerError("SOURCE_IMAGE_EMBED_NOT_ALLOWED", `${role} contains an image or attachment embed`)
-  if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:ghp|github_pat|sk_live|AKIA)[A-Za-z0-9_-]{8,}/.test(markdown)) {
-    throw new TracerError("SOURCE_SECRET_NOT_ALLOWED", `${role} contains credential-shaped content`)
-  }
 }
 
 /** @param {string} markdown */
@@ -1376,6 +1637,98 @@ async function injectPrebaselineRegression(candidate, run, variant) {
   throw new TracerError("TEST_INJECTION_INVALID", "prebaseline regression injection is not a fixed supported variant")
 }
 
+/** Fixed T06 release-only mutations happen after the T04 boundary and before
+ * the immutable baseline, proving neither that baseline nor the candidate may
+ * authorize an unexpected output or secret. */
+async function injectReleaseRegression(/** @type {string} */ candidate, /** @type {string} */ run, /** @type {string} */ variant) {
+  await assertCandidateRoot(candidate, run)
+  const index = path.join(candidate, "index.html")
+  if (variant === "gate-marker") return
+  if (variant === "output-extra-asset") {
+    await writeFile(path.join(candidate, "static", "t06-benign-extra.js"), "console.log('fixed t06 regression')\n", { flag: "wx" })
+    return
+  }
+  if (variant === "output-extra-route") {
+    await mkdir(path.join(candidate, "t06-extra-route"))
+    await writeFile(path.join(candidate, "t06-extra-route", "index.html"), "<!doctype html><title>fixed extra route</title>", { flag: "wx" })
+    return
+  }
+  if (variant === "output-missing-asset") { await rm(path.join(candidate, "favicon.ico")); return }
+  if (variant === "output-markdown") { await writeFile(path.join(candidate, "source.md"), "fixed regression\n", { flag: "wx" }); return }
+  if (variant === "output-pdf") { await writeFile(path.join(candidate, "fixture.pdf"), Buffer.from("%PDF-fixed-t06", "ascii"), { flag: "wx" }); return }
+  if (variant === "output-receipt") { await writeFile(path.join(candidate, "release-receipt.json"), "{}\n", { flag: "wx" }); return }
+  if (variant === "output-runtime") { await writeFile(path.join(candidate, "runtime-state.json"), "{}\n", { flag: "wx" }); return }
+  if (variant === "candidate-token-html") {
+    const html = await readFile(index, "utf8")
+    await writeFile(index, html.replace(/<\/body>/i, "<p>ghp_t06canary12345678</p></body>"))
+    return
+  }
+  if (variant === "candidate-token-binary") {
+    const icon = path.join(candidate, "static", "icon.png")
+    await writeFile(icon, Buffer.concat([await readFile(icon), Buffer.from([0xff, 0xfe]), Buffer.from("ghp_" + "t06binary12345678", "ascii")]))
+    return
+  }
+  if (variant === "candidate-absolute-path-html") {
+    const html = await readFile(index, "utf8")
+    await writeFile(index, html.replace(/<\/body>/i, "<script>const local = 'D:\\\\Secrets\\\\candidate.txt'</script></body>"))
+    return
+  }
+  if (variant === "candidate-absolute-path-binary") {
+    const icon = path.join(candidate, "static", "icon.png")
+    await writeFile(icon, Buffer.concat([await readFile(icon), Buffer.from([0xff, 0xfe]), Buffer.from("//server/share/private.bin", "ascii")]))
+    return
+  }
+  if (variant === "candidate-absolute-root-token") {
+    const html = await readFile(index, "utf8")
+    await writeFile(index, html.replace(/<\/body>/i, "<p>fixed local root: /workspace</p></body>"))
+    return
+  }
+  if (variant === "candidate-unc-tail-binary") {
+    const icon = path.join(candidate, "static", "icon.png")
+    await writeFile(icon, Buffer.concat([
+      await readFile(icon),
+      Buffer.from([0xff, 0xfe]),
+      Buffer.from("//serv", "ascii"), Buffer.from([0x80]), Buffer.from("er/share_/private.bin", "ascii"),
+    ]))
+    return
+  }
+  if (variant === "candidate-empty-env") { await writeFile(path.join(candidate, ".env"), Buffer.alloc(0), { flag: "wx" }); return }
+  if (variant === "candidate-empty-credential") { await writeFile(path.join(candidate, "credentials.json"), Buffer.alloc(0), { flag: "wx" }); return }
+  if (variant === "candidate-empty-key") { await writeFile(path.join(candidate, "static", "deploy.key"), Buffer.alloc(0), { flag: "wx" }); return }
+  throw new TracerError("TEST_INJECTION_INVALID", "release regression injection is not a fixed supported variant")
+}
+
+/** Fixed post-seal mutations have no payload or path input and run only at the
+ * receipt/read-back boundary. @param {string} candidate @param {string} run
+ * @param {any} receipt @param {string} variant */
+async function injectPostSealReleaseRegression(candidate, run, receipt, variant) {
+  await assertCandidateRoot(candidate, run)
+  if (variant === "artifact-content-tamper-after-seal") {
+    const index = path.join(candidate, "index.html")
+    await writeFile(index, Buffer.concat([await readFile(index), Buffer.from("\nfixed post-seal tamper\n", "utf8")]))
+    return
+  }
+  if (variant === "artifact-extra-after-seal") {
+    await writeFile(path.join(candidate, "static", "t06-post-seal-extra.txt"), "fixed post-seal extra\n", { flag: "wx" })
+    return
+  }
+  if (variant === "artifact-remove-after-seal") { await rm(path.join(candidate, "graph.json")); return }
+  if (variant === "artifact-class-after-seal") {
+    await rm(path.join(candidate, "graph.json"))
+    await symlink(path.join(candidate, "static"), path.join(candidate, "graph.json"), process.platform === "win32" ? "junction" : "dir")
+    return
+  }
+  if (variant === "receipt-digest-tamper") { receipt.release_digest = "0".repeat(64); return }
+  if (variant === "receipt-fingerprint-reseal-tamper") {
+    receipt.content_fingerprints[0].sha256 = "0".repeat(64)
+    const unsigned = structuredClone(receipt)
+    delete unsigned.release_digest
+    receipt.release_digest = sha256Jcs(unsigned)
+    return
+  }
+  throw new TracerError("TEST_INJECTION_INVALID", "post-seal release regression injection is not a fixed supported variant")
+}
+
 /** @param {string} candidate @param {string} run @param {string} variant */
 async function injectCandidateRegression(candidate, run, variant) {
   await assertCandidateRoot(candidate, run)
@@ -1397,11 +1750,11 @@ async function injectCandidateRegression(candidate, run, variant) {
   const index = path.join(candidate, "index.html")
   const snippets = new Map([
     ["event-attribute", "<div onpointerenter=\"alert(1)\">event</div>"],
-    ["poster-private", "<video poster=\"/private/hidden-poster\"></video>"],
+    ["poster-private", "<video poster=\"/unapproved-fixture/poster.png\"></video>"],
     ["srcset-missing", "<img srcset=\"/static/icon.png 1x, /static/unexpected.png 2x\">"],
-    ["form-action-private", "<form action=\"/private/\"><button formaction=\"/private/submit/\">submit</button></form>"],
-    ["object-data-private", "<object data=\"/private/object/\"></object>"],
-    ["meta-refresh", "<meta http-equiv=\"refresh\" content=\"0; url=/private/\">"],
+    ["form-action-private", "<form action=\"/unapproved-fixture/form/\"><button formaction=\"/unapproved-fixture/submit/\">submit</button></form>"],
+    ["object-data-private", "<object data=\"/unapproved-fixture/object.bin\"></object>"],
+    ["meta-refresh", "<meta http-equiv=\"refresh\" content=\"0; url=/unapproved-fixture/refresh/\">"],
     ["css-url-missing", "<style>body{background-image:url('/static/unexpected.png')}</style>"],
     ["unsafe-attribute-scheme", "<a href=\"javascript:alert(1)\">unsafe</a>"],
   ])
@@ -1610,11 +1963,26 @@ async function validatePublicDataStructure(/** @type {Array<{relative:string,byt
   }
 }
 
-/** @param {string} candidate @param {string} run @param {Map<string,{route:string,node:{node_class:string}}>} records @param {Set<string>} suppressedTargets @param {string[]} privatePaths @param {ReadonlyArray<{relative:string,fileClass:string,sha256:string}>} baseline */
-async function gateCandidate(candidate, run, records, suppressedTargets, privatePaths, baseline) {
+/** @param {string} candidate @param {string} run @param {Map<string,{route:string,node:{node_class:string}}>} records @param {Set<string>} suppressedTargets @param {string[]} privatePaths @param {ReadonlyArray<{relative:string,fileClass:string,sha256:string}>} baseline @param {Awaited<ReturnType<typeof readSecretRules>>} secretRules @param {ReadonlyArray<string>|null} outputAllowlist */
+async function gateCandidate(candidate, run, records, suppressedTargets, privatePaths, baseline, secretRules, outputAllowlist, releaseMode = false) {
   await assertCandidateRoot(candidate, run)
-  if (testHook("TYLER_TRACER_TEST_GATE_FAILURE") === "1") throw new TracerError("CANDIDATE_GATE_FAILED", "candidate gate test injection")
+  if (testHook("TYLER_TRACER_TEST_GATE_FAILURE", releaseMode) === "1") throw new TracerError("CANDIDATE_GATE_FAILED", "candidate gate test injection")
   const files = await listRegularTree(candidate, run)
+  for (const file of files) {
+    if (/\.(?:md|pdf)$/i.test(file.relative)
+      || /(?:^|\/)(?:export-receipt|publication-manifest|release-receipt|current-release)(?:\.json)?$/i.test(file.relative)
+      || /(?:^|\/)(?:runtime|releases?|work)(?:[._-][^/]*)?$/i.test(file.relative)) {
+      throw new TracerError("CANDIDATE_FORBIDDEN_FILE", "candidate contains a forbidden public file")
+    }
+    const finding = secretFinding(file.bytes, file.relative, secretRules, privatePaths)
+    if (finding === "absolute-path") throw new TracerError("CANDIDATE_ABSOLUTE_PATH_DISCLOSURE", "candidate contains an absolute local path")
+    if (finding) throw new TracerError("CANDIDATE_SECRET_DISCLOSURE", "candidate contains credential-shaped bytes")
+  }
+  if (outputAllowlist) {
+    const expectedPaths = [...outputAllowlist, "index.html", ...[...records.values()].map((record) => `${record.route.slice(1)}index.html`)].sort(utf8Order)
+    const actualPaths = files.map((file) => file.relative)
+    if (JSON.stringify(actualPaths) !== JSON.stringify(expectedPaths)) throw new TracerError("CANDIDATE_OUTPUT_SET_INVALID", "candidate output set is not the project-owned exact allowlist")
+  }
   await validatePublicDataStructure(files)
   const html = files.filter((file) => file.relative.endsWith(".html")).map((file) => file.relative)
   const expectedHtml = ["index.html", ...[...records.values()].map((record) => `${record.route.slice(1)}index.html`)].sort()
@@ -1644,41 +2012,177 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
   }
   const actualManifest = files.map((file) => ({ relative: file.relative, fileClass: "regular-file", sha256: sha256(file.bytes) }))
   if (JSON.stringify(actualManifest) !== JSON.stringify(expectedFinal)) throw new TracerError("CANDIDATE_FILE_MANIFEST_MISMATCH", "candidate files differ from the immutable post-Quartz baseline")
-  const normalizePrivatePath = (/** @type {string} */ value) => {
-    const normalized = value.replace(/\\/g, "/")
-    return process.platform === "win32" ? normalized.toLowerCase() : normalized
-  }
-  const pathVariants = privatePaths.map(normalizePrivatePath)
   for (const file of files) {
-    if (/\.(?:md|pdf)$/i.test(file.relative)) throw new TracerError("CANDIDATE_FORBIDDEN_FILE", "candidate contains Markdown or PDF")
     const text = file.bytes.toString("utf8")
     const forbiddenDisclosure = /export-receipt|publication-manifest|release-receipt|current-release/i.exec(text)
       ?? (file.relative.endsWith(".html") ? /\.md\b|\.pdf\b/i.exec(text) : null)
     if (forbiddenDisclosure) throw new TracerError("CANDIDATE_FORBIDDEN_DISCLOSURE", "candidate contains forbidden source or receipt metadata", { file: file.relative, token: forbiddenDisclosure[0].toLowerCase() })
-    if (/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:ghp|github_pat|sk_live|AKIA)[A-Za-z0-9_-]{8,}/.test(text)) throw new TracerError("CANDIDATE_SECRET_DISCLOSURE", "candidate contains credential-shaped bytes")
     const schemeText = file.relative.endsWith(".html") ? text.replace(tracerCspMeta, "") : text
     if (!/\.(?:css|js|map)$/i.test(file.relative) && /(?:javascript|vbscript|data|file)\s*:/i.test(schemeText)) throw new TracerError("CANDIDATE_UNSAFE_SCHEME", "candidate contains an unsafe URL scheme", { file: file.relative })
-    const comparableText = normalizePrivatePath(text)
-    if (pathVariants.some((value) => value && comparableText.includes(value)) || /(?:[A-Za-z]:[\\/]+users[\\/]|[\\/](?:home|users)[\\/])/i.test(text)) throw new TracerError("CANDIDATE_ABSOLUTE_PATH_DISCLOSURE", "candidate contains an absolute local path")
     const disclosureForms = disclosureComparables(text)
     if ([...suppressedTargets].some((target) => target && disclosureForms.some((form) => form.includes(target.replace(/\\/g, "/").toLowerCase())))) throw new TracerError("CANDIDATE_SUPPRESSED_TARGET_DISCLOSURE", "candidate contains suppressed target metadata")
   }
-  return { files: files.length, routes: [...approvedRoutes].sort() }
+  return { files: files.length, routes: [...approvedRoutes].sort(), testMarker: releaseMode && releaseTestHook("TYLER_RELEASE_TEST_CASE") === "gate-marker" }
+}
+
+/** Read one early authority file without following links or accepting unstable bytes. */
+async function readStableEarlyFile(/** @type {string} */ absolute, /** @type {string} */ code, /** @type {string} */ message) {
+  try {
+    await assertNoLinkAncestors(absolute, { errorFactory: () => new TracerError(code, message) })
+    const before = await lstat(absolute, { bigint: true })
+    if (before.isSymbolicLink() || !before.isFile() || await realpath(absolute) !== absolute) throw new Error("invalid authority file")
+    const bytes = await readFile(absolute)
+    const after = await lstat(absolute, { bigint: true })
+    if (!after.isFile() || after.isSymbolicLink() || before.dev !== after.dev || before.ino !== after.ino
+      || before.size !== after.size || before.mtimeNs !== after.mtimeNs || BigInt(bytes.length) !== before.size) throw new Error("unstable authority file")
+    return bytes
+  } catch (error) {
+    if (error instanceof TracerError) throw error
+    throw new TracerError(code, message)
+  }
+}
+
+/** @param {any} receipt @param {string} receiptPath @param {{artifacts:number}} readback */
+function existingReleaseResult(receipt, receiptPath, readback) {
+  return {
+    releaseDigest: receipt.release_digest,
+    receiptPath,
+    routes: ["/", ...receipt.content_fingerprints.map((/** @type {any} */ fingerprint) => fingerprint.route)].sort(utf8Order),
+    files: readback.artifacts,
+  }
+}
+
+/** Count stable ordinary history names without opening any non-target custody. @param {string} root @param {string} code */
+async function stableHistoryNames(root, code) {
+  try {
+    const before = await lstat(root, { bigint: true })
+    if (before.isSymbolicLink() || !before.isDirectory() || await realpath(root) !== root) throw new Error("invalid history root")
+    const names = await readdir(root)
+    const after = await lstat(root, { bigint: true })
+    if (!after.isDirectory() || after.isSymbolicLink() || before.dev !== after.dev || before.ino !== after.ino
+      || before.mtimeNs !== after.mtimeNs) throw new Error("unstable history root")
+    const folded = new Set(names.map((name) => name.replace(/[A-Z]/g, (character) => character.toLowerCase())))
+    if (folded.size !== names.length) throw new Error("ambiguous history names")
+    return names
+  } catch {
+    throw new TracerError(code, "sealed release history could not be read exactly")
+  }
+}
+
+/**
+ * Probe only the supplied manifest, fixed current sealed authority, target
+ * custody, and target release final. Export receipt/source/Vault/work roots are
+ * deliberately path strings only here. A missing target returns to full
+ * preflight; a present target either proves complete authority or fails closed.
+ * @param {ReturnType<typeof parseArgs>} cli
+ */
+async function earlyExistingReleaseTarget(cli) {
+  if (cli.command !== "release") return undefined
+  const unresolved = {
+    runtimeRoot: path.resolve(cli.runtimeRoot),
+    exportRoot: path.resolve(cli.exportRoot),
+    vaultRoot: path.resolve(cli.vaultRoot),
+    workRoot: path.resolve(cli.workRoot),
+    releasesRoot: path.resolve(/** @type {string} */ (cli.releasesRoot)),
+    manifestPath: path.resolve(cli.manifest),
+  }
+  rejectOverlaps([
+    ["runtime root", unresolved.runtimeRoot],
+    ["export root", unresolved.exportRoot],
+    ["canonical Vault root", unresolved.vaultRoot],
+    ["work root", unresolved.workRoot],
+    ["releases root", unresolved.releasesRoot],
+  ])
+  if ([unresolved.exportRoot, unresolved.vaultRoot, unresolved.workRoot, unresolved.releasesRoot, unresolved.runtimeRoot]
+    .some((root) => isEqualToOrInside(root, unresolved.manifestPath))) {
+    throw new TracerError("PATH_OVERLAP_NOT_ALLOWED", "manifest context must be outside release command roots")
+  }
+
+  const [runtimeRoot, releasesRoot, manifestPath] = await Promise.all([
+    openRolePath("runtime root", cli.runtimeRoot, "directory"),
+    openRolePath("releases root", /** @type {string} */ (cli.releasesRoot), "directory"),
+    openRolePath("manifest", cli.manifest, "file"),
+  ])
+  const manifestRaw = await readStableEarlyFile(manifestPath, "MANIFEST_READ_FAILED", "manifest could not be read stably")
+  const manifest = /** @type {any} */ (await readContractJson(manifestPath))
+  if (!(await readStableEarlyFile(manifestPath, "MANIFEST_READ_FAILED", "manifest could not be read stably")).equals(manifestRaw)) {
+    throw new TracerError("MANIFEST_CHANGED_DURING_PREFLIGHT", "manifest bytes changed during early target validation")
+  }
+  await validateContract("publication-manifest", manifest, { now: cli.now })
+
+  const current = await loadPublicationRuntime(runtimeRoot)
+  if (!current.currentPointer || !current.currentReceipt || !current.currentManifestRaw || !current.currentPointerRaw) return undefined
+  if (current.currentReceipt.manifest_id === manifest.manifest_id) {
+    if (!manifestRaw.equals(current.currentManifestRaw)) {
+      throw new TracerError("MANIFEST_ID_COLLISION", "manifest identity is already bound to different exact bytes")
+    }
+    await validateReleaseAgainstManifest(current.currentReceipt, manifest, { now: current.currentReceipt.created_at })
+    const readback = await verifySealedArtifactTree({
+      root: path.join(releasesRoot, current.currentReceipt.release_digest),
+      receipt: current.currentReceipt,
+    })
+    return { manifest, replay: existingReleaseResult(current.currentReceipt, current.receiptPath, readback) }
+  }
+
+  let target
+  try {
+    target = await loadSealedCustodyByManifestId(runtimeRoot, manifest.manifest_id)
+  } catch (error) {
+    if (error instanceof ContractError && error.code === "TARGET_CUSTODY_ABSENT") {
+      const [custodyNames, releaseNames] = await Promise.all([
+        stableHistoryNames(path.join(runtimeRoot, "consumed"), "TARGET_HISTORY_INVALID"),
+        stableHistoryNames(releasesRoot, "TARGET_HISTORY_INVALID"),
+      ])
+      if (custodyNames.length !== releaseNames.length) {
+        throw new TracerError("EXISTING_RELEASE_PAIR_INCOMPLETE", "sealed release and custody history are incomplete")
+      }
+      return undefined
+    }
+    throw error
+  }
+  if (!manifestRaw.equals(target.manifestRaw)) {
+    throw new TracerError("MANIFEST_ID_COLLISION", "manifest identity is already bound to different exact bytes")
+  }
+  await validateReleaseAgainstManifest(target.receipt, manifest, { now: target.receipt.created_at })
+  await validateCrossReleaseManifest(manifest, { ...current, now: cli.now })
+  const readback = await verifySealedArtifactTree({
+    root: path.join(releasesRoot, target.receipt.release_digest),
+    receipt: target.receipt,
+  })
+  const pointer = {
+    schema_version: 1,
+    release_digest: target.receipt.release_digest,
+    receipt_path: target.receiptPath,
+  }
+  const result = { manifest, replay: existingReleaseResult(target.receipt, target.receiptPath, readback) }
+  if (!(await readStableEarlyFile(manifestPath, "MANIFEST_READ_FAILED", "manifest could not be read stably")).equals(manifestRaw)) {
+    throw new TracerError("MANIFEST_CHANGED_DURING_PREFLIGHT", "manifest bytes changed before existing release selection")
+  }
+  await selectExistingRelease({ runtimeRoot, pointer, previousPointerBytes: current.currentPointerRaw })
+  return result
 }
 
 /** @param {ReturnType<typeof parseArgs>} cli */
 async function preflight(cli) {
-  const [runtimeRoot, exportRoot, vaultRoot, workRoot, output, manifestPath] = await Promise.all([
+  const releaseMode = cli.command === "release"
+  if (releaseMode) {
+    const existing = await earlyExistingReleaseTarget(cli)
+    if (existing) return existing
+  }
+  const [runtimeRoot, exportRoot, vaultRoot, workRoot, publicationRoot, manifestPath] = await Promise.all([
     openRolePath("runtime root", cli.runtimeRoot, "directory"),
     openRolePath("export root", cli.exportRoot, "directory"),
     openRolePath("canonical Vault root", cli.vaultRoot, "directory"),
     openRolePath("work root", cli.workRoot, "directory"),
-    openRolePath("output", cli.output, "missing"),
+    releaseMode
+      ? openRolePath("releases root", /** @type {string} */ (cli.releasesRoot), "directory")
+      : openRolePath("output", /** @type {string} */ (cli.output), "missing"),
     openRolePath("manifest", cli.manifest, "file"),
   ])
-  rejectOverlaps([["runtime root", runtimeRoot], ["export root", exportRoot], ["canonical Vault root", vaultRoot], ["work root", workRoot], ["output", output]])
-  if ([exportRoot, vaultRoot, workRoot, output].some((root) => isEqualToOrInside(root, manifestPath))) {
-    throw new TracerError("PATH_OVERLAP_NOT_ALLOWED", "manifest context must be outside export, Vault, work, and output roots")
+  const publicationRole = releaseMode ? "releases root" : "output"
+  rejectOverlaps([["runtime root", runtimeRoot], ["export root", exportRoot], ["canonical Vault root", vaultRoot], ["work root", workRoot], [publicationRole, publicationRoot]])
+  if ([exportRoot, vaultRoot, workRoot, publicationRoot].some((root) => isEqualToOrInside(root, manifestPath))) {
+    throw new TracerError("PATH_OVERLAP_NOT_ALLOWED", `manifest context must be outside export, Vault, work, and ${publicationRole} roots`)
   }
   const expectedReceipt = path.join(exportRoot, "export-receipt.json")
   const receiptPath = await openRolePath("export receipt", cli.exportReceipt, "file")
@@ -1688,13 +2192,40 @@ async function preflight(cli) {
   const exportNames = await readdir(exportRoot)
   if (!exportNames.includes("export-receipt.json")) throw new TracerError("EXPORT_RECEIPT_LOCATION_INVALID", "receipt filesystem spelling is not exact")
 
+  const manifestRaw = await readFile(manifestPath)
   const manifest = /** @type {any} */ (await readContractJson(manifestPath))
+  if (!(await readFile(manifestPath)).equals(manifestRaw)) {
+    throw new TracerError("MANIFEST_CHANGED_DURING_PREFLIGHT", "manifest bytes changed during preflight")
+  }
+  await validateContract("publication-manifest", manifest, { now: cli.now })
+  const { currentPointer, currentReceipt, receiptPath: currentReceiptPath } = await loadPublicationRuntime(runtimeRoot)
+  /** @type {Buffer|undefined} */
+  let previousPointerBytes
+  const currentPointerPath = path.join(runtimeRoot, "current-release.json")
+  if (currentPointer) {
+    previousPointerBytes = await readFile(currentPointerPath)
+    const pointerReadback = await readContractJson(currentPointerPath)
+    if (jcsCanonicalize(pointerReadback) !== jcsCanonicalize(currentPointer)
+      || !(await readFile(currentPointerPath)).equals(previousPointerBytes)) {
+      throw new TracerError("CURRENT_POINTER_CHANGED", "current release pointer changed during preflight")
+    }
+  } else {
+    try {
+      await lstat(currentPointerPath)
+      throw new TracerError("CURRENT_POINTER_CHANGED", "current release pointer appeared during preflight")
+    } catch (error) {
+      if (error instanceof TracerError) throw error
+      if (!hasFsCode(error, "ENOENT")) throw new TracerError("RUNTIME_READ_FAILED", "current release pointer metadata could not be read")
+    }
+  }
   await validatePublicationPreflight(manifest, { now: cli.now, runtimeRoot })
   const receipt = /** @type {any} */ (await readContractJson(receiptPath))
   await validateContract("export-receipt", receipt, { manifest, exportRoot, now: cli.now })
   if (manifest.action.kind !== "publish-unit") {
     throw new TracerError("TRACER_SHAPE_INVALID", "tracer requires a publish-unit action")
   }
+  const secretRules = await readSecretRules(releaseMode)
+  const privatePaths = [runtimeRoot, exportRoot, vaultRoot, workRoot, publicationRoot, manifestPath, receiptPath]
   const primary = manifest.nodes.find((/** @type {any} */ node) => node.public_id === manifest.action.primary_id)
   const nodeById = new Map(manifest.nodes.map((/** @type {any} */ node) => [node.public_id, node]))
   if (!primary || primary.node_class !== "paper" || manifest.action.support_ids.some((/** @type {string} */ id) => nodeById.get(id)?.node_class === "paper" || !nodeById.has(id))) {
@@ -1708,6 +2239,9 @@ async function preflight(cli) {
     const metadata = await lstat(absolute)
     if (!metadata.isFile() || metadata.isSymbolicLink()) throw new TracerError("SOURCE_FILE_CLASS_INVALID", "manifest source must be a regular Markdown file")
     const bytes = await readFile(absolute)
+    const sourceFinding = secretFinding(bytes, node.path, secretRules, privatePaths)
+    if (sourceFinding === "absolute-path") throw new TracerError("SOURCE_ABSOLUTE_PATH_NOT_ALLOWED", "source contains an absolute local path")
+    if (sourceFinding) throw new TracerError("SOURCE_SECRET_NOT_ALLOWED", "source contains credential-shaped bytes")
     const markdown = decodeMarkdown(bytes, node.public_id)
     const parsed = parseFrontmatter(markdown)
     const analysis = analyzeMarkdown(parsed.body)
@@ -1723,24 +2257,32 @@ async function preflight(cli) {
   const contracts = publicContracts(records, projection.outgoing, projection.searchableBodies)
   validateSemanticTemplates(records)
   const toolchain = await readToolchainMetadata()
-  return { runtimeRoot, exportRoot, vaultRoot, workRoot, output, manifestPath, receiptPath, manifest, receipt, records, contracts, ...projection, ...toolchain }
+  const outputAllowlist = await readOutputAllowlist(toolchain.metadata)
+  return { runtimeRoot, exportRoot, vaultRoot, workRoot, output: releaseMode ? undefined : publicationRoot, releasesRoot: releaseMode ? publicationRoot : undefined, now: cli.now, manifestPath, manifestRaw, receiptPath, manifest, receipt, currentReceipt, currentReceiptPath, previousPointerBytes, records, contracts, secretRules, privatePaths, outputAllowlist, ...projection, ...toolchain }
 }
 
-/** @param {Awaited<ReturnType<typeof preflight>>} safe */
-async function build(safe) {
-  const requestedTheme = testHook("TYLER_TRACER_TEST_THEME_VARIANT")
+/** @param {any} safe @param {boolean} releaseMode */
+async function runCandidatePipeline(safe, releaseMode) {
+  if (releaseMode && releaseTestHook("TYLER_RELEASE_TEST_CASE") === "replay-build-must-not-run") {
+    throw new TracerError("TEST_INJECTION_INVALID", "exact replay entered the candidate pipeline")
+  }
+  const output = safe.output
+  if (!releaseMode && typeof output !== "string") throw new TracerError("OUTPUT_REQUIRED", "build requires an output root")
+  if (releaseMode && typeof safe.releasesRoot !== "string") throw new TracerError("RELEASES_ROOT_REQUIRED", "release requires a releases root")
+  const requestedTheme = testHook("TYLER_TRACER_TEST_THEME_VARIANT", releaseMode)
   if (requestedTheme !== undefined && requestedTheme !== "contrast") {
     throw new TracerError("TEST_THEME_VARIANT_INVALID", "only the fixed contrast test theme is supported")
   }
   const themeVariant = requestedTheme === "contrast" ? "contrast" : "warm"
   const customTheme = scholarlyTheme(themeVariant, await readFile(scholarlyThemePath, "utf8"))
   let defaultConfig = await readFile(path.join(safe.installedRoot, "quartz.config.default.yaml"), "utf8")
-  const configCase = testHook("TYLER_TRACER_TEST_CONFIG_CASE")
+  const configCase = testHook("TYLER_TRACER_TEST_CONFIG_CASE", releaseMode)
   if (configCase === "content-index-single-quote") {
     defaultConfig = defaultConfig.replace('source: "@quartz-community/content-index"', "source: '@quartz-community/content-index'")
   } else if (configCase !== undefined) throw new TracerError("TEST_INJECTION_INVALID", "config regression injection is not a fixed supported variant")
   const quartzConfig = tracerQuartzConfig(defaultConfig)
   const run = await mkdtemp(path.join(safe.workRoot, `tracer-${process.pid}-${randomBytes(8).toString("hex")}-`))
+  const runOwnership = createOwnedRunLifecycle(run)
   try {
     const raw = path.join(run, "raw")
     const content = path.join(run, "content")
@@ -1775,22 +2317,28 @@ async function build(safe) {
     ])
     const executable = path.join(toolchain, "quartz", "bootstrap-cli.mjs")
     const quartz = /** @type {{code:number,logs:string}} */ (await spawnCaptured(executable, ["build", "--directory", content, "--output", candidate, "--concurrency", "1"], toolchain))
-    if (quartz.code !== 0) throw new TracerError("QUARTZ_BUILD_FAILED", "pinned Quartz build failed", testHook("TYLER_TRACER_TEST_DEBUG") === "1" ? { logs: quartz.logs } : {})
+    if (quartz.code !== 0) throw new TracerError("QUARTZ_BUILD_FAILED", "pinned Quartz build failed", testHook("TYLER_TRACER_TEST_DEBUG", releaseMode) === "1" ? { logs: quartz.logs } : {})
     await normalizeBreadcrumbRoutes(candidate, run, safe.records, safe.outgoing)
     await repairTocAccessibility(candidate, run)
     await installNetworkCsp(candidate, run)
     await writePublicDataAssets(candidate, run, safe.contracts)
-    const prebaselineCase = testHook("TYLER_TRACER_TEST_PREBASELINE_CASE")
+    const prebaselineCase = testHook("TYLER_TRACER_TEST_PREBASELINE_CASE", releaseMode)
     if (prebaselineCase) await injectPrebaselineRegression(candidate, run, prebaselineCase)
     await validateT04Prebaseline(candidate, run)
+    const releaseCase = releaseMode ? releaseTestHook("TYLER_RELEASE_TEST_CASE") : undefined
+    if (releaseCase && preSealReleaseCases.has(releaseCase)) await injectReleaseRegression(candidate, run, releaseCase)
+    else if (releaseCase && !postSealReleaseCases.has(releaseCase)) {
+      throw new TracerError("TEST_INJECTION_INVALID", "release regression injection is not a fixed supported variant")
+    }
     // This frozen manifest is captured after the fixed T04 boundary and before
     // every post-baseline test hook and sanctioned virtual-page pruning.
     const baseline = await immutableCandidateManifest(candidate, run)
-    const candidateVariant = testHook("TYLER_TRACER_TEST_CANDIDATE_CASE")
-      ?? (testHook("TYLER_TRACER_TEST_EXTRA_HTML") === "1" ? "extra-html" : undefined)
+    const candidateVariant = testHook("TYLER_TRACER_TEST_CANDIDATE_CASE", releaseMode)
+      ?? (testHook("TYLER_TRACER_TEST_EXTRA_HTML", releaseMode) === "1" ? "extra-html" : undefined)
     if (candidateVariant) await injectCandidateRegression(candidate, run, candidateVariant)
     await pruneVirtualHtml(candidate, run, safe.records, baseline)
-    await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, [safe.runtimeRoot, safe.exportRoot, safe.vaultRoot, safe.workRoot, safe.output, safe.manifestPath, safe.receiptPath], baseline)
+    const releaseAllowlist = releaseMode ? safe.outputAllowlist : null
+    await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, safe.privatePaths, baseline, safe.secretRules, releaseAllowlist, releaseMode)
 
     for (const record of safe.records.values()) {
       const source = path.join(safe.exportRoot, ...record.node.path.split("/"))
@@ -1800,34 +2348,79 @@ async function build(safe) {
         throw new TracerError("SOURCE_MUTATED_DURING_BUILD", "source bytes, hash, or mtime changed during build")
       }
     }
-    try {
-      await lstat(safe.output)
-      throw new TracerError("OUTPUT_ALREADY_EXISTS", "output appeared during build")
-    } catch (error) {
-      if (error instanceof TracerError) throw error
-      if (!hasFsCode(error, "ENOENT")) throw new TracerError("OUTPUT_FINALIZE_FAILED", "output metadata could not be checked")
+    if (!releaseMode) {
+      try {
+        await lstat(/** @type {string} */ (output))
+        throw new TracerError("OUTPUT_ALREADY_EXISTS", "output appeared during build")
+      } catch (error) {
+        if (error instanceof TracerError) throw error
+        if (!hasFsCode(error, "ENOENT")) throw new TracerError("OUTPUT_FINALIZE_FAILED", "output metadata could not be checked")
+      }
     }
     await assertCandidateRoot(candidate, run)
-    const finalGate = await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, [safe.runtimeRoot, safe.exportRoot, safe.vaultRoot, safe.workRoot, safe.output, safe.manifestPath, safe.receiptPath], baseline)
+    const finalGate = await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, safe.privatePaths, baseline, safe.secretRules, releaseAllowlist, releaseMode)
     await assertCandidateRoot(candidate, run)
-    await rename(candidate, safe.output)
+    if (releaseMode) {
+      const artifacts = await readCandidateArtifactTree(candidate)
+      const projectedMarkdown = new Map([...safe.projected].map(([publicId, markdown]) => [publicId, Buffer.from(markdown, "utf8")]))
+      const receipt = await constructReleaseReceipt({
+        manifest: safe.manifest,
+        currentReceipt: safe.currentReceipt,
+        currentReceiptPath: safe.currentReceiptPath,
+        createdAt: safe.now,
+        projectedMarkdown,
+        artifacts,
+      })
+      if (releaseCase && postSealReleaseCases.has(releaseCase)) {
+        await injectPostSealReleaseRegression(candidate, run, receipt, releaseCase)
+      }
+      const readback = await verifyCandidateArtifactTree({ root: candidate, receipt, manifest: safe.manifest, projectedMarkdown })
+      if (releaseTestHook("TYLER_RELEASE_TEST_CASE") === "gate-marker" && (finalGate.testMarker !== true || readback.verified !== true)) {
+        throw new TracerError("CANDIDATE_GATE_MARKER_MISSING", "fresh candidate receipt verifier marker was not observed")
+      }
+      const promotion = await promoteRelease({
+        candidateRoot: candidate,
+        runRoot: run,
+        runOwnership,
+        releasesRoot: /** @type {string} */ (safe.releasesRoot),
+        runtimeRoot: safe.runtimeRoot,
+        manifestPath: safe.manifestPath,
+        manifestRaw: safe.manifestRaw,
+        manifest: safe.manifest,
+        receipt,
+        projectedMarkdown,
+        previousPointerBytes: safe.previousPointerBytes,
+      })
+      return { ...finalGate, receiptVerified: readback.verified, ...promotion }
+    }
+    await rename(candidate, /** @type {string} */ (output))
     return finalGate
   } finally {
-    await rm(run, { recursive: true, force: true })
+    if (runOwnership.owned) await runOwnership.cleanup()
   }
 }
 
 async function main() {
   const cli = parseArgs(process.argv.slice(2))
-  const safe = await preflight(cli)
-  if (testHook("TYLER_TRACER_TEST_DISCLOSURE_ERROR")) {
-    throw new TracerError("TEST_DISCLOSURE", "synthetic redaction failure", { logs: testHook("TYLER_TRACER_TEST_DISCLOSURE_ERROR") })
+  const safe = /** @type {any} */ (await preflight(cli))
+  if (testHook("TYLER_TRACER_TEST_DISCLOSURE_ERROR", cli.command === "release")) {
+    throw new TracerError("TEST_DISCLOSURE", "synthetic redaction failure", { logs: testHook("TYLER_TRACER_TEST_DISCLOSURE_ERROR", cli.command === "release") })
   }
   if (cli.command === "preflight") {
     process.stdout.write(`${JSON.stringify({ ok: true, command: "preflight", manifestId: safe.manifest.manifest_id, nodes: safe.records.size, suppressionCount: safe.suppressionCount, quartz: safe.metadata.version })}\n`)
     return
   }
-  const gate = await build(safe)
+  if (cli.command === "release") {
+    if (safe.replay) {
+      process.stdout.write(`${JSON.stringify({ ok: true, command: "release", manifestId: safe.manifest.manifest_id, releaseDigest: safe.replay.releaseDigest, receiptPath: safe.replay.receiptPath, routes: safe.replay.routes, files: safe.replay.files })}\n`)
+      return
+    }
+    const gate = await runCandidatePipeline(safe, true)
+    if (!("releaseDigest" in gate) || !("receiptPath" in gate)) throw new TracerError("RELEASE_PROMOTION_INCOMPLETE", "release promotion did not return a completed immutable install")
+    process.stdout.write(`${JSON.stringify({ ok: true, command: "release", manifestId: safe.manifest.manifest_id, releaseDigest: gate.releaseDigest, receiptPath: gate.receiptPath, routes: gate.routes, files: gate.files })}\n`)
+    return
+  }
+  const gate = await runCandidatePipeline(safe, false)
   process.stdout.write(`${JSON.stringify({ ok: true, command: "build", manifestId: safe.manifest.manifest_id, nodes: safe.records.size, routes: gate.routes, files: gate.files, suppressionCount: safe.suppressionCount, quartz: safe.metadata.version })}\n`)
 }
 
