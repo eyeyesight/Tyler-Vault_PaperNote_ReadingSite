@@ -304,6 +304,9 @@ function processIsAlive(pid) {
 
 /** @param {string} root @param {string} requestUrl */
 async function resolveStaticFile(root, requestUrl) {
+  const rawPathEnd = requestUrl.search(/[?#]/)
+  const rawPath = rawPathEnd === -1 ? requestUrl : requestUrl.slice(0, rawPathEnd)
+  if (rawPath.includes("\\")) throw new CliError("BAD_HTTP_PATH", "request path contains a backslash")
   let pathname
   try {
     pathname = decodeURIComponent(new URL(requestUrl, "http://127.0.0.1").pathname)
