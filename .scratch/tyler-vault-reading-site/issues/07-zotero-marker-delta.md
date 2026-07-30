@@ -1,12 +1,12 @@
 ## T07 — Implement Zotero marker-only delta validation
 
-- **Status:** `blocked`
+- **Status:** `completed`
 - **Source spec:** `specs/tyler-vault-reading-site.md`
 - **Scope guard:** local only; no Vault/Drive writes, no remote, no deployment, no Hermes changes
 
 - **Priority:** P0
 - **Labels:** `zotero`, `safety`, `delta`
-- **Blocked by:** T05, T06
+- **Blocked by:** none (T05 and T06 completed)
 
 ### Problem
 
@@ -27,3 +27,11 @@ Implement raw-byte marker parsing, baseline receipt comparison, complete public-
 ### Non-goals
 
 No Zotero API call, Vault write, cron change, or failed-build retry.
+
+### Completion evidence
+
+- Public T07 aggregate: 6/6 pass.
+- Adjacent T06 authority/receipt/promotion: 96/96 pass.
+- Standards, Spec, and Security reviews: no open Blocker/High/Medium after corrected-scope re-review.
+- Full repository suite: 372/372 pass; 0 fail/cancelled/skipped/todo.
+- Typecheck, syntax, diff, cached-index, and normative-input checks passed.

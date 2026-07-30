@@ -479,6 +479,24 @@ test("production release is inert to build-only and former promotion fault envir
   }
 })
 
+test("Zotero artifact fault hook rejects an ordinary publish-unit before mutation", async (t) => {
+  const fixture = await releaseFixture("2026-07-30T00:00:00Z")
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const before = await fixtureSnapshots(fixture)
+  const result = invokeRelease(fixture, {
+    TYLER_RELEASE_TEST_CAPABILITY: "t06-regression-v1",
+    TYLER_RELEASE_TEST_CASE: "zotero-non-target-artifact-tamper",
+  })
+
+  assert.equal(result.status, 1, result.stdout)
+  assert.equal(result.stderr, "")
+  assert.deepEqual(JSON.parse(result.stdout), {
+    ok: false,
+    error: { code: "TEST_INJECTION_INVALID", message: "Zotero artifact regression injection requires a Zotero refresh action" },
+  })
+  for (const name of protectedRoots) assert.deepEqual(await exactSnapshot(fixture.paths[name]), before[name], name)
+})
+
 test("exact already-current release replay is read-only and skips the candidate pipeline", async (t) => {
   const fixture = await releaseFixture("2026-07-30T00:00:00Z")
   t.after(() => rm(fixture.root, { recursive: true, force: true }))

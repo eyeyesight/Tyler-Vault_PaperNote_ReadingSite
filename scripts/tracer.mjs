@@ -56,6 +56,11 @@ import {
   verifyCandidateArtifactTree,
   verifySealedArtifactTree,
 } from "../lib/safe-release.mjs"
+import {
+  parseZoteroManagedBlock,
+  validateZoteroArtifactDelta,
+  validateZoteroSourceDelta,
+} from "../lib/zotero-delta.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const Ajv2020 = /** @type {any} */ (Ajv2020Module)
@@ -81,6 +86,7 @@ const postSealReleaseCases = new Set([
   "artifact-remove-after-seal", "artifact-class-after-seal",
   "receipt-digest-tamper", "receipt-fingerprint-reseal-tamper",
 ])
+const zoteroArtifactReleaseCases = new Set(["zotero-non-target-artifact-tamper"])
 function testHooksEnabled() {
   return process.env.TYLER_TRACER_TEST_CAPABILITY === testCapability
 }
@@ -799,18 +805,20 @@ function projectContent(manifest, records) {
     projected.set(id, `---\ntitle: "${title.replace(/"/g, "\\\"")}"\n---\n\n${body.trim()}\n\n## Backlinks\n\n${backlinks || "No approved backlinks."}\n`)
   }
 
-  const paper = records.get(manifest.action.primary_id)
-  if (!paper) throw new TracerError("TRACER_SHAPE_INVALID", "primary paper record is missing")
-  const connectionRange = paper.analysis.connections
-  for (const edge of manifest.action.direct_connection_edges) {
-    const support = records.get(edge.target)
-    if (!support) throw new TracerError("TRACER_SHAPE_INVALID", "support record is missing")
-    if (!outgoing.get(edge.source)?.has(edge.target)) {
-      throw new TracerError("DIRECT_CONNECTION_MISSING", "an approved action edge is absent from the public projection")
-    }
-    const exactPath = aliasKey(support.node.path)
-    if (!connectionRange || !paper.analysis.links.some((link) => link.start >= connectionRange.start && link.end <= connectionRange.end && aliasKey(link.target) === exactPath)) {
-      throw new TracerError("DIRECT_CONNECTION_MISSING", "paper Connections lacks the approved support path")
+  if (manifest.action.kind === "publish-unit") {
+    const paper = records.get(manifest.action.primary_id)
+    if (!paper) throw new TracerError("TRACER_SHAPE_INVALID", "primary paper record is missing")
+    const connectionRange = paper.analysis.connections
+    for (const edge of manifest.action.direct_connection_edges) {
+      const support = records.get(edge.target)
+      if (!support) throw new TracerError("TRACER_SHAPE_INVALID", "support record is missing")
+      if (!outgoing.get(edge.source)?.has(edge.target)) {
+        throw new TracerError("DIRECT_CONNECTION_MISSING", "an approved action edge is absent from the public projection")
+      }
+      const exactPath = aliasKey(support.node.path)
+      if (!connectionRange || !paper.analysis.links.some((link) => link.start >= connectionRange.start && link.end <= connectionRange.end && aliasKey(link.target) === exactPath)) {
+        throw new TracerError("DIRECT_CONNECTION_MISSING", "paper Connections lacks the approved support path")
+      }
     }
   }
   return { projected, searchableBodies, outgoing, suppressedTargets, suppressionCount: suppressedTargetKeys.size }
@@ -2221,17 +2229,25 @@ async function preflight(cli) {
   await validatePublicationPreflight(manifest, { now: cli.now, runtimeRoot })
   const receipt = /** @type {any} */ (await readContractJson(receiptPath))
   await validateContract("export-receipt", receipt, { manifest, exportRoot, now: cli.now })
-  if (manifest.action.kind !== "publish-unit") {
-    throw new TracerError("TRACER_SHAPE_INVALID", "tracer requires a publish-unit action")
+  const zoteroRefresh = manifest.action.kind === "zotero-refresh"
+  if (zoteroRefresh && !releaseMode) {
+    throw new TracerError("TRACER_SHAPE_INVALID", "Zotero refresh is available only through the release lifecycle")
   }
   const secretRules = await readSecretRules(releaseMode)
   const privatePaths = [runtimeRoot, exportRoot, vaultRoot, workRoot, publicationRoot, manifestPath, receiptPath]
-  const primary = manifest.nodes.find((/** @type {any} */ node) => node.public_id === manifest.action.primary_id)
+  const primary = zoteroRefresh
+    ? manifest.nodes.find((/** @type {any} */ node) => node.public_id === manifest.action.target_id)
+    : manifest.nodes.find((/** @type {any} */ node) => node.public_id === manifest.action.primary_id)
   const nodeById = new Map(manifest.nodes.map((/** @type {any} */ node) => [node.public_id, node]))
-  if (!primary || primary.node_class !== "paper" || manifest.action.support_ids.some((/** @type {string} */ id) => nodeById.get(id)?.node_class === "paper" || !nodeById.has(id))) {
-    throw new TracerError("TRACER_SHAPE_INVALID", "publish-unit action roles do not match listed nodes")
+  if (!primary || primary.node_class !== "paper"
+    || (!zoteroRefresh && manifest.action.support_ids.some((/** @type {string} */ id) => nodeById.get(id)?.node_class === "paper" || !nodeById.has(id)))) {
+    throw new TracerError("TRACER_SHAPE_INVALID", "publication action roles do not match listed nodes")
   }
 
+  /** @type {Map<string,Buffer>} */
+  const zoteroSourceBytes = new Map()
+  let zoteroDelta
+  const currentById = new Map((currentReceipt?.nodes ?? []).map((/** @type {any} */ node) => [node.public_id, node]))
   /** @type {Map<string,{node:any,bytes:Buffer,markdown:string,body:string,frontmatter:Record<string,string|string[]>,route:string,mtimeMs:number,analysis:ReturnType<typeof analyzeMarkdown>}>} */
   const records = new Map()
   for (const node of manifest.nodes) {
@@ -2239,6 +2255,19 @@ async function preflight(cli) {
     const metadata = await lstat(absolute)
     if (!metadata.isFile() || metadata.isSymbolicLink()) throw new TracerError("SOURCE_FILE_CLASS_INVALID", "manifest source must be a regular Markdown file")
     const bytes = await readFile(absolute)
+    const isRefreshTarget = zoteroRefresh && node.public_id === manifest.action.target_id
+    const isNewPublishedPrimary = !zoteroRefresh
+      && node.public_id === manifest.action.primary_id
+      && manifest.action.added_node_ids.includes(node.public_id)
+    const hasManagedLiteral = bytes.includes(Buffer.from("<!-- zotero-annotations:start -->", "ascii"))
+      || bytes.includes(Buffer.from("<!-- zotero-annotations:end -->", "ascii"))
+    if (isRefreshTarget) {
+      const baselineNode = currentById.get(node.public_id)
+      zoteroDelta = validateZoteroSourceDelta({ baselineNode, currentBytes: bytes, expectedSourceSha256: node.source_sha256 })
+    } else if (isNewPublishedPrimary && node.node_class === "paper" && hasManagedLiteral) {
+      parseZoteroManagedBlock(bytes)
+      zoteroSourceBytes.set(node.public_id, bytes)
+    }
     const sourceFinding = secretFinding(bytes, node.path, secretRules, privatePaths)
     if (sourceFinding === "absolute-path") throw new TracerError("SOURCE_ABSOLUTE_PATH_NOT_ALLOWED", "source contains an absolute local path")
     if (sourceFinding) throw new TracerError("SOURCE_SECRET_NOT_ALLOWED", "source contains credential-shaped bytes")
@@ -2253,18 +2282,36 @@ async function preflight(cli) {
     const route = node.node_class === "paper" ? `/papers/${node.public_id}/` : `/knowledge/${node.node_class}/${node.public_id}/`
     records.set(node.public_id, { node, bytes, markdown, body: parsed.body, frontmatter: parsed.data, route, mtimeMs: metadata.mtimeMs, analysis })
   }
+  if (zoteroRefresh && !zoteroDelta) throw new TracerError("ZOTERO_TARGET_INVALID", "Zotero target source was not validated")
   const projection = projectContent(manifest, records)
   const contracts = publicContracts(records, projection.outgoing, projection.searchableBodies)
   validateSemanticTemplates(records)
+  let baselineReadback
+  if (zoteroRefresh) {
+    baselineReadback = await verifySealedArtifactTree({
+      root: path.join(publicationRoot, currentReceipt.release_digest),
+      receipt: currentReceipt,
+    })
+    if (zoteroDelta?.noChange) {
+      return {
+        manifest,
+        noChange: existingReleaseResult(currentReceipt, currentReceiptPath, baselineReadback),
+      }
+    }
+  }
   const toolchain = await readToolchainMetadata()
   const outputAllowlist = await readOutputAllowlist(toolchain.metadata)
-  return { runtimeRoot, exportRoot, vaultRoot, workRoot, output: releaseMode ? undefined : publicationRoot, releasesRoot: releaseMode ? publicationRoot : undefined, now: cli.now, manifestPath, manifestRaw, receiptPath, manifest, receipt, currentReceipt, currentReceiptPath, previousPointerBytes, records, contracts, secretRules, privatePaths, outputAllowlist, ...projection, ...toolchain }
+  return { runtimeRoot, exportRoot, vaultRoot, workRoot, output: releaseMode ? undefined : publicationRoot, releasesRoot: releaseMode ? publicationRoot : undefined, now: cli.now, manifestPath, manifestRaw, receiptPath, manifest, receipt, currentReceipt, currentReceiptPath, previousPointerBytes, records, contracts, secretRules, privatePaths, outputAllowlist, zoteroSourceBytes, zoteroDelta, baselineReadback, ...projection, ...toolchain }
 }
 
 /** @param {any} safe @param {boolean} releaseMode */
 async function runCandidatePipeline(safe, releaseMode) {
-  if (releaseMode && releaseTestHook("TYLER_RELEASE_TEST_CASE") === "replay-build-must-not-run") {
+  const releaseCase = releaseMode ? releaseTestHook("TYLER_RELEASE_TEST_CASE") : undefined
+  if (releaseCase === "replay-build-must-not-run") {
     throw new TracerError("TEST_INJECTION_INVALID", "exact replay entered the candidate pipeline")
+  }
+  if (releaseCase && zoteroArtifactReleaseCases.has(releaseCase) && !safe.zoteroDelta) {
+    throw new TracerError("TEST_INJECTION_INVALID", "Zotero artifact regression injection requires a Zotero refresh action")
   }
   const output = safe.output
   if (!releaseMode && typeof output !== "string") throw new TracerError("OUTPUT_REQUIRED", "build requires an output root")
@@ -2325,9 +2372,8 @@ async function runCandidatePipeline(safe, releaseMode) {
     const prebaselineCase = testHook("TYLER_TRACER_TEST_PREBASELINE_CASE", releaseMode)
     if (prebaselineCase) await injectPrebaselineRegression(candidate, run, prebaselineCase)
     await validateT04Prebaseline(candidate, run)
-    const releaseCase = releaseMode ? releaseTestHook("TYLER_RELEASE_TEST_CASE") : undefined
     if (releaseCase && preSealReleaseCases.has(releaseCase)) await injectReleaseRegression(candidate, run, releaseCase)
-    else if (releaseCase && !postSealReleaseCases.has(releaseCase)) {
+    else if (releaseCase && !postSealReleaseCases.has(releaseCase) && !zoteroArtifactReleaseCases.has(releaseCase)) {
       throw new TracerError("TEST_INJECTION_INVALID", "release regression injection is not a fixed supported variant")
     }
     // This frozen manifest is captured after the fixed T04 boundary and before
@@ -2361,7 +2407,18 @@ async function runCandidatePipeline(safe, releaseMode) {
     const finalGate = await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, safe.privatePaths, baseline, safe.secretRules, releaseAllowlist, releaseMode)
     await assertCandidateRoot(candidate, run)
     if (releaseMode) {
+      if (releaseCase === "zotero-non-target-artifact-tamper") {
+        const nonTarget = path.join(candidate, "index.html")
+        await writeFile(nonTarget, Buffer.concat([await readFile(nonTarget), Buffer.from("\nfixed T07 non-target artifact tamper\n", "utf8")]))
+      }
       const artifacts = await readCandidateArtifactTree(candidate)
+      if (safe.zoteroDelta) {
+        validateZoteroArtifactDelta({
+          baselineReceipt: safe.currentReceipt,
+          candidateArtifacts: artifacts,
+          targetPublicId: safe.manifest.action.target_id,
+        })
+      }
       const projectedMarkdown = new Map([...safe.projected].map(([publicId, markdown]) => [publicId, Buffer.from(markdown, "utf8")]))
       const receipt = await constructReleaseReceipt({
         manifest: safe.manifest,
@@ -2370,6 +2427,7 @@ async function runCandidatePipeline(safe, releaseMode) {
         createdAt: safe.now,
         projectedMarkdown,
         artifacts,
+        zoteroSourceBytes: safe.zoteroSourceBytes,
       })
       if (releaseCase && postSealReleaseCases.has(releaseCase)) {
         await injectPostSealReleaseRegression(candidate, run, receipt, releaseCase)
@@ -2415,9 +2473,14 @@ async function main() {
       process.stdout.write(`${JSON.stringify({ ok: true, command: "release", manifestId: safe.manifest.manifest_id, releaseDigest: safe.replay.releaseDigest, receiptPath: safe.replay.receiptPath, routes: safe.replay.routes, files: safe.replay.files })}\n`)
       return
     }
+    if (safe.noChange) {
+      process.stdout.write(`${JSON.stringify({ ok: true, command: "release", outcome: "no-change", manifestId: safe.manifest.manifest_id, releaseDigest: safe.noChange.releaseDigest, receiptPath: safe.noChange.receiptPath, routes: safe.noChange.routes, files: safe.noChange.files })}\n`)
+      return
+    }
     const gate = await runCandidatePipeline(safe, true)
     if (!("releaseDigest" in gate) || !("receiptPath" in gate)) throw new TracerError("RELEASE_PROMOTION_INCOMPLETE", "release promotion did not return a completed immutable install")
-    process.stdout.write(`${JSON.stringify({ ok: true, command: "release", manifestId: safe.manifest.manifest_id, releaseDigest: gate.releaseDigest, receiptPath: gate.receiptPath, routes: gate.routes, files: gate.files })}\n`)
+    const outcome = safe.zoteroDelta ? { outcome: "promoted" } : {}
+    process.stdout.write(`${JSON.stringify({ ok: true, command: "release", ...outcome, manifestId: safe.manifest.manifest_id, releaseDigest: gate.releaseDigest, receiptPath: gate.receiptPath, routes: gate.routes, files: gate.files })}\n`)
     return
   }
   const gate = await runCandidatePipeline(safe, false)

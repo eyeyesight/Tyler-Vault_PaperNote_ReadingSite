@@ -1,0 +1,40 @@
+{
+  "paper-before-lf.md": {
+    "source_sha256": "ea9855c13cee40b89290b6ee895cd1244cfa65821cb0431d2efeeb50c71ad6f6",
+    "encoding": "utf-8",
+    "bom": false,
+    "line_ending": "LF",
+    "start_marker_literal": "<!-- zotero-annotations:start -->",
+    "end_marker_literal": "<!-- zotero-annotations:end -->",
+    "marker_count": 1,
+    "marker_order": "start-before-end",
+    "prefix_sha256": "326470ea7649e18346bb102ee8c83451983c39c7da30d89b7efd8ffe8b021077",
+    "start_marker_line_sha256": "1adbe16167ff52a66b090f138df1e5271da679245a8ef1af8cf4882850ed8142",
+    "managed_content_sha256": "70d3c4cfdc4e45c832b271b80ed3bd1e1655973923c704d214b305f2fdbb0dd0",
+    "end_marker_line_sha256": "5473185a19582d99270c770e160d231e543d7d696b53a927ee7be756384befd5",
+    "suffix_sha256": "a154f178e0b75902bf22fe2e86c9a4202691af92bf7e8037e67d43d14caa9c40"
+  },
+  "paper-after-lf.md": {
+    "source_sha256": "48e3522004c6a1c74e8d6f84f68c8cb775bfb28a0f37ad1b70279043c7ea1188",
+    "managed_content_sha256": "2b364db46aaa5808c8ec3780b3435f50410c74bbf365059e50cd7dc984fec347"
+  },
+  "paper-before-crlf.md": {
+    "source_sha256": "7443cb34ee1d5dc5eadd718506db616f358fbf6323a67a72ec5c4a12f9447876",
+    "encoding": "utf-8",
+    "bom": false,
+    "line_ending": "CRLF",
+    "start_marker_literal": "<!-- zotero-annotations:start -->",
+    "end_marker_literal": "<!-- zotero-annotations:end -->",
+    "marker_count": 1,
+    "marker_order": "start-before-end",
+    "prefix_sha256": "385bc40c973e09a9f70a5326f572529f0118f157deeb684c25f218c4f28cd6bd",
+    "start_marker_line_sha256": "fb06ef7c166d3f6044d795d489e4c2b47c1f9dc9bc57d6079e702acfe955acfd",
+    "managed_content_sha256": "5f35c36e0f7c11b86e2da7b1a4d4166d7174eaa5b7adde4891a3b8dc87c1bb8e",
+    "end_marker_line_sha256": "a198a9bea94bcfdde29639a5791eb28831cec2a0e397d3b7f83d13c8f2232b21",
+    "suffix_sha256": "29400c947578806dd1cc645f010dc730dfb065635fd5af81a834d4c7b49feda9"
+  },
+  "paper-after-crlf.md": {
+    "source_sha256": "3c0699d59a092bbf55f7fe76e4e0dde180188068e6e3c441ecc55d16fe2af7e0",
+    "managed_content_sha256": "ecba1e1544589d228892cb109309700aeaf13d68d70c7f8495ecd413321ec4dd"
+  }
+}

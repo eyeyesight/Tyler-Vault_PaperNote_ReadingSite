@@ -1,5 +1,6 @@
 // @ts-nocheck -- literal contract fixture intentionally uses dynamic JSON values.
 import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -7,9 +8,11 @@ import test from "node:test"
 
 import { computePlanDigest, computePublicSetDigest, sha256Jcs } from "../lib/publication-contracts.mjs"
 import { constructReleaseReceipt, readCandidateArtifactTree, verifySealedArtifactTree } from "../lib/safe-release.mjs"
+import { parseZoteroManagedBlock } from "../lib/zotero-delta.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const baselineReceiptPath = "consumed/VPUB-20260728-example/release-receipt.json"
+const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex")
 
 async function json(relative) {
   return JSON.parse(await readFile(path.join(repoRoot, relative), "utf8"))
@@ -80,6 +83,55 @@ test("release receipt clones Zotero metadata only from the exact approved releas
   assert.equal(JSON.stringify(inherited.zotero_baseline), JSON.stringify(currentReceipt.nodes[1].zotero_baseline))
   assert.notEqual(inherited.zotero_baseline, currentReceipt.nodes[1].zotero_baseline)
   assert.deepEqual(receipt.nodes.filter((node) => Object.hasOwn(node, "zotero_baseline")).map((node) => node.public_id), ["jackman-2021"])
+})
+
+test("release receipt derives new Zotero authority only from exact raw bytes for the newly published paper", async () => {
+  const sourceBytes = Buffer.from("---\ntitle: New Paper\ntype: literature-note\nstatus: integrated\n---\n\n<!-- zotero-annotations:start -->\n- Annotation.\n<!-- zotero-annotations:end -->\n\nBody.\n", "utf8")
+  const genesis = await json("specs/examples/publish-unit-manifest-v1.example.json")
+  genesis.nodes.find((node) => node.public_id === genesis.action.primary_id).source_sha256 = sha256(sourceBytes)
+  sealManifest(genesis)
+  const input = constructorInput(genesis)
+
+  const receipt = await constructReleaseReceipt({
+    ...input,
+    zoteroSourceBytes: new Map([[genesis.action.primary_id, sourceBytes]]),
+  })
+  assert.deepEqual(
+    receipt.nodes.find((node) => node.public_id === genesis.action.primary_id).zotero_baseline,
+    parseZoteroManagedBlock(sourceBytes).metadata,
+  )
+
+  const forgedMetadata = { ...parseZoteroManagedBlock(sourceBytes).metadata, prefix_sha256: "0".repeat(64) }
+  await assert.rejects(
+    constructReleaseReceipt({ ...input, zoteroBaselines: new Map([[genesis.action.primary_id, forgedMetadata]]) }),
+    (error) => error.code === "ZOTERO_BASELINE_INPUT_INVALID",
+  )
+  await assert.rejects(
+    constructReleaseReceipt({ ...input, zoteroSourceBytes: new Map([["unknown", sourceBytes]]) }),
+    (error) => error.code === "ZOTERO_SOURCE_TARGET_INVALID",
+  )
+  await assert.rejects(
+    constructReleaseReceipt({ ...input, zoteroSourceBytes: new Map([["flow", sourceBytes]]) }),
+    (error) => error.code === "ZOTERO_SOURCE_TARGET_INVALID",
+  )
+
+  const wrongHash = structuredClone(genesis)
+  wrongHash.nodes.find((node) => node.public_id === wrongHash.action.primary_id).source_sha256 = "f".repeat(64)
+  sealManifest(wrongHash)
+  await assert.rejects(
+    constructReleaseReceipt({ ...constructorInput(wrongHash), zoteroSourceBytes: new Map([[wrongHash.action.primary_id, sourceBytes]]) }),
+    (error) => error.code === "ZOTERO_SOURCE_HASH_MISMATCH",
+  )
+
+  const baseline = await json("specs/examples/publish-unit-with-baseline-v1.example.json")
+  const currentReceipt = await json("specs/examples/release-receipt-v1.example.json")
+  await assert.rejects(
+    constructReleaseReceipt({
+      ...constructorInput(baseline, { currentReceipt, currentReceiptPath: baselineReceiptPath }),
+      zoteroSourceBytes: new Map([["jackman-2021", sourceBytes]]),
+    }),
+    (error) => error.code === "ZOTERO_SOURCE_TARGET_INVALID",
+  )
 })
 
 test("release receipt rejects absent, genesis, stale, or digest-invalid baseline authority", async () => {
