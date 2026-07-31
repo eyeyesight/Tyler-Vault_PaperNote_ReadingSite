@@ -15,7 +15,7 @@ const cli = path.join(repoRoot, "scripts", "tracer.mjs")
 const now = "2026-07-28T12:00:00Z"
 const disclaimer = "SYNTHETIC FIXTURE — NOT RESEARCH EVIDENCE."
 const disclaimerParagraph = /<p>\s*SYNTHETIC FIXTURE — NOT RESEARCH EVIDENCE\.\s*<\/p>/
-const edgeExecutable = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+const edgeExecutable = process.env.TYLER_TRACER_BROWSER_EXECUTABLE ?? "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
 const edgeSpawnOptions = Object.freeze({ stdio: "ignore", windowsHide: true })
 
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex")
@@ -797,7 +797,7 @@ test("T04 fixed theme swap changes only theme assets and preserves public semant
   assert.deepEqual(Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(contrast.paths[role])]))), contrastProtected)
 })
 
-test("T04 Edge CDP acceptance covers desktop three-slot and mobile Explorer/ToC drawers", async (t) => {
+test("T04 Chromium CDP acceptance covers desktop three-slot and mobile Explorer/ToC drawers", async (t) => {
   const fx = await fixture("tracer-theme-browser-")
   t.after(() => rm(fx.root, { recursive: true, force: true }))
   const buildResult = invoke(fx, "build")
@@ -899,5 +899,5 @@ test("T04 Edge CDP acceptance covers desktop three-slot and mobile Explorer/ToC 
   assert.equal(reduced.scroll, "auto")
   const cleanup = await session.close()
   assert.deepEqual(cleanup, { pid: session.edgePid, exited: true, profileRemoved: true })
-  t.diagnostic(`Edge cleanup ${JSON.stringify(cleanup)}`)
+  t.diagnostic(`Chromium cleanup ${JSON.stringify(cleanup)}`)
 })

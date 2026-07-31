@@ -12,6 +12,7 @@ A generated public reading layer for explicitly approved Tyler-Vault research no
 - **Generated site:** HTML/CSS/JavaScript/search/graph/deployment artifacts outside Tyler-Vault.
 - **Paper page:** bibliographic masthead, One-sentence Takeaway, Research Question, body, collapsed Zotero Annotations, backlinks/local graph.
 - **Support page:** title, approved body, backlinks, local graph; never forced into the paper template.
+- **Primary renderer:** The replaceable implementation means currently used to project approved content into the generated site. It is retained only while it continuously satisfies the product, privacy, security, readability, and maintenance contract; it is not itself a product requirement.
 - **Public graph:** generated nodes and edges; an edge exists only when both endpoints are in the approved public node set.
 - **Zotero managed block:** marker-bounded annotation region eligible for automatic refresh on an already-published paper.
 - **Last-known-good site:** the currently valid deployed/generated release preserved when a later build or validation fails.

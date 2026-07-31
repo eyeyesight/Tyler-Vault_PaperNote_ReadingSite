@@ -930,8 +930,9 @@ async function readToolchainMetadata() {
   } catch {
     throw new TracerError("INVALID_TOOLCHAIN_METADATA", "Quartz pin metadata could not be read")
   }
+  const platformTree = metadata.quartzPackageTrees?.[`${process.platform}-${process.arch}`]
   if (!/^\d+\.\d+\.\d+$/.test(metadata.version) || !/^[0-9a-f]{40}$/.test(metadata.commit) || !/^[0-9a-f]{64}$/.test(metadata.defaultIconSha256)
-    || !Number.isSafeInteger(metadata.quartzPackageTreeFiles) || metadata.quartzPackageTreeFiles < 1 || !/^[0-9a-f]{64}$/.test(metadata.quartzPackageTreeSha256)
+    || !Number.isSafeInteger(platformTree?.files) || platformTree.files < 1 || !/^[0-9a-f]{64}$/.test(platformTree?.sha256)
     || !Number.isSafeInteger(metadata.quartzCommunityTreeFiles) || metadata.quartzCommunityTreeFiles < 1 || !/^[0-9a-f]{64}$/.test(metadata.quartzCommunityTreeSha256)) {
     throw new TracerError("INVALID_TOOLCHAIN_METADATA", "Quartz pin metadata is invalid")
   }
@@ -942,7 +943,7 @@ async function readToolchainMetadata() {
   const iconHash = sha256(await readFile(path.join(installedRoot, "quartz", "static", "icon.png")))
   if (iconHash !== metadata.defaultIconSha256) throw new TracerError("QUARTZ_ICON_HASH_MISMATCH", "installed Quartz icon does not match the pin")
   const [quartzTree, communityTree] = await Promise.all([pinnedTreeDigest(installedRoot), pinnedTreeDigest(communityRoot)])
-  if (quartzTree.files !== metadata.quartzPackageTreeFiles || quartzTree.sha256 !== metadata.quartzPackageTreeSha256
+  if (quartzTree.files !== platformTree.files || quartzTree.sha256 !== platformTree.sha256
     || communityTree.files !== metadata.quartzCommunityTreeFiles || communityTree.sha256 !== metadata.quartzCommunityTreeSha256) {
     throw new TracerError("QUARTZ_PACKAGE_TREE_MISMATCH", "installed Quartz package trees do not match the deterministic pins")
   }

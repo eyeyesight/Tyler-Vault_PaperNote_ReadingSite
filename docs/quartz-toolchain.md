@@ -6,7 +6,11 @@ T01 uses Quartz as the only renderer. Synthetic Markdown under
 ## Pin and installation
 
 - Quartz `5.0.0`, upstream `v5` commit
-  `41864a0eba8f95deef7ff3cdede7ae03a45d4c70`.
+  `507ad7f3d4601d83482f61930fccf1c77f42a072`.
+- This commit is pinned for upstream lock completeness; it does not change
+  Quartz's `sharp: ^0.34.5` declaration and is not the Sharp security fix.
+  ADR 0003 owns the temporary exact root `sharp: 0.35.3` override and checked-in
+  brace-expansion 5.0.8 compatibility adapter.
 - `package.json` uses GitHub's tarball for that exact Git commit (avoiding an
   SSH/git requirement) and `package-lock.json` records its integrity plus every
   transitive npm dependency. Reproducible installs use `npm ci`.
@@ -16,6 +20,13 @@ T01 uses Quartz as the only renderer. Synthetic Markdown under
   Every `build` and `serve` hashes the installed bytes before materializing or
   executing Quartz; a mismatch fails closed before Quartz/sharp or output
   mutation.
+- The complete installed Quartz package tree is fail-closed against an exact
+  `config/quartz-toolchain.json` fingerprint for each supported runtime platform.
+  Windows x64 and Linux x64 differ only because npm installs different nested
+  optional Typst native compiler packages; those binaries remain included in,
+  rather than excluded from, each platform's full-tree fingerprint. The
+  `@quartz-community` tree is byte-identical and has one shared exact fingerprint.
+  An unlisted platform is invalid metadata and cannot materialize Quartz.
 - The authoritative installation guide says to clone/template Quartz, run
   `npm i` initially, use `npm ci` on later clones, then run
   `npx quartz build --serve`.
@@ -92,16 +103,26 @@ the direct-invocation rule above is mandatory rather than advisory.
 
 ## Dependency audit boundary
 
-As of the T01 verification, `npm audit` reports **7 high** advisories in the
-pinned Quartz dependency graph. T01 accepts this local-only pin only with the
-gates below. Do not run `npm audit fix`: doing so would alter the reviewed
-Quartz pin without an approved upgrade.
+T08 temporarily replaces the advisory-bearing primitives with the exact,
+project-owned bridge accepted in ADR 0003: Quartz commit `507ad7f...`, root
+`sharp: 0.35.3`, and a checked-in callable/named-export adapter over exact
+`brace-expansion@5.0.8`. Quartz still declares `sharp: ^0.34.5`; the override is
+outside that range and is not upstream-supported. The Quartz commit contributes
+lock completeness, not the Sharp security fix.
 
-- `serve-handler` and its affected `minimatch`/`brace-expansion` chain remain
-  transitive Quartz files. Quartz's build bootstrap may import the module, but
-  its HTTP handler is not called and request URIs are unreachable from it; the
-  project-owned local static server does not use it.
-- `sharp` is used only during the isolated local Quartz build on synthetic or
-  approved exported input. Its advisory is not waived for publication:
-  publicly deployed/hosted operation remains blocked pending a separately
-  reviewed safe Quartz/sharp upgrade and deployment approval.
+Current full and production-only audit read-backs are required gates, but audit
+zero is not complete safety proof: npm does not review adapter logic, runtime
+reachability, input boundaries, cross-platform native compatibility, or product
+regressions. Do not run `npm audit fix`; dependency changes require the complete
+compatibility suite and renewed fingerprints.
+
+- Sharp is genuinely invoked by Quartz's favicon plugin against only the fixed,
+  digest-pinned `quartz/static/icon.png`. The project source gate rejects
+  untrusted GIF/TIFF/VIPS and other image/binary inputs before Quartz. This
+  exclusion remains defense-in-depth and does not replace the exact patched pin.
+- Quartz's build bootstrap can statically import `serve-handler`, but the wrapper
+  never passes Quartz `--serve`; no project request or untrusted glob reaches
+  that handler. The project-owned local static server does not use it.
+- Public rehearsal and deployment remain blocked until ADR 0003's focused,
+  isolated-install, full regression, build/verify, headless browser, platform,
+  audit/SBOM, and independent-review gates all pass.

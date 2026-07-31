@@ -304,6 +304,9 @@ function processIsAlive(pid) {
 
 /** @param {string} root @param {string} requestUrl */
 async function resolveStaticFile(root, requestUrl) {
+  const rawPathEnd = requestUrl.search(/[?#]/)
+  const rawPath = rawPathEnd === -1 ? requestUrl : requestUrl.slice(0, rawPathEnd)
+  if (rawPath.includes("\\")) throw new CliError("BAD_HTTP_PATH", "request path contains a backslash")
   let pathname
   try {
     pathname = decodeURIComponent(new URL(requestUrl, "http://127.0.0.1").pathname)
@@ -311,6 +314,7 @@ async function resolveStaticFile(root, requestUrl) {
     throw new CliError("BAD_HTTP_PATH", "request path is not valid UTF-8")
   }
   if (pathname.includes("\0")) throw new CliError("BAD_HTTP_PATH", "request path contains a null byte")
+  if (pathname.includes("\\")) throw new CliError("BAD_HTTP_PATH", "request path contains a backslash")
   const relative = pathname.replace(/^\/+/, "")
   const candidates = relative === ""
     ? ["index.html"]

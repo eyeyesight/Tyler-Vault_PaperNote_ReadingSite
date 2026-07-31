@@ -2,10 +2,18 @@
   "name": "Quartz",
   "version": "5.0.0",
   "upstream": "https://github.com/jackyzha0/quartz",
-  "commit": "41864a0eba8f95deef7ff3cdede7ae03a45d4c70",
+  "commit": "507ad7f3d4601d83482f61930fccf1c77f42a072",
   "defaultIconSha256": "532d053e33c2c6bdefdd8145996cedc4be2fc32cfdac740c8488749457d131cf",
-  "quartzPackageTreeFiles": 310,
-  "quartzPackageTreeSha256": "9e538a7acb7d67b1ab7f2dcf7496e1ea8fc8496a2d2e8dd5a398484e5a71bc5f",
+  "quartzPackageTrees": {
+    "linux-x64": {
+      "files": 313,
+      "sha256": "0021794c834ef39cd11660e76a9a6e411bdef502e4ef957d23253f45a956d95d"
+    },
+    "win32-x64": {
+      "files": 310,
+      "sha256": "e795fd1911dbf02b125bdf081d2438a154ae768787024496cf98691d3b7913f8"
+    }
+  },
   "quartzCommunityTreeFiles": 495,
   "quartzCommunityTreeSha256": "f5e95caad8187e79b68de08d57b6c27a855365a11c2d2c948a6f74c983fabd49",
   "sourceBranch": "v5",

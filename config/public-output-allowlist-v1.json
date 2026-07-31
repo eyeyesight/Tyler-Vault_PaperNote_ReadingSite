@@ -3,7 +3,7 @@
   "renderer": {
     "name": "Quartz",
     "version": "5.0.0",
-    "commit": "41864a0eba8f95deef7ff3cdede7ae03a45d4c70"
+    "commit": "507ad7f3d4601d83482f61930fccf1c77f42a072"
   },
   "fixed_assets": [
     "component-1ea6ad18.css",

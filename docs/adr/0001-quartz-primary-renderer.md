@@ -11,6 +11,8 @@ The throwaway prototype proved the visual direction but used a custom Python ren
 
 ## Decision
 
+Requirements outrank implementation choices: the primary renderer is replaceable and is retained only while it continuously satisfies the approved product, privacy, security, readability, and maintenance contract. Quartz may be replaced if a safer or simpler implementation serves that contract better.
+
 Use **Quartz as the sole primary renderer/static-site generator**.
 
 - Quartz owns Obsidian Markdown projection, Explorer/search/navigation, wikilinks, backlinks, graph integration, and static output.

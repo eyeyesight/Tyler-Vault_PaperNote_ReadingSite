@@ -19,7 +19,7 @@ const jackmanDoi = "10.1016/j.psychsport.2021.102051"
 const flowIds = ["concept-flow", "jackman-flow", "synthesis-flow"]
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex")
 const utf8Sort = (left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right))
-const edgeExecutable = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+const edgeExecutable = process.env.TYLER_TRACER_BROWSER_EXECUTABLE ?? "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
 const edgeSpawnOptions = Object.freeze({ stdio: "ignore", windowsHide: true })
 
 const supports = [
@@ -706,7 +706,7 @@ function assertGraph(measured, scope, rootId, expectedIds, expectedEdges) {
   assert.ok(measured.foreignGlyphIntersections.every((area) => area === 0), JSON.stringify(measured.foreignGlyphIntersections))
 }
 
-test("T05 slice C renders deterministic project-owned global/local graphs and passes real Edge graph/search acceptance from a deployment subpath", async (t) => {
+test("T05 slice C renders deterministic project-owned global/local graphs and passes real Chromium graph/search acceptance from a deployment subpath", async (t) => {
   const fx = await fixture()
   t.after(() => rm(fx.root, { recursive: true, force: true }))
   const result = invoke(fx, "build")
@@ -840,5 +840,5 @@ test("T05 slice C renders deterministic project-owned global/local graphs and pa
   assert.ok(requestUrls.every((url) => !/Private(?:%2F|\/)Hidden-Neuron|hidden-neuron/i.test(url)), JSON.stringify(requestUrls))
   const cleanup = await session.close()
   assert.deepEqual(cleanup, { pid: session.edgePid, exited: true, profileRemoved: true })
-  t.diagnostic(`Edge cleanup ${JSON.stringify(cleanup)}`)
+  t.diagnostic(`Chromium cleanup ${JSON.stringify(cleanup)}`)
 })

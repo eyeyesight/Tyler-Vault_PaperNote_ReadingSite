@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { execFile, spawn } from "node:child_process"
 import { mkdtemp, mkdir, rm } from "node:fs/promises"
+import { request } from "node:http"
 import net from "node:net"
 import os from "node:os"
 import path from "node:path"
@@ -26,6 +27,20 @@ async function availablePort() {
   const port = address.port
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve(undefined)))
   return port
+}
+
+/** @param {number} port @param {string} requestTarget */
+function lowLevelGet(port, requestTarget) {
+  return new Promise((resolve, reject) => {
+    const requestHandle = request({ host: "127.0.0.1", port, method: "GET", path: requestTarget }, (response) => {
+      /** @type {Buffer[]} */
+      const chunks = []
+      response.on("data", (chunk) => chunks.push(Buffer.from(chunk)))
+      response.on("end", () => resolve({ status: response.statusCode, body: Buffer.concat(chunks).toString("utf8") }))
+    })
+    requestHandle.once("error", reject)
+    requestHandle.end()
+  })
 }
 
 /** @param {OutputChild} child @param {RegExp} pattern @returns {Promise<RegExpMatchArray>} */
@@ -173,9 +188,16 @@ test("serve binds only IPv4 loopback, serves generated routes, and releases the 
       new Set(["GET", "HEAD"]),
     )
 
-    const traversal = await fetch(`http://127.0.0.1:${port}/..%5cpackage.json`)
+    const [traversal, ambiguousSeparator] = await Promise.all([
+      fetch(`http://127.0.0.1:${port}/..%5cpackage.json`),
+      fetch(`http://127.0.0.1:${port}/support%5cnode`),
+    ])
     assert.equal(traversal.status, 400)
     assert.doesNotMatch(await traversal.text(), /tyler-vault-reading-site/)
+    assert.equal(ambiguousSeparator.status, 400)
+    assert.equal(await ambiguousSeparator.text(), "Bad Request\n")
+    const literalBackslash = await lowLevelGet(port, "/support-node\\..\\support-node")
+    assert.deepEqual(literalBackslash, { status: 400, body: "Bad Request\n" })
 
     child.kill("SIGINT")
     await waitForExit(child)
