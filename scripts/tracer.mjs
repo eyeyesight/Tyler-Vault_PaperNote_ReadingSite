@@ -57,6 +57,13 @@ import {
   verifySealedArtifactTree,
 } from "../lib/safe-release.mjs"
 import {
+  containsZoteroSchemeDisclosure,
+  projectZoteroManagedMarkdown,
+  validateZoteroFrontmatter,
+  validateZoteroManagedMarkdown,
+  zoteroManagedRange,
+} from "../lib/zotero-public-projection.mjs"
+import {
   parseZoteroManagedBlock,
   validateZoteroArtifactDelta,
   validateZoteroSourceDelta,
@@ -68,8 +75,6 @@ const toolchainMetadataPath = path.join(repoRoot, "config", "quartz-toolchain.js
 const outputAllowlistPath = path.join(repoRoot, "config", "public-output-allowlist-v1.json")
 const secretRulesPath = path.join(repoRoot, "config", "public-secret-rules.toml")
 const scholarlyThemePath = path.join(repoRoot, "styles", "tracer-scholarly.scss")
-const fixtureDisclaimer = "SYNTHETIC FIXTURE — NOT RESEARCH EVIDENCE."
-const homeDisclaimer = "SYNTHETIC / NON-RESEARCH: This generated site is a tracer fixture only. It contains no research evidence."
 const sharedRequiredFlags = ["manifest", "exportReceipt", "runtimeRoot", "exportRoot", "vaultRoot", "workRoot", "now"]
 const testCapability = "t03-regression-v1"
 const releaseTestCapability = "t06-regression-v1"
@@ -444,15 +449,21 @@ function decodeMarkdown(bytes, role) {
   }
 }
 
+const unsupportedRawHtml = /<!--|-->|<(?:[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*|[^<>\s@]+@[^<>\s@]+)>|<\s*\/?\s*[A-Za-z][A-Za-z0-9:-]*(?=[\s/>]|$)[^<>\r\n]*(?:>|$)|<![A-Za-z][^>\r\n]*(?:>|$)|<\?[^>\r\n]*(?:>|$)/i
+
 /** @param {string} markdown @param {string} body @param {string} role @param {ReturnType<typeof analyzeMarkdown>} analysis */
 function validateMarkdownSafety(markdown, body, role, analysis) {
   // This intentionally recognizes a narrow accepted Markdown subset rather than
   // attempting browser-grade HTML parsing. Anything tag-, declaration-,
-  // processing-instruction-, comment-, namespace-, or autolink-shaped fails closed.
-  const rawHtml = /<!--|-->|<(?:[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*|[^<>\s@]+@[^<>\s@]+)>|<\s*\/?\s*[A-Za-z][A-Za-z0-9:-]*(?=[\s/>]|$)[^<>\r\n]*(?:>|$)|<![A-Za-z][^>\r\n]*(?:>|$)|<\?[^>\r\n]*(?:>|$)/i
-  const withoutManagedMarkers = body.replace(/^<!-- zotero-annotations:(?:start|end) -->\r?\n?/gm, "")
-  const markerHtmlOnly = analysis.htmlValues.every((value) => /^<!-- zotero-annotations:(?:start|end) -->$/.test(value.trim()))
-  if ((analysis.hasHtml && !markerHtmlOnly) || rawHtml.test(withoutManagedMarkers)) throw new TracerError("SOURCE_ACTIVE_CONTENT_NOT_ALLOWED", `${role} contains raw HTML or an unsupported autolink`)
+  // processing-instruction-, comment-, namespace-, or autolink-shaped outside
+  // one authenticated and sanitizable Zotero-managed range fails closed.
+  let withoutManaged = body
+  const zoteroValidation = validateZoteroManagedMarkdown(body)
+  if (zoteroValidation.managed) {
+    withoutManaged = `${body.slice(0, zoteroValidation.managed.start)}${body.slice(zoteroValidation.managed.end)}`
+  }
+  if (containsZoteroSchemeDisclosure(withoutManaged)) throw new TracerError("SOURCE_UNSAFE_URL_SCHEME", "Zotero local URLs require the authenticated managed block")
+  if (unsupportedRawHtml.test(withoutManaged)) throw new TracerError("SOURCE_ACTIVE_CONTENT_NOT_ALLOWED", `${role} contains raw HTML or an unsupported autolink`)
   if (analysis.markdownUrls.some((url) => /^(?:javascript|vbscript|data|file)\s*:/i.test(url.replace(/[\u0000-\u0020]+/g, "")))
     || /\]\(\s*(?:javascript|vbscript|data|file)\s*:/i.test(markdown)
     || /\b(?:href|src)\s*=\s*["']?\s*(?:javascript|vbscript|data|file)\s*:/i.test(markdown)) {
@@ -557,26 +568,6 @@ function nodeOffsets(node) {
   return { start, end }
 }
 
-/** Authenticate an optional Zotero marker pair against root-level parser HTML
- * nodes. Any marker-shaped source that is not one exact ordered pair fails
- * closed; callers may then operate on the exact parser offsets only. */
-function zoteroManagedRange(/** @type {string} */ markdown, /** @type {any} */ tree) {
-  const startMarker = "<!-- zotero-annotations:start -->"
-  const endMarker = "<!-- zotero-annotations:end -->"
-  const markerMentions = [...markdown.matchAll(/<!--\s*zotero-annotations:(?:start|end)\s*-->/gi)]
-  const markers = tree.children.filter((/** @type {any} */ node) => node.type === "html" && (node.value === startMarker || node.value === endMarker))
-  if (markerMentions.length === 0 && markers.length === 0) return null
-  if (markerMentions.length !== 2 || markers.length !== 2 || markers[0].value !== startMarker || markers[1].value !== endMarker) {
-    throw new TracerError("SOURCE_MARKDOWN_INVALID", "Zotero managed markers must be one exact ordered root-level pair")
-  }
-  const start = nodeOffsets(markers[0])
-  const end = nodeOffsets(markers[1])
-  if (markdown.slice(start.start, start.end) !== startMarker || markdown.slice(end.start, end.end) !== endMarker || start.end > end.start) {
-    throw new TracerError("SOURCE_MARKDOWN_INVALID", "Zotero managed marker offsets are invalid")
-  }
-  return { start: start.start, end: end.end }
-}
-
 /** @param {string} markdown */
 function analyzeMarkdown(markdown) {
   try {
@@ -588,15 +579,16 @@ function analyzeMarkdown(markdown) {
     const definitions = new Map()
     /** @type {any[]} */
     const linkNodes = []
-    let hasHtml = false
-    /** @type {string[]} */
-    const htmlValues = []
+    /** @type {any[]} */
+    const definitionNodes = []
     const excluded = new Set(["code", "inlineCode", "definition", "link", "linkReference", "image", "imageReference", "html"])
     /** @param {any} node @param {string[]} ancestors */
     function walk(node, ancestors) {
       if (!node || typeof node.type !== "string") throw new Error("invalid MDAST node")
-      if (node.type === "html") { hasHtml = true; htmlValues.push(String(node.value ?? "")) }
-      if (node.type === "definition" && !definitions.has(node.identifier)) definitions.set(node.identifier, node.url)
+      if (node.type === "definition" && !definitions.has(node.identifier)) {
+        definitions.set(node.identifier, node.url)
+        definitionNodes.push(node)
+      }
       if (node.type === "link" || node.type === "linkReference") linkNodes.push(node)
       if (node.type === "text" && !ancestors.some((type) => excluded.has(type))) {
         const { start, end } = nodeOffsets(node)
@@ -618,35 +610,80 @@ function analyzeMarkdown(markdown) {
       const next = tree.children.slice(headingIndex + 1).find((node) => node.type === "heading" && (node.depth === 1 || node.depth === 2))
       connections = { start: nodeOffsets(heading).end, end: next ? nodeOffsets(next).start : markdown.length }
     }
-    const disclaimer = tree.children.some((node) => node.type === "paragraph" && node.children?.length === 1
-      && node.children[0].type === "text" && node.children[0].value === fixtureDisclaimer)
-    const markdownUrls = linkNodes.map((node) => {
-      if (node.type === "link") return node.url
+    const markdownUrlNodes = [...linkNodes, ...definitionNodes].map((node) => {
+      const { start, end } = nodeOffsets(node)
+      if (node.type === "link" || node.type === "definition") return { url: node.url, type: node.type, start, end }
       const resolved = definitions.get(node.identifier)
       if (typeof resolved !== "string") throw new Error("unresolved MDAST link reference")
-      return resolved
+      return { url: resolved, type: node.type, start, end }
     })
+    const markdownUrls = markdownUrlNodes.map(({ url }) => url)
     const zoteroManaged = zoteroManagedRange(markdown, tree)
-    return { tree, links, tokens: allWikiLinkTokens(markdown), connections, disclaimer, hasHtml, htmlValues, markdownUrls, zoteroManaged }
+    return { tree, links, tokens: allWikiLinkTokens(markdown), connections, markdownUrls, markdownUrlNodes, zoteroManaged }
   } catch (error) {
-    if (error instanceof TracerError) throw error
+    if (error instanceof TracerError || error instanceof ContractError) throw error
     throw new TracerError("SOURCE_MARKDOWN_INVALID", "source Markdown could not be parsed with stable MDAST offsets")
   }
 }
 
 const paperTemplateHeadings = Object.freeze(["Bibliography", "One-sentence Takeaway", "Research Question", "Citation"])
+const integratedVaultPaperHeadings = Object.freeze(["One-sentence Takeaway", "Citation", "Research Question"])
+
+/** @param {any} tree @returns {string[]} */
+function rootH2Headings(tree) {
+  return tree.children.flatMap((/** @type {any} */ node) => {
+    if (node.type !== "heading" || node.depth !== 2) return []
+    return [node.children.length === 1 && node.children[0].type === "text" ? node.children[0].value : ""]
+  })
+}
+
+/** @param {string[]} rootH2 */
+function paperMastheadShape(rootH2) {
+  const scholarly = rootH2.filter((heading) => paperTemplateHeadings.includes(heading))
+  if (JSON.stringify(rootH2.slice(0, paperTemplateHeadings.length)) === JSON.stringify(paperTemplateHeadings)
+    && JSON.stringify(scholarly) === JSON.stringify(paperTemplateHeadings)) return "projected"
+  if (JSON.stringify(rootH2.slice(0, integratedVaultPaperHeadings.length)) === JSON.stringify(integratedVaultPaperHeadings)
+    && JSON.stringify(scholarly) === JSON.stringify(integratedVaultPaperHeadings)) return "integrated-vault"
+  return "invalid"
+}
+
+/** The two currently integrated Vault notes store Citation between Takeaway and
+ * Research Question and do not provide Bibliography. Preserve source bytes and
+ * project the missing required public slot as an explicit non-claim. */
+function normalizePaperMasthead(/** @type {string} */ markdown) {
+  /** @type {any} */
+  let tree
+  try {
+    tree = fromMarkdown(markdown)
+  } catch {
+    throw new TracerError("SOURCE_MARKDOWN_INVALID", "projected Markdown could not be reparsed for the scholarly masthead")
+  }
+  const shape = paperMastheadShape(rootH2Headings(tree))
+  if (shape === "projected") return markdown
+  if (shape !== "integrated-vault") throw new TracerError("SEMANTIC_TEMPLATE_INVALID", "paper requires an accepted scholarly root H2 masthead")
+  const headings = /** @type {any[]} */ (tree.children.filter((/** @type {any} */ node) => node.type === "heading" && (node.depth === 1 || node.depth === 2)))
+  const sections = new Map()
+  for (const name of integratedVaultPaperHeadings) {
+    const heading = headings.find((/** @type {any} */ node) => node.depth === 2 && node.children?.length === 1 && node.children[0].type === "text" && node.children[0].value === name)
+    if (!heading) throw new TracerError("SEMANTIC_TEMPLATE_INVALID", "integrated Vault paper masthead is incomplete")
+    const index = headings.indexOf(heading)
+    const next = headings[index + 1]
+    sections.set(name, { start: nodeOffsets(heading).start, end: next ? nodeOffsets(next).start : markdown.length })
+  }
+  const takeaway = sections.get("One-sentence Takeaway")
+  const citation = sections.get("Citation")
+  const question = sections.get("Research Question")
+  if (!takeaway || !citation || !question) throw new TracerError("SEMANTIC_TEMPLATE_INVALID", "integrated Vault paper masthead is incomplete")
+  const bibliography = "## Bibliography\n\nNot stated.\n\n"
+  return `${markdown.slice(0, takeaway.start)}${bibliography}${markdown.slice(takeaway.start, takeaway.end)}${markdown.slice(question.start, question.end)}${markdown.slice(citation.start, citation.end)}${markdown.slice(question.end)}`
+}
 
 /** @param {Map<string,{node:any,analysis:ReturnType<typeof analyzeMarkdown>}>} records */
 function validateSemanticTemplates(records) {
   for (const record of records.values()) {
-    const rootH2 = record.analysis.tree.children.flatMap((node) => {
-      if (node.type !== "heading" || node.depth !== 2) return []
-      return [node.children.length === 1 && node.children[0].type === "text" ? node.children[0].value : ""]
-    })
+    const rootH2 = rootH2Headings(record.analysis.tree)
     if (record.node.node_class === "paper") {
-      const scholarly = rootH2.filter((heading) => paperTemplateHeadings.includes(heading))
-      if (JSON.stringify(rootH2.slice(0, paperTemplateHeadings.length)) !== JSON.stringify(paperTemplateHeadings)
-        || JSON.stringify(scholarly) !== JSON.stringify(paperTemplateHeadings)) {
+      if (paperMastheadShape(rootH2) === "invalid") {
         throw new TracerError("SEMANTIC_TEMPLATE_INVALID", "paper requires the exact ordered scholarly root H2 masthead")
       }
     } else if (rootH2.some((heading) => paperTemplateHeadings.includes(heading))) {
@@ -790,8 +827,11 @@ function projectContent(manifest, records) {
       throw new TracerError("SOURCE_LOCAL_LINK_NOT_ALLOWED", "local Markdown links must use resolvable wikilinks")
     }
     outgoing.set(id, resolvedTargets)
-    searchableBodies.set(id, searchableBody)
-    projectedBodies.set(id, discloseZoteroAnnotations(body))
+    body = projectZoteroManagedMarkdown(body)
+    const normalizedBody = record.node.node_class === "paper" ? normalizePaperMasthead(body) : body
+    const normalizedSearchableBody = record.node.node_class === "paper" ? normalizePaperMasthead(searchableBody) : searchableBody
+    searchableBodies.set(id, normalizedSearchableBody)
+    projectedBodies.set(id, discloseZoteroAnnotations(normalizedBody))
   }
 
   for (const [id, record] of records) {
@@ -960,7 +1000,7 @@ function tracerQuartzConfig(source) {
     transformed = transformed.replace(before, after)
   }
   for (const [before, after] of [
-    ["pageTitle: Quartz 5", "pageTitle: Manifest Quartz Tracer"],
+    ["pageTitle: Quartz 5", "pageTitle: Tyler-Vault Reading Site"],
     ["enableSPA: true", "enableSPA: false"],
     ["enablePopovers: true", "enablePopovers: false"],
     ["provider: plausible", "provider: null"],
@@ -973,14 +1013,13 @@ function tracerQuartzConfig(source) {
     ["enableInHtmlEmbed: false", "enableInHtmlEmbed: true"],
   ]) replaceOne(before, after)
 
-  const disabledPlugins = ["alias-redirects", "og-image", "cname", "canvas-page", "tag-page", "graph", "search", "footer", "quartz-fonts", "latex", "darkmode", "reader-mode", "spacer", "unlisted-pages", "encrypted-pages", "bases-page", "backlinks", "article-title", "content-meta"]
+  const disabledPlugins = ["alias-redirects", "og-image", "cname", "canvas-page", "tag-page", "graph", "search", "explorer", "footer", "quartz-fonts", "latex", "darkmode", "reader-mode", "spacer", "unlisted-pages", "encrypted-pages", "bases-page", "backlinks", "article-title", "content-meta"]
   for (const plugin of disabledPlugins) replaceOne(`source: "@quartz-community/${plugin}"\n    enabled: true`, `source: "@quartz-community/${plugin}"\n    enabled: false`)
   replaceOne("source: \"@quartz-community/content-index\"\n    enabled: true\n    options:\n      enableSiteMap: true\n      enableRSS: true", "source: \"@quartz-community/content-index\"\n    enabled: true\n    options:\n      enableSiteMap: false\n      enableRSS: false")
   replaceOne("source: \"@quartz-community/table-of-contents\"\n    enabled: true\n    order: 50", "source: \"@quartz-community/table-of-contents\"\n    enabled: true\n    options:\n      maxDepth: 3\n      minEntries: 1\n      showByDefault: true\n      collapseByDefault: true\n      layout: modern\n    order: 50")
-  replaceOne("source: \"@quartz-community/explorer\"\n    enabled: true\n    layout:", "source: \"@quartz-community/explorer\"\n    enabled: true\n    options:\n      title: Library\n      folderDefaultState: collapsed\n      folderClickBehavior: link\n      useSavedState: false\n    layout:")
   replaceOne("    folder:\n      exclude:\n        - reader-mode\n      positions:\n        right: []", "    folder: {}")
 
-  for (const expected of ["pageTitle: Manifest Quartz Tracer", "enableSPA: false", "enablePopovers: false", "provider: null", "baseUrl: example.invalid", "fontOrigin: local", "cdnCaching: false", "header: system-ui", "body: Georgia", "code: ui-monospace", "enableInHtmlEmbed: true", "title: Library", "folder: {}"]) {
+  for (const expected of ["pageTitle: Tyler-Vault Reading Site", "enableSPA: false", "enablePopovers: false", "provider: null", "baseUrl: example.invalid", "fontOrigin: local", "cdnCaching: false", "header: system-ui", "body: Georgia", "code: ui-monospace", "enableInHtmlEmbed: true", "folder: {}"]) {
     if (transformed.split(expected).length !== 2) fail()
   }
   for (const plugin of disabledPlugins) {
@@ -988,7 +1027,7 @@ function tracerQuartzConfig(source) {
     const matches = [...transformed.matchAll(new RegExp(`source:\\s*["']@quartz-community/${escaped}["']\\s*\\n\\s*enabled:\\s*(true|false)`, "g"))]
     if (matches.length !== 1 || matches[0][1] !== "false") fail()
   }
-  for (const plugin of ["table-of-contents", "explorer"]) {
+  for (const plugin of ["table-of-contents"]) {
     const matches = [...transformed.matchAll(new RegExp(`source:\\s*["']@quartz-community/${plugin}["']\\s*\\n\\s*enabled:\\s*(true|false)`, "g"))]
     if (matches.length !== 1 || matches[0][1] !== "true") fail()
   }
@@ -1089,6 +1128,21 @@ async function immutableCandidateManifest(candidate, run) {
   return Object.freeze(rows)
 }
 
+/** Fixed raw-Quartz HTML mutation proving that a pinned integration-seam upgrade
+ * fails before project navigation normalization or output creation.
+ * @param {string} candidate @param {string} run @param {string} variant */
+async function injectQuartzHtmlRegression(candidate, run, variant) {
+  await assertCandidateRoot(candidate, run)
+  if (variant !== "content-index-fetch-seam-renamed") {
+    throw new TracerError("TEST_INJECTION_INVALID", "Quartz HTML regression injection is not a fixed supported variant")
+  }
+  const index = path.join(candidate, "index.html")
+  const html = await readFile(index, "utf8")
+  const mutated = html.replace("const fetchData = fetch(", "const vendorFetchData = fetch(")
+  if (mutated === html) throw new TracerError("TEST_INJECTION_INVALID", "pinned Quartz HTML fixture lacks the expected content-index seam")
+  await writeFile(index, mutated)
+}
+
 /** Quartz breadcrumbs include links for synthetic folder pages that are later
  * removed by the exact route gate. Before the immutable baseline, normalize
  * only those renderer-owned breadcrumb links to the approved library root.
@@ -1139,20 +1193,33 @@ async function normalizeBreadcrumbRoutes(candidate, run, records, outgoing) {
       try { pathname = new URL(href, `https://example.invalid${route}`).pathname } catch { return attribute }
       return approved.has(pathname) ? attribute : `href="${navigation.rootHref}"`
     }))
+    const contentIndexFetchSeam = /<script type="application\/javascript" data-persist="true">const fetchData = fetch\("[^"]*static\/contentIndex\.json"\)\.then\(data => data\.json\(\)\)<\/script>/g
+    const contentIndexFetchSeams = normalized.match(contentIndexFetchSeam) ?? []
+    if (contentIndexFetchSeams.length !== 1) {
+      throw new TracerError("QUARTZ_HTML_INTEGRATION_SEAM_INVALID", "generated public page lacks the exact unique pinned Quartz content-index fetch seam")
+    }
     normalized = normalized
       .replace(/<link rel="preconnect" href="https:\/\/cdnjs\.cloudflare\.com" crossorigin="anonymous"\/>/g, "")
-      .replace(/<script type="application\/javascript" data-persist="true">const fetchData = fetch\("[^"]*static\/contentIndex\.json"\)\.then\(data => data\.json\(\)\)<\/script>/, navigation.contentIndexScript)
+      .replace(contentIndexFetchSeam, navigation.contentIndexScript)
       .replaceAll("https://example.invalid", "")
     if (publicPage) {
       const existingExplorerCount = [...normalized.matchAll(/\bclass="([^"]*)"/g)].filter((match) => match[1].split(/\s+/).includes("explorer")).length
-      if (existingExplorerCount > 1 || (record && existingExplorerCount !== 1) || normalized.includes("public-explorer")) {
-        throw new TracerError("CANDIDATE_EXPLORER_INVALID", "generated public page must retain exactly one Quartz Explorer")
+      if (existingExplorerCount !== 0 || normalized.includes("public-explorer")) {
+        throw new TracerError("CANDIDATE_EXPLORER_INVALID", "generated public page must not retain the disabled vendor Explorer shell")
       }
-      const explorerMarkup = route === "/" && existingExplorerCount === 0 ? navigation.explorerShellMarkup : ""
-      normalized = normalized.replace(/<body\b[^>]*>/, (body) => `${body}${navigation.searchMarkup}${explorerMarkup}`)
+      normalized = normalized.replace(/<body\b[^>]*>/, (body) => `${body}${navigation.searchMarkup}`)
+      const leftSidebar = '<div class="left sidebar">'
+      const leftSidebarCount = normalized.split(leftSidebar).length - 1
+      if (leftSidebarCount > 1) throw new TracerError("CANDIDATE_EXPLORER_INVALID", "generated public page has an ambiguous left sidebar seam")
+      if (leftSidebarCount === 1) normalized = normalized.replace(leftSidebar, `${leftSidebar}${navigation.explorerShellMarkup}`)
+      else {
+        const quartzBody = '<div id="quartz-body">'
+        if (normalized.split(quartzBody).length !== 2) throw new TracerError("CANDIDATE_EXPLORER_INVALID", "generated public page lacks the exact Quartz body insertion seam")
+        normalized = normalized.replace(quartzBody, `${quartzBody}<div class="left sidebar">${navigation.explorerShellMarkup}</div>`)
+      }
       if (!normalized.includes("class=\"public-search\"")) throw new TracerError("CANDIDATE_SEARCH_INVALID", "generated public page lacks the project-owned search surface")
       const explorerCount = [...normalized.matchAll(/\bclass="([^"]*)"/g)].filter((match) => match[1].split(/\s+/).includes("explorer")).length
-      if (explorerCount !== 1 || normalized.includes("public-explorer")) throw new TracerError("CANDIDATE_EXPLORER_INVALID", "generated public page must retain exactly one Quartz Explorer")
+      if (explorerCount !== 1 || normalized.includes("public-explorer")) throw new TracerError("CANDIDATE_EXPLORER_INVALID", "generated public page must expose exactly one project-owned Explorer")
     }
     if (record) {
       const beforeBacklinks = normalized
@@ -1301,16 +1368,6 @@ function htmlStartTags(html) {
     tags.push({ name, attributes: parseTagAttributes(attributeSource), rawText })
   }
   return tags
-}
-
-/** Quartz's fixed projection must retain the exact disclaimer as a normal body
- * paragraph, not merely as inert/head metadata. This is intentionally narrower
- * than a general browser visibility model. @param {string} html */
-function hasCandidateDisclaimerParagraph(html) {
-  const bodyOnly = html
-    .replace(/<!--[\s\S]*?(?:-->|$)/g, "")
-    .replace(/<(template|head|title|script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
-  return /<p>\s*SYNTHETIC FIXTURE — NOT RESEARCH EVIDENCE\.\s*<\/p>/.test(bodyOnly)
 }
 
 /** Remove CSS comments only outside quoted strings so comments retain their
@@ -1570,6 +1627,12 @@ async function validateT04Prebaseline(/** @type {string} */ candidate, /** @type
       if (tag.name === "script" && /(?:fetch|importScripts|import)\s*\([^)]{0,160}["'](?:https?:)?\/\//i.test(tag.rawText)) {
         throw new TracerError("T04_BOUNDARY_VIOLATION", "candidate script imports an external network resource")
       }
+      if (tag.name === "script" && /Math\.random\s*\(/.test(tag.rawText)) {
+        throw new TracerError("T04_BOUNDARY_VIOLATION", "candidate graph/runtime script uses nondeterministic random layout initialization")
+      }
+      if (tag.name === "script" && /(?:cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com|pixi(?:\.min)?\.js)/i.test(tag.rawText)) {
+        throw new TracerError("T04_BOUNDARY_VIOLATION", "candidate graph/runtime script references a forbidden vendor CDN")
+      }
     }
   }
 }
@@ -1614,6 +1677,27 @@ async function injectPrebaselineRegression(candidate, run, variant) {
     const graph = JSON.parse(await readFile(graphPath, "utf8"))
     graph.nodes[0].title = ""
     await writeFile(graphPath, `${JSON.stringify(graph)}\n`)
+    return
+  }
+  if (["vendor-slug-keyed-search", "broad-search-record", "extra-virtual-search-record"].includes(variant)) {
+    const searchPaths = [path.join(candidate, "search-index.json"), path.join(candidate, "static", "contentIndex.json")]
+    let search = JSON.parse(await readFile(searchPaths[0], "utf8"))
+    if (variant === "vendor-slug-keyed-search") {
+      search = Object.fromEntries(search.records.map((/** @type {any} */ record) => [record.url.replace(/^\/+|\/+$/g, ""), { title: record.title, content: record.search_text }]))
+    } else if (variant === "broad-search-record") {
+      search.records[0].slug = search.records[0].url.replace(/^\/+|\/+$/g, "")
+      search.records[0].content = search.records[0].search_text
+    } else {
+      search.records.push({
+        public_id: "virtual-folder", title: "Virtual Folder", node_class: "concept", url: "/knowledge/concept/virtual-folder/",
+        authors: [], doi: null, source_tags: [], search_text: "virtual folder",
+      })
+    }
+    await Promise.all(searchPaths.map((target) => writeFile(target, `${JSON.stringify(search)}\n`)))
+    return
+  }
+  if (variant === "graph-math-random") {
+    await writeFile(index, html.replace(/<\/body>/i, '<script data-vendor-graph-layout>const x=Math.random()</script></body>'))
     return
   }
   if (variant === "external-script") {
@@ -1747,15 +1831,6 @@ async function injectCandidateRegression(candidate, run, variant) {
     await symlink(target, candidate, process.platform === "win32" ? "junction" : "dir")
     return
   }
-  if (variant === "disclaimer-template") {
-    const page = (await listRegularTree(candidate, run)).find((file) => /^(?:papers|knowledge)\/.+\/index\.html$/.test(file.relative) && hasCandidateDisclaimerParagraph(file.bytes.toString("utf8")))
-    if (!page) throw new TracerError("TEST_INJECTION_INVALID", "candidate disclaimer paragraph was not found")
-    const html = page.bytes.toString("utf8")
-    const replaced = html.replace(/<p>\s*SYNTHETIC FIXTURE — NOT RESEARCH EVIDENCE\.\s*<\/p>/, `<template>${fixtureDisclaimer}</template>`)
-    if (replaced === html) throw new TracerError("TEST_INJECTION_INVALID", "candidate disclaimer paragraph could not be replaced")
-    await writeFile(page.absolute, replaced)
-    return
-  }
   const index = path.join(candidate, "index.html")
   const snippets = new Map([
     ["event-attribute", "<div onpointerenter=\"alert(1)\">event</div>"],
@@ -1766,6 +1841,7 @@ async function injectCandidateRegression(candidate, run, variant) {
     ["meta-refresh", "<meta http-equiv=\"refresh\" content=\"0; url=/unapproved-fixture/refresh/\">"],
     ["css-url-missing", "<style>body{background-image:url('/static/unexpected.png')}</style>"],
     ["unsafe-attribute-scheme", "<a href=\"javascript:alert(1)\">unsafe</a>"],
+    ["zotero-scheme-disclosure", "<p>zotero://select/library/items/OPAQUE123</p>"],
   ])
   if (variant === "virtual-parent-tamper") {
     await writeFile(path.join(candidate, "knowledge", "index.html"), "<!doctype html><title>tampered virtual parent</title>")
@@ -1983,6 +2059,7 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
       || /(?:^|\/)(?:runtime|releases?|work)(?:[._-][^/]*)?$/i.test(file.relative)) {
       throw new TracerError("CANDIDATE_FORBIDDEN_FILE", "candidate contains a forbidden public file")
     }
+    if (containsZoteroSchemeDisclosure(file.bytes.toString("utf8"))) throw new TracerError("CANDIDATE_UNSAFE_SCHEME", "candidate contains a Zotero local URL disclosure", { file: file.relative })
     const finding = secretFinding(file.bytes, file.relative, secretRules, privatePaths)
     if (finding === "absolute-path") throw new TracerError("CANDIDATE_ABSOLUTE_PATH_DISCLOSURE", "candidate contains an absolute local path")
     if (finding) throw new TracerError("CANDIDATE_SECRET_DISCLOSURE", "candidate contains credential-shaped bytes")
@@ -2005,9 +2082,6 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
     if (file.relative.endsWith(".html")) {
       const pageHtml = file.bytes.toString("utf8")
       if (pageHtml.split(tracerCspMeta).length - 1 !== 1) throw new TracerError("CANDIDATE_CSP_INVALID", "candidate page lacks its exact unique content security policy")
-      if (contentHtml.has(file.relative) && !hasCandidateDisclaimerParagraph(pageHtml)) {
-        throw new TracerError("CANDIDATE_DISCLAIMER_MISSING", "candidate paper/support route lacks the exact visible disclaimer paragraph")
-      }
       if (contentHtml.has(file.relative)) {
         const record = [...records.values()].find((candidateRecord) => `${candidateRecord.route.slice(1)}index.html` === file.relative)
         const template = record?.node?.node_class === "paper" ? "paper" : "support"
@@ -2026,8 +2100,8 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
     const forbiddenDisclosure = /export-receipt|publication-manifest|release-receipt|current-release/i.exec(text)
       ?? (file.relative.endsWith(".html") ? /\.md\b|\.pdf\b/i.exec(text) : null)
     if (forbiddenDisclosure) throw new TracerError("CANDIDATE_FORBIDDEN_DISCLOSURE", "candidate contains forbidden source or receipt metadata", { file: file.relative, token: forbiddenDisclosure[0].toLowerCase() })
-    const schemeText = file.relative.endsWith(".html") ? text.replace(tracerCspMeta, "") : text
-    if (!/\.(?:css|js|map)$/i.test(file.relative) && /(?:javascript|vbscript|data|file)\s*:/i.test(schemeText)) throw new TracerError("CANDIDATE_UNSAFE_SCHEME", "candidate contains an unsafe URL scheme", { file: file.relative })
+    const structurallyValidatedText = /\.(?:html|json|css|js|map)$/i.test(file.relative)
+    if (!structurallyValidatedText && /(?:javascript|vbscript|data|file)\s*:/i.test(text)) throw new TracerError("CANDIDATE_UNSAFE_SCHEME", "candidate contains an unsafe URL scheme", { file: file.relative })
     const disclosureForms = disclosureComparables(text)
     if ([...suppressedTargets].some((target) => target && disclosureForms.some((form) => form.includes(target.replace(/\\/g, "/").toLowerCase())))) throw new TracerError("CANDIDATE_SUPPRESSED_TARGET_DISCLOSURE", "candidate contains suppressed target metadata")
   }
@@ -2269,17 +2343,17 @@ async function preflight(cli) {
       parseZoteroManagedBlock(bytes)
       zoteroSourceBytes.set(node.public_id, bytes)
     }
+    const markdown = decodeMarkdown(bytes, node.public_id)
+    const parsed = parseFrontmatter(markdown)
+    validateZoteroFrontmatter(parsed.data, node.node_class)
+    const analysis = analyzeMarkdown(parsed.body)
+    validateMarkdownSafety(markdown, parsed.body, node.public_id, analysis)
     const sourceFinding = secretFinding(bytes, node.path, secretRules, privatePaths)
     if (sourceFinding === "absolute-path") throw new TracerError("SOURCE_ABSOLUTE_PATH_NOT_ALLOWED", "source contains an absolute local path")
     if (sourceFinding) throw new TracerError("SOURCE_SECRET_NOT_ALLOWED", "source contains credential-shaped bytes")
-    const markdown = decodeMarkdown(bytes, node.public_id)
-    const parsed = parseFrontmatter(markdown)
-    const analysis = analyzeMarkdown(parsed.body)
-    validateMarkdownSafety(markdown, parsed.body, node.public_id, analysis)
     if (node.node_class === "paper") {
       if (parsed.data.type !== "literature-note" || parsed.data.status !== "integrated") throw new TracerError("PAPER_FRONTMATTER_INVALID", "paper requires exact type: literature-note and status: integrated")
     } else if (parsed.data.type === "paper") throw new TracerError("SUPPORT_FRONTMATTER_INVALID", "support node cannot claim paper type")
-    if (!analysis.disclaimer) throw new TracerError("SYNTHETIC_DISCLAIMER_REQUIRED", "each T03 source body requires the exact synthetic fixture disclaimer as an independent visible plain paragraph")
     const route = node.node_class === "paper" ? `/papers/${node.public_id}/` : `/knowledge/${node.node_class}/${node.public_id}/`
     records.set(node.public_id, { node, bytes, markdown, body: parsed.body, frontmatter: parsed.data, route, mtimeMs: metadata.mtimeMs, analysis })
   }
@@ -2327,6 +2401,18 @@ async function runCandidatePipeline(safe, releaseMode) {
   const configCase = testHook("TYLER_TRACER_TEST_CONFIG_CASE", releaseMode)
   if (configCase === "content-index-single-quote") {
     defaultConfig = defaultConfig.replace('source: "@quartz-community/content-index"', "source: '@quartz-community/content-index'")
+  } else if (configCase?.startsWith("navigation:")) {
+    const [, plugin, drift] = configCase.split(":")
+    if (!["explorer", "search", "graph", "backlinks"].includes(plugin)
+      || !["missing", "renamed", "schema", "enable-token"].includes(drift)) {
+      throw new TracerError("TEST_INJECTION_INVALID", "navigation config regression injection is not a fixed supported variant")
+    }
+    const source = `source: "@quartz-community/${plugin}"`
+    const enabled = `${source}\n    enabled: true`
+    if (drift === "missing") defaultConfig = defaultConfig.replace(`${enabled}\n`, "")
+    if (drift === "renamed") defaultConfig = defaultConfig.replace(source, `source: "@quartz-community/${plugin}-renamed"`)
+    if (drift === "schema") defaultConfig = defaultConfig.replace(enabled, `enabled: true\n    ${source}`)
+    if (drift === "enable-token") defaultConfig = defaultConfig.replace(`${source}\n    enabled: true`, `${source}\n    enabled: yes`)
   } else if (configCase !== undefined) throw new TracerError("TEST_INJECTION_INVALID", "config regression injection is not a fixed supported variant")
   const quartzConfig = tracerQuartzConfig(defaultConfig)
   const run = await mkdtemp(path.join(safe.workRoot, `tracer-${process.pid}-${randomBytes(8).toString("hex")}-`))
@@ -2352,7 +2438,7 @@ async function runCandidatePipeline(safe, releaseMode) {
       .sort((left, right) => Buffer.compare(Buffer.from(left.node.public_id), Buffer.from(right.node.public_id)))
       .map((record) => `- [${markdownText(String(record.frontmatter.title ?? record.node.public_id))}](${record.route})`)
       .join("\n")
-    await writeFile(path.join(content, "index.md"), `---\ntitle: "Manifest Quartz Tracer"\n---\n\n# Manifest Quartz Tracer\n\n> **${homeDisclaimer}**\n\n${homeLinks}\n`, { flag: "wx" })
+    await writeFile(path.join(content, "index.md"), `---\ntitle: "Tyler-Vault Reading Site"\n---\n\n# Tyler-Vault Reading Site\n\n${homeLinks}\n`, { flag: "wx" })
     await Promise.all([
       cp(path.join(safe.installedRoot, "quartz"), path.join(toolchain, "quartz"), { recursive: true, errorOnExist: true, force: false }),
       copyFile(path.join(safe.installedRoot, "package.json"), path.join(toolchain, "package.json"), constants.COPYFILE_EXCL),
@@ -2366,6 +2452,8 @@ async function runCandidatePipeline(safe, releaseMode) {
     const executable = path.join(toolchain, "quartz", "bootstrap-cli.mjs")
     const quartz = /** @type {{code:number,logs:string}} */ (await spawnCaptured(executable, ["build", "--directory", content, "--output", candidate, "--concurrency", "1"], toolchain))
     if (quartz.code !== 0) throw new TracerError("QUARTZ_BUILD_FAILED", "pinned Quartz build failed", testHook("TYLER_TRACER_TEST_DEBUG", releaseMode) === "1" ? { logs: quartz.logs } : {})
+    const quartzHtmlCase = testHook("TYLER_TRACER_TEST_QUARTZ_HTML_CASE", releaseMode)
+    if (quartzHtmlCase) await injectQuartzHtmlRegression(candidate, run, quartzHtmlCase)
     await normalizeBreadcrumbRoutes(candidate, run, safe.records, safe.outgoing)
     await repairTocAccessibility(candidate, run)
     await installNetworkCsp(candidate, run)
