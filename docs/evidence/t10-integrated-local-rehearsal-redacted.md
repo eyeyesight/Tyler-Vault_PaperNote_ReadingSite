@@ -98,4 +98,4 @@ Earlier current-byte reports v1 (`15a19ff1d727d4174746d7a1cc330c7b13e44ed774350b
 
 This rehearsal remains **not mature** because the real integrated corpus contains only 2 papers plus 7 direct support pages. Passing synthetic fixtures and the integrated local rehearsal does not broaden that corpus and does not authorize publication.
 
-Independent Spec, Standards, and Security closure review found no open blocker or high-severity finding in the final T10 slice. The next gate is the parent-owned local commit decision. Until that decision and the separate T11/T12 authority gates occur, this evidence must remain non-authoritative and must not be used to publish or deploy anything.
+Independent Spec, Standards, and Security closure review found no open blocker or high-severity finding in the final T10 slice, and the parent-owned local commit decision is complete. The next gate is review of the code-only feature-branch pull request. Until that review and the separate T11/T12 authority gates occur, this evidence must remain non-authoritative and must not be used to publish or deploy anything.
