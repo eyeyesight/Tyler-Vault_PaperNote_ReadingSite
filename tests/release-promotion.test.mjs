@@ -1,7 +1,7 @@
 // @ts-nocheck -- filesystem promotion tests intentionally assemble dynamic fixtures.
 import assert from "node:assert/strict"
 import { open as openFile } from "node:fs/promises"
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile, lstat } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile, lstat } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
@@ -32,6 +32,13 @@ async function exactSnapshot(root) {
 }
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+
+async function assertNoRuntimeLease(runtimeRoot) {
+  assert.equal(
+    (await readdir(path.dirname(runtimeRoot))).some((entry) => /^\.tyler-runtime-[a-f0-9]+\.lease$/.test(entry)),
+    false,
+  )
+}
 
 async function validPromotionFixture(t, prefix = "release-promotion-valid-") {
   const root = await mkdtemp(path.join(os.tmpdir(), prefix))
@@ -259,6 +266,72 @@ test("held-open Windows pointer either replaces atomically or reports a stable f
   assert.deepEqual(await readdir(root), ["current-release.json"])
 })
 
+test("pending custody is consumed with the same promotion transaction and restored on pointer failure", async (t) => {
+  const success = await validPromotionFixture(t, "release-promotion-pending-success-")
+  await mkdir(path.join(success.runtimeRoot, "pending"))
+  await writeFile(path.join(success.runtimeRoot, "pending", `${success.manifest.manifest_id}.json`), success.manifestRaw)
+  await promoteRelease(promotionInput(success, { runOwnership: createOwnedRunLifecycle(success.runRoot) }))
+  assert.deepEqual(await readdir(path.join(success.runtimeRoot, "pending")), [])
+  assert.equal((await readFile(path.join(success.runtimeRoot, "consumed", success.manifest.manifest_id, "manifest.json"))).equals(success.manifestRaw), true)
+  await assertNoRuntimeLease(success.runtimeRoot)
+
+  const failure = await validPromotionFixture(t, "release-promotion-pending-failure-")
+  await mkdir(path.join(failure.runtimeRoot, "pending"))
+  const pendingPath = path.join(failure.runtimeRoot, "pending", `${failure.manifest.manifest_id}.json`)
+  await writeFile(pendingPath, failure.manifestRaw)
+  const runOwnership = createOwnedRunLifecycle(failure.runRoot)
+  await assert.rejects(
+    promoteReleaseForTest(promotionInput(failure, { runOwnership }), { faultCase: "before-pointer-commit" }),
+    (error) => error.code === "PROMOTION_CONTROLLED_FAILURE",
+  )
+  assert.equal((await readFile(pendingPath)).equals(failure.manifestRaw), true)
+  assert.equal((await readFile(failure.pointerPath)).equals(failure.oldPointerBytes), true)
+  await assertNoRuntimeLease(failure.runtimeRoot)
+  await runOwnership.cleanup()
+})
+
+test("cooperating concurrent promotions allow at most one transition and preserve pending/LKG boundaries", async (t) => {
+  const fixture = await validPromotionFixture(t, "release-promotion-concurrent-")
+  const pendingRoot = path.join(fixture.runtimeRoot, "pending")
+  await mkdir(pendingRoot)
+  const pendingPath = path.join(pendingRoot, `${fixture.manifest.manifest_id}.json`)
+  await writeFile(pendingPath, fixture.manifestRaw)
+
+  const secondRunRoot = path.join(fixture.root, "work", "second-owned-run")
+  const secondCandidateRoot = path.join(secondRunRoot, "candidate")
+  await cp(fixture.candidateRoot, secondCandidateRoot, { recursive: true })
+  const firstOwnership = createOwnedRunLifecycle(fixture.runRoot)
+  const secondOwnership = createOwnedRunLifecycle(secondRunRoot)
+  const originalConsume = firstOwnership.consumeBeforeCommit
+  let signalFirst
+  let allowFirst
+  const firstReachedCommit = new Promise((resolve) => { signalFirst = resolve })
+  const firstMayCommit = new Promise((resolve) => { allowFirst = resolve })
+  firstOwnership.consumeBeforeCommit = async (...args) => {
+    signalFirst()
+    await firstMayCommit
+    return originalConsume(...args)
+  }
+  const secondInput = promotionInput({ ...fixture, runRoot: secondRunRoot, candidateRoot: secondCandidateRoot }, { runOwnership: secondOwnership })
+  const firstPromise = promoteRelease(promotionInput(fixture, { runOwnership: firstOwnership }))
+  await firstReachedCommit
+  const secondPromise = promoteRelease(secondInput)
+  const outcomesPromise = Promise.allSettled([firstPromise, secondPromise])
+  await delay(100)
+  allowFirst()
+  const outcomes = await outcomesPromise
+  assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1)
+  assert.equal(outcomes.filter((outcome) => outcome.status === "rejected").length, 1)
+  assert.equal(outcomes.find((outcome) => outcome.status === "rejected").reason.code, "RUNTIME_TRANSACTION_BUSY")
+  assert.deepEqual(await readdir(pendingRoot), [])
+  const pointer = JSON.parse(await readFile(fixture.pointerPath, "utf8"))
+  assert.notEqual(pointer.release_digest, "f".repeat(64))
+  assert.equal((await readFile(path.join(fixture.releasesRoot, "f".repeat(64), "index.html"), "utf8")), "last known good\n")
+  assert.deepEqual((await readdir(path.join(fixture.runtimeRoot, "consumed"))).sort(), [fixture.manifest.manifest_id])
+  await firstOwnership.cleanup().catch(() => {})
+  await secondOwnership.cleanup().catch(() => {})
+})
+
 test("corrupt preexisting digest collision preserves pointer, LKG, collision, candidate, and leaves no staging", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "release-promotion-collision-"))
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -321,4 +394,35 @@ test("corrupt preexisting digest collision preserves pointer, LKG, collision, ca
   assert.equal((await readFile(path.join(runtimeRoot, "current-release.json"))).equals(oldPointerBytes), true)
   assert.deepEqual(await readdir(oldReleaseRoot), ["index.html"])
   assert.deepEqual(await readdir(collisionRoot), ["corrupt.txt"])
+})
+
+test("pending root is rejected as a non-ordinary custody root before any promotion mutation", async (t) => {
+  const fixture = await validPromotionFixture(t, "release-promotion-pending-root-file-")
+  await writeFile(path.join(fixture.runtimeRoot, "pending"), "not a directory\n")
+  const beforeRuntime = await exactSnapshot(fixture.runtimeRoot)
+  await assert.rejects(
+    promoteRelease(promotionInput(fixture, { runOwnership: createOwnedRunLifecycle(fixture.runRoot) })),
+    (error) => error.code === "RUNTIME_FILE_CLASS_INVALID",
+  )
+  assert.deepEqual(await exactSnapshot(fixture.runtimeRoot), beforeRuntime)
+  assert.equal((await readFile(fixture.pointerPath)).equals(fixture.oldPointerBytes), true)
+})
+
+test("failed pending restore preserves unique custody and release evidence as recovery custody", async (t) => {
+  const fixture = await validPromotionFixture(t, "release-promotion-pending-restore-failure-")
+  const pendingRoot = path.join(fixture.runtimeRoot, "pending")
+  await mkdir(pendingRoot)
+  await writeFile(path.join(pendingRoot, `${fixture.manifest.manifest_id}.json`), fixture.manifestRaw)
+  const runOwnership = createOwnedRunLifecycle(fixture.runRoot)
+  await assert.rejects(
+    promoteReleaseForTest(promotionInput(fixture, { runOwnership }), { faultCase: "pending-restore-failure" }),
+    (error) => error.code === "PENDING_CUSTODY_RESTORE_FAILED",
+  )
+  assert.equal((await readFile(fixture.pointerPath)).equals(fixture.oldPointerBytes), true)
+  const custodyRoot = path.join(fixture.runtimeRoot, "consumed", fixture.manifest.manifest_id)
+  assert((await readFile(path.join(custodyRoot, "manifest.json"))).equals(fixture.manifestRaw))
+  assert.equal((await readFile(path.join(custodyRoot, "release-receipt.json"))).length > 0, true)
+  assert.equal((await readFile(path.join(fixture.releasesRoot, fixture.receipt.release_digest, "nested", "index.html"))).toString(), "<!doctype html>\n")
+  await assertNoRuntimeLease(fixture.runtimeRoot)
+  await runOwnership.cleanup()
 })

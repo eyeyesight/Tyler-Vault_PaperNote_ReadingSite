@@ -1,12 +1,13 @@
 ## T11 — Produce an authorized publication-input handoff
 
-- **Status:** `blocked`
+- **Status:** `in-code-review`
+- **Local checkpoint:** Tickets 01–06 completed and corrected v2 live custody is restart-remintable with Drive `write_total=0`; Ticket 07 technical review is complete. Full repo serial tests passed 555/556 with one explicit Windows symlink-permission skip, and independent Spec/Standards/Security reviews report zero open Blocker/High. Tyler authorized the exact 10-file stage/commit/push/code-PR checkpoint; merge and deployment remain unauthorized.
 - **Source spec:** `specs/tyler-vault-reading-site.md`
 - **Scope guard:** minimum headless authorization/export handoff only; no public deployment, repository visibility change, Pages enablement, Telegram command/UI rename, cron change, or canonical Vault/Drive write
 
 - **Priority:** P0
 - **Labels:** `orchestration`, `approval`, `export`, `custody`
-- **Blocked by:** T10 integrated local rehearsal
+- **Blocked by:** none for headless implementation; real publication input remains gated by Tyler's exact T11 preview approval
 
 ### Problem
 
@@ -15,6 +16,8 @@ The renderer correctly refuses to invent Tyler approval, but T12 cannot deploy w
 ### Scope
 
 Build and exercise the minimum headless publication-input handoff that authenticates a still-current Tyler approval event, creates the exact approved manifest/receipt in runtime custody, performs a read-only Drive export with receipt, and produces one sealed validated local release for T12. This is the backend authority seam later callable by `/vault_papernote_publish`; it does not add or rename Hermes/Telegram commands.
+
+T13 owns future Telegram command wiring and must call this T11 headless authority seam; T11 must not add Telegram command names, aliases, or buttons.
 
 ### Acceptance criteria
 
