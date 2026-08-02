@@ -1,6 +1,6 @@
 # ADR 0001 — Use Quartz as the Primary Site Renderer
 
-- Status: Accepted for the production spike; production maturity remains blocked
+- Status: Accepted; navigation-projection ownership amended 2026-08-02; production maturity remains blocked
 - Date: 2026-07-28
 
 ## Context
@@ -15,8 +15,10 @@ Requirements outrank implementation choices: the primary renderer is replaceable
 
 Use **Quartz as the sole primary renderer/static-site generator**.
 
-- Quartz owns Obsidian Markdown projection, Explorer/search/navigation, wikilinks, backlinks, graph integration, and static output.
-- This repository owns a versioned scholarly theme and two explicit semantic layouts: paper and support node.
+- Quartz owns Obsidian Markdown projection, wikilink resolution, primary HTML rendering, page structure, and static output generation.
+- This repository owns the allowlist-constrained public navigation projection: Explorer, search, backlinks, and global/local graph surfaces derived only from exact public schemas. The project adapter integrates those surfaces into Quartz output; it does not become a second Markdown or HTML renderer.
+- This repository also owns a versioned scholarly theme and two explicit semantic layouts: paper and support node.
+- The pinned Quartz Explorer, Search, Graph, and Backlinks plugins remain disabled for this architecture version. They may be restored only through a later reviewed architecture change that re-proves public-set closure, no-external-network behavior, deterministic output, accessibility, and the approved product UX.
 - Quarto is a visual and document-structure reference only; it is not part of the initial runtime.
 - A manifest adapter creates an isolated Quartz input set outside Tyler-Vault. Quartz never points at or writes into the canonical Vault.
 - The repository wraps the renderer behind stable project commands so upstream Quartz CLI details do not become the publication contract.
@@ -75,3 +77,22 @@ The production spike must prove, without deploying publicly:
 6. Generated output contains only allowlisted routes/assets and every graph edge endpoint is public.
 
 Passing this spike accepts the implementation architecture. It does not satisfy production maturity until 3–5 structurally different real integrated papers pass all five product maturity tests.
+
+## 2026-08-02 ownership amendment
+
+Tyler approved the navigation-projection boundary above after a bounded comparison against the pinned Quartz stack (`5.0.0`, upstream commit `507ad7f3d4601d83482f61930fccf1c77f42a072`). A repo-external build and headless-browser spike found that merely re-enabling the pinned vendor navigation plugins did not preserve the governing product and safety contract:
+
+- the vendor content index introduced virtual folder/index pages beyond the exact public node set;
+- the approved DOI/author/source-tag search contract was not preserved;
+- paper/support routes did not receive equivalent backlinks or local/global graph behavior;
+- graph runtime loaded external CDN dependencies and used non-deterministic layout initialization;
+- generated output encountered duplicate-ID and absolute-local-path validation failures; and
+- mobile Explorer state was not equivalent to the approved accessible interaction contract.
+
+Requirements remain superior to the implementation choice. The amendment therefore keeps Quartz as the sole primary renderer while assigning the exact public navigation projection to the repository. The repository consequently owns maintenance and security responsibility for those projection modules and must keep executable conformance tests for:
+
+1. the four pinned vendor navigation plugins remaining disabled;
+2. exactly one project-owned surface of each required kind;
+3. exact allowlist-constrained content-index, search, graph, and backlink schemas;
+4. deterministic artifact and browser behavior with no external runtime dependency; and
+5. fail-closed detection when a Quartz upgrade changes an integration seam.

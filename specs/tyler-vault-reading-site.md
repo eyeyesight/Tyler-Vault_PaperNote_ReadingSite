@@ -77,8 +77,10 @@ No generated website artifact is ever written into Tyler-Vault.
 ### 2. Renderer architecture
 
 - Quartz is the sole primary renderer/static-site generator; see `docs/adr/0001-quartz-primary-renderer.md`.
-- Quartz owns Obsidian Markdown projection, Explorer/search/navigation, wikilinks, backlinks, graph integration, and static output.
-- This repository owns a versioned scholarly theme, paper/support semantic layouts, manifest isolation, deterministic public schemas, and validation.
+- Quartz owns Obsidian Markdown projection, wikilink resolution, primary HTML rendering, page structure, and static output generation.
+- This repository owns the allowlist-constrained public navigation projection: Explorer, search, backlinks, and deterministic global/local graph surfaces derived only from exact public schemas and integrated into Quartz output through tested adapter seams. The pinned Quartz Explorer, Search, Graph, and Backlinks plugins remain disabled for this architecture version.
+- This repository also owns a versioned scholarly theme, paper/support semantic layouts, manifest isolation, deterministic public schemas, and validation.
+- Navigation-projection conformance must fail closed unless the four vendor plugins remain disabled, each required project-owned surface is unique, all projected records and graph edges close over the exact public allowlist, runtime external resources are absent, output is deterministic, and the pinned Quartz HTML integration seams still match.
 - Quarto is a visual/document-structure reference only and is not part of the initial runtime.
 - The throwaway Python renderer is design evidence only and must not be copied wholesale.
 - Quartz and all Node dependencies are lockfile-pinned. An upgrade must rerun the full build, safety, deterministic-diff, and browser compatibility suite.
@@ -241,6 +243,7 @@ Behavior:
 ### 11. Privacy, secrets, and licensing
 
 - Preflight rejects PDFs, Markdown copied into generated output, credential files, private-key material, active script/iframe content from Markdown, unsafe URL schemes, absolute local paths, symlinks/reparse-point escapes, and configured secret-shaped fields.
+- Source-side Zotero local-scheme exceptions are limited to two authenticated shapes: (1) an exact scalar paper-frontmatter field `zotero_uri: zotero://select/library/items/ALPHANUMERIC_KEY`, which is private input metadata and is omitted from every public projection; and (2) one already-validated Zotero managed block. Inside that block, before Markdown rendering, the projection may consume only the exact inert writer dialect: the fixed six-digit color-chip span; alphanumeric `<!-- zotero-annotation: KEY -->` and legacy ``· `annotation:KEY` `` markers; the exact writer metadata row; `[label](zotero://select/library/items/KEY)`; `[label](zotero://open-pdf/library/items/ATTACHMENT?page=POSITIVE_DECIMAL&annotation=KEY)` followed by an exact matching current or legacy annotation marker; and the legacy page-only `[label](zotero://open-pdf/library/items/ATTACHMENT?page=POSITIVE_DECIMAL)` only when immediately followed by the exact legacy `` · `annotation:KEY` `` marker. Every key token is alphanumeric, and no URI form may have a title, extra path, extra parameter, reordered parameter, or encoding variant. The projection preserves human-readable label/text only and removes the managed markers, local URI targets, annotation/attachment identifiers, and metadata row before rendering. Public HTML, search, graph, and other generated artifacts must contain no `zotero:` target, annotation/attachment identifier, writer metadata row, or `zotero_uri` field. Every other frontmatter disclosure, `zotero:` form, raw-HTML shape, annotation marker, or metadata row fails closed before output creation.
 - Secret scanning covers UTF-8 source text and every candidate generated public byte before promotion using the repository-versioned ruleset at `config/public-secret-rules.toml`. The initial mandatory rules cover private-key delimiters, configured high-confidence token prefixes, credential filenames, and Windows/POSIX absolute local paths. A hit blocks promotion and writes only a redacted finding report outside the public tree and Vault.
 - A release output allowlist verifies exact generated routes/assets; stale files from a prior build are impossible because staging begins empty.
 - Renderer/theme code uses MIT licensing.
@@ -272,6 +275,7 @@ Additional boundary tests:
 - Every graph edge endpoint must resolve to the public node set.
 - Theme swap may change approved theme assets/presentation hooks but preserves routes, graph/search JSON, heading text/order, stable IDs, source hashes, and content-projection fingerprints.
 - Zotero marker-only delta changes only one paper page; an outside-marker change is rejected.
+- Zotero source-dialect tests accept the exact managed writer forms above, prove their local targets and opaque metadata do not enter HTML/search/graph, and reject missing/extra/reordered URI parameters or any unsupported `zotero:` target before output creation.
 - Identical builds preserve routes, graph/search JSON bytes, and content-projection fingerprints; whole-HTML byte identity is not required.
 - Public outputs contain no absolute paths, PDF/Markdown files, credential patterns, unapproved routes, or unpublished target metadata.
 - The maturity suite reports `not mature` unless 3–5 real integrated papers cover at least three recorded structural categories among empirical, review, methods, and table-heavy. Categories are test-selection metadata, not inferred research claims; a prototype fixture cannot satisfy the count.

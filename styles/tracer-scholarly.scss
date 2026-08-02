@@ -83,11 +83,14 @@ article .table-container {
 }
 
 article table {
-  width: max-content;
-  min-width: 42rem;
-  max-width: none;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   margin: 0;
   padding: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
 }
 
 article th,
@@ -158,6 +161,17 @@ body[data-slug^="knowledge/"] article {
 .sidebar .toc-header,
 .sidebar .folder-button {
   color: var(--dark);
+}
+
+.explorer > .mobile-explorer {
+  display: none;
+}
+
+.explorer > .desktop-explorer {
+  margin: 0 0 0.75rem;
+  color: var(--dark);
+  font-size: 1rem;
+  font-weight: 700;
 }
 
 /* Vendor ToC fades non-current links below readable contrast. All visible
@@ -286,7 +300,14 @@ body[data-slug^="knowledge/"] article {
     padding-top: 0.5rem;
   }
 
+  .explorer > .desktop-explorer {
+    display: none;
+  }
+
   .explorer .mobile-explorer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 44px;
     height: 44px;
     padding: 10px;
@@ -373,10 +394,6 @@ body[data-slug^="knowledge/"] article {
     display: block;
     max-height: calc(100dvh - 7rem);
     overflow-y: auto;
-  }
-
-  article table {
-    min-width: 42rem;
   }
 }
 

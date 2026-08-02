@@ -245,6 +245,22 @@ async function assertSecretRulesRejected(t, variant) {
   }), "SECRET_RULES_INVALID")
 }
 
+test("T10 baseline approval binding rejects a digest-mismatched rehearsal-shaped manifest", async (t) => {
+  const fixture = await releaseFixture("2026-07-30T00:00:00Z")
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const rehearsalManifest = structuredClone(fixture.manifest)
+  rehearsalManifest.approval_receipt = {
+    approver: "tyler",
+    channel: "telegram",
+    source_event_id: "t10-integrated-local-rehearsal-not-publication-authority",
+    approved_plan_digest: "0".repeat(64),
+    approved_at: rehearsalManifest.approval_receipt.approved_at,
+  }
+  await writeFile(fixture.manifestPath, JSON.stringify(rehearsalManifest))
+  const before = await fixtureSnapshots(fixture)
+  await assertProtectedFailure(fixture, before, invokeRelease(fixture), "APPROVAL_DIGEST_MISMATCH")
+})
+
 test("ordinary baseline rejects noncanonical or incomplete sealed custody before build with zero mutation", async (t) => {
   const cases = [
     ["noncanonical pointer bytes", async (fixture) => {

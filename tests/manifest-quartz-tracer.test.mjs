@@ -14,9 +14,26 @@ const repoRoot = path.resolve(import.meta.dirname, "..")
 const cli = path.join(repoRoot, "scripts", "tracer.mjs")
 const now = "2026-07-28T12:00:00Z"
 const disclaimer = "SYNTHETIC FIXTURE — NOT RESEARCH EVIDENCE."
+const projectedMasthead = `## Bibliography
+
+Not stated.
+
+## One-sentence Takeaway
+
+Synthetic takeaway.
+
+## Research Question
+
+Synthetic question?
+
+## Citation
+
+Synthetic citation.`
 const disclaimerParagraph = /<p>\s*SYNTHETIC FIXTURE — NOT RESEARCH EVIDENCE\.\s*<\/p>/
+const zoteroPaperSource = (block) => Buffer.from(`---\ntitle: Synthetic Integrated Paper\ntype: literature-note\nstatus: integrated\n---\n\n# Synthetic Integrated Paper\n\n${disclaimer}\n\n## One-sentence Takeaway\n\nSynthetic integrated takeaway.\n\n## Citation\n\nSynthetic integrated citation.\n\n## Research Question\n\nSynthetic integrated question.\n\n<!-- zotero-annotations:start -->\n## Zotero Annotations\n\n${block}\n\n<!-- zotero-annotations:end -->\n\n## Connections\n\n[[Knowledge/Concepts/synthetic-support|approved support alias]]\n`)
 const edgeExecutable = process.env.TYLER_TRACER_BROWSER_EXECUTABLE ?? "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
 const edgeSpawnOptions = Object.freeze({ stdio: "ignore", windowsHide: true })
+const pinnedVendorNavigationPlugins = Object.freeze(["explorer", "search", "graph", "backlinks"])
 
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex")
 
@@ -177,6 +194,7 @@ class CdpClient {
     this.nextId = 1
     this.pending = new Map()
     this.events = new Map()
+    this.listeners = new Map()
   }
   async open() {
     await new Promise((resolve, reject) => {
@@ -192,6 +210,7 @@ class CdpClient {
         if (message.error) pending.reject(new Error(message.error.message))
         else pending.resolve(message.result)
       } else if (message.method) {
+        for (const listener of this.listeners.get(message.method) ?? []) listener(message.params)
         const waiters = this.events.get(message.method) ?? []
         this.events.delete(message.method)
         for (const resolve of waiters) resolve(message.params)
@@ -207,6 +226,10 @@ class CdpClient {
   }
   once(method) {
     return new Promise((resolve) => this.events.set(method, [...(this.events.get(method) ?? []), resolve]))
+  }
+  on(method, listener) {
+    this.listeners.set(method, [...(this.listeners.get(method) ?? []), listener])
+    return () => this.listeners.set(method, (this.listeners.get(method) ?? []).filter((candidate) => candidate !== listener))
   }
   close() { this.socket.close() }
 }
@@ -293,7 +316,7 @@ async function edgeSession(output) {
     })
     client = new CdpClient(targets.webSocketDebuggerUrl)
     await client.open()
-    await Promise.all([client.send("Page.enable"), client.send("Runtime.enable")])
+    await Promise.all([client.send("Page.enable"), client.send("Runtime.enable"), client.send("Log.enable")])
     return {
       client,
       baseUrl: `http://127.0.0.1:${port}`,
@@ -331,6 +354,21 @@ async function cdpValue(session, expression) {
     throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text)
   }
   return result.result.value
+}
+
+async function cdpNativeKey(session, key) {
+  const descriptor = key === "Tab"
+    ? { key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 }
+    : key === "Enter"
+      ? { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 }
+      : key === "Escape"
+        ? { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 }
+        : null
+  if (!descriptor) throw new Error(`unsupported native test key: ${key}`)
+  await session.client.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...descriptor })
+  if (key === "Enter") await session.client.send("Input.dispatchKeyEvent", { type: "char", ...descriptor, text: "\r", unmodifiedText: "\r" })
+  await session.client.send("Input.dispatchKeyEvent", { type: "keyUp", ...descriptor })
+  await session.client.send("Runtime.evaluate", { expression: "new Promise(resolve => requestAnimationFrame(resolve))", awaitPromise: true })
 }
 
 async function capturePage(session, filename) {
@@ -371,7 +409,8 @@ test("T03 public preflight is read-only and build produces the exact gated Quart
   const paper = await readFile(path.join(fx.output, "papers", "synthetic-paper", "index.html"), "utf8")
   const support = await readFile(path.join(fx.output, "knowledge", "concept", "synthetic-support", "index.html"), "utf8")
   const home = await readFile(path.join(fx.output, "index.html"), "utf8")
-  assert.match(home, /SYNTHETIC \/ NON-RESEARCH/)
+  assert.match(home, /Tyler-Vault Reading Site/)
+  assert.doesNotMatch(home, /SYNTHETIC \/ NON-RESEARCH/)
   const resolvedHrefs = (html, route) => [...html.matchAll(/\bhref="([^"]+)"/g)].map((match) => new URL(match[1], `https://example.invalid${route}`).pathname)
   assert.ok(resolvedHrefs(home, "/").includes("/papers/synthetic-paper/"))
   assert.ok(resolvedHrefs(home, "/").includes("/knowledge/concept/synthetic-support/"))
@@ -419,6 +458,18 @@ test("T03 MDAST semantics accept nested-list continuation links after unmatched 
   assert.equal((await readdir(fx.paths.work)).length, 0)
 })
 
+test("T03 production preflight accepts scholarly sources without a synthetic-fixture disclaimer", async (t) => {
+  const fx = await fixture("tracer-real-source-")
+  t.after(() => rm(fx.root, { recursive: true, force: true }))
+  await replaceSource(fx, "synthetic-support", Buffer.from(`---\ntitle: Scholarly Support\ntype: concept\n---\n\n# Scholarly Support\n\nA concise public concept page.\n`))
+  await replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Scholarly Paper\ntype: literature-note\nstatus: integrated\n---\n\n# Scholarly Paper\n\n${projectedMasthead}\n\n## Connections\n\n- [[Knowledge/Concepts/synthetic-support|Scholarly Support]]\n`))
+  const before = await snapshot(fx.root)
+  const result = invoke(fx, "preflight")
+  assert.equal(result.status, 0, result.stdout)
+  assert.deepEqual(oneJson(result), { ok: true, command: "preflight", manifestId: fx.manifest.manifest_id, nodes: 2, suppressionCount: 0, quartz: "5.0.0" })
+  assert.deepEqual(await snapshot(fx.root), before)
+})
+
 test("T03 CLI flags fail closed with one JSON object and empty stderr", async (t) => {
   const fx = await fixture("tracer-cli-")
   t.after(() => rm(fx.root, { recursive: true, force: true }))
@@ -445,31 +496,25 @@ test("T03 preflight negative matrix leaves output absent and source/Vault unchan
   const cases = [
     ["unlisted export", null, async (fx) => writeFile(path.join(fx.paths.export, "extra.txt"), "no")],
     ["hash mismatch", null, async (fx) => { fx.manifest.nodes[0].source_sha256 = "0".repeat(64); await rewriteContracts(fx); fx.receipt.files[0].source_sha256 = "0".repeat(64); await writeFile(fx.receiptPath, JSON.stringify(fx.receipt)) }],
-    ["paper frontmatter", "PAPER_FRONTMATTER_INVALID", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Bad\ntype: paper\nstatus: integrated\n---\n\n${disclaimer}\n\n## Connections\n\n[[Knowledge/Concepts/synthetic-support]]\n`))],
+    ["paper frontmatter", "PAPER_FRONTMATTER_INVALID", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Bad\ntype: paper\nstatus: integrated\n---\n\n${disclaimer}\n\n${projectedMasthead}\n\n## Connections\n\n[[Knowledge/Concepts/synthetic-support]]\n`))],
     ["active Markdown", "SOURCE_ACTIVE_CONTENT_NOT_ALLOWED", async (fx) => replaceSource(fx, "synthetic-support", Buffer.from(`---\ntitle: Bad\ntype: concept\n---\n\n${disclaimer}\n<script>alert(1)</script>\n`))],
     ["raw svg event handler", "SOURCE_ACTIVE_CONTENT_NOT_ALLOWED", async (fx) => replaceSource(fx, "synthetic-support", Buffer.from(`---\ntitle: Bad\ntype: concept\n---\n\n${disclaimer}\n<svg onload=alert(1)>\n`))],
     ["raw details event handler", "SOURCE_ACTIVE_CONTENT_NOT_ALLOWED", async (fx) => replaceSource(fx, "synthetic-support", Buffer.from(`---\ntitle: Bad\ntype: concept\n---\n\n${disclaimer}\n<details ontoggle=alert(1)>unsafe</details>\n`))],
     ["unsafe scheme", "SOURCE_UNSAFE_URL_SCHEME", async (fx) => replaceSource(fx, "synthetic-support", Buffer.from(`---\ntitle: Bad\ntype: concept\n---\n\n${disclaimer}\n[x](javascript:alert(1))\n`))],
-    ["missing direct connection", "DIRECT_CONNECTION_MISSING", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n## Connections\n\nNo approved path link.\n`))],
-    ["direct connection only in inline code", "DIRECT_CONNECTION_MISSING", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n## Connections\n\n\`[[Knowledge/Concepts/synthetic-support]]\`\n`))],
-    ["direct connection only in fenced code", "DIRECT_CONNECTION_MISSING", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n## Connections\n\n~~~md\n[[Knowledge/Concepts/synthetic-support]]\n~~~\n`))],
-    ["direct connection only in multiline reference definition title", "DIRECT_CONNECTION_MISSING", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n## Connections\n\n[support]: https://example.invalid\n  "[[Knowledge/Concepts/synthetic-support]]"\n`))],
-    ["direct connection only in multiline Markdown link title", "DIRECT_CONNECTION_MISSING", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n## Connections\n\n[neutral](https://example.invalid\n  "[[Knowledge/Concepts/synthetic-support]]")\n`))],
-    ["Connections heading contains inline code", "DIRECT_CONNECTION_MISSING", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n## \`Connections\`\n\n[[Knowledge/Concepts/synthetic-support]]\n`))],
-    ["escaped direct connection opener", "DIRECT_CONNECTION_MISSING", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n## Connections\n\n\\[[Knowledge/Concepts/synthetic-support]]\n`))],
+    ["missing direct connection", "DIRECT_CONNECTION_MISSING", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n${projectedMasthead}\n\n## Connections\n\nNo approved path link.\n`))],
+    ["direct connection only in inline code", "DIRECT_CONNECTION_MISSING", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n${projectedMasthead}\n\n## Connections\n\n\`[[Knowledge/Concepts/synthetic-support]]\`\n`))],
+    ["direct connection only in fenced code", "DIRECT_CONNECTION_MISSING", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n${projectedMasthead}\n\n## Connections\n\n~~~md\n[[Knowledge/Concepts/synthetic-support]]\n~~~\n`))],
+    ["direct connection only in multiline reference definition title", "DIRECT_CONNECTION_MISSING", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n${projectedMasthead}\n\n## Connections\n\n[support]: https://example.invalid\n  "[[Knowledge/Concepts/synthetic-support]]"\n`))],
+    ["direct connection only in multiline Markdown link title", "DIRECT_CONNECTION_MISSING", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n${projectedMasthead}\n\n## Connections\n\n[neutral](https://example.invalid\n  "[[Knowledge/Concepts/synthetic-support]]")\n`))],
+    ["Connections heading contains inline code", "DIRECT_CONNECTION_MISSING", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n${projectedMasthead}\n\n## \`Connections\`\n\n[[Knowledge/Concepts/synthetic-support]]\n`))],
+    ["escaped direct connection opener", "DIRECT_CONNECTION_MISSING", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n${projectedMasthead}\n\n## Connections\n\n\\[[Knowledge/Concepts/synthetic-support]]\n`))],
     ["ambiguous alias", "AMBIGUOUS_ALIAS", async (fx) => replaceSource(fx, "synthetic-support", Buffer.from(`---\ntitle: Synthetic Paper\ntype: concept\n---\n\n${disclaimer}\n`))],
-    ["unlisted target without pipe display", "UNLISTED_DISPLAY_REQUIRED", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n## Connections\n\n- [[Knowledge/Concepts/synthetic-support|approved support alias]]\n- [[Private/Hidden-Neuron]]\n`))],
+    ["unlisted target without pipe display", "UNLISTED_DISPLAY_REQUIRED", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n${projectedMasthead}\n\n## Connections\n\n- [[Knowledge/Concepts/synthetic-support|approved support alias]]\n- [[Private/Hidden-Neuron]]\n`))],
     ["unlisted target in inline code without safe display", "UNLISTED_DISPLAY_REQUIRED", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n\`[[Private/Hidden-Neuron]]\`\n\n## Connections\n\n- [[Knowledge/Concepts/synthetic-support|approved support alias]]\n`))],
     ["escaped unlisted target without safe display", "UNLISTED_DISPLAY_REQUIRED", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n\\[[Private/Hidden-Neuron]]\n\n## Connections\n\n- [[Knowledge/Concepts/synthetic-support|approved support alias]]\n`))],
     ["nested private opener in code context", "SOURCE_NESTED_WIKILINK_NOT_ALLOWED", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n\`[[Knowledge/Concepts/synthetic-support|ok [[Private/Hidden|neutral]]]]\`\n\n## Connections\n\n- [[Knowledge/Concepts/synthetic-support|approved support alias]]\n`))],
-    ["nested private opener in visible text", "SOURCE_NESTED_WIKILINK_NOT_ALLOWED", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n## Connections\n\n- [[Knowledge/Concepts/synthetic-support|ok [[Private/Hidden|neutral]]]]\n`))],
-    ["unlisted target exposed as display", "UNLISTED_DISPLAY_REQUIRED", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n## Connections\n\n- [[Knowledge/Concepts/synthetic-support|approved support alias]]\n- [[Private/Hidden-Neuron|hidden-neuron]]\n`))],
-    ["disclaimer only in frontmatter", "SYNTHETIC_DISCLAIMER_REQUIRED", async (fx) => replaceSource(fx, "synthetic-support", Buffer.from(`---\ntitle: Bad\ntype: concept\ndisclaimer: "${disclaimer}"\n---\n\n# No visible disclaimer\n`))],
-    ["disclaimer only in reference definition title", "SYNTHETIC_DISCLAIMER_REQUIRED", async (fx) => replaceSource(fx, "synthetic-support", Buffer.from(`---\ntitle: Bad\ntype: concept\n---\n\n[fixture]: https://example.invalid "${disclaimer}"\n`))],
-    ["disclaimer only in Markdown link title", "SYNTHETIC_DISCLAIMER_REQUIRED", async (fx) => replaceSource(fx, "synthetic-support", Buffer.from(`---\ntitle: Bad\ntype: concept\n---\n\n[fixture](https://example.invalid "${disclaimer}")\n`))],
-    ["disclaimer only in code", "SYNTHETIC_DISCLAIMER_REQUIRED", async (fx) => replaceSource(fx, "synthetic-support", Buffer.from(`---\ntitle: Bad\ntype: concept\n---\n\n\`${disclaimer}\`\n`))],
-    ["disclaimer only in list", "SYNTHETIC_DISCLAIMER_REQUIRED", async (fx) => replaceSource(fx, "synthetic-support", Buffer.from(`---\ntitle: Bad\ntype: concept\n---\n\n- ${disclaimer}\n`))],
-    ["disclaimer only in blockquote", "SYNTHETIC_DISCLAIMER_REQUIRED", async (fx) => replaceSource(fx, "synthetic-support", Buffer.from(`---\ntitle: Bad\ntype: concept\n---\n\n> ${disclaimer}\n`))],
+    ["nested private opener in visible text", "SOURCE_NESTED_WIKILINK_NOT_ALLOWED", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n${projectedMasthead}\n\n## Connections\n\n- [[Knowledge/Concepts/synthetic-support|ok [[Private/Hidden|neutral]]]]\n`))],
+    ["unlisted target exposed as display", "UNLISTED_DISPLAY_REQUIRED", async (fx) => replaceSource(fx, "synthetic-paper", Buffer.from(`---\ntitle: Synthetic Paper\ntype: literature-note\nstatus: integrated\n---\n\n${disclaimer}\n\n${projectedMasthead}\n\n## Connections\n\n- [[Knowledge/Concepts/synthetic-support|approved support alias]]\n- [[Private/Hidden-Neuron|hidden-neuron]]\n`))],
   ]
   for (const [name, expectedCode, mutate] of cases) await t.test(name, async (t) => {
     const fx = await fixture("tracer-negative-")
@@ -569,19 +614,6 @@ test("T03 candidate-gate failure cleans its exclusive work run and never creates
   assert.equal((await readdir(fx.paths.work)).length, 0)
 })
 
-test("T03 candidate disclaimer must remain an actual visible paragraph", async (t) => {
-  const fx = await fixture("tracer-candidate-disclaimer-")
-  t.after(() => rm(fx.root, { recursive: true, force: true }))
-  const protectedBefore = Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault"].map(async (role) => [role, await snapshot(fx.paths[role])])))
-  const result = invoke(fx, "build", {}, { TYLER_TRACER_TEST_CANDIDATE_CASE: "disclaimer-template" })
-  assert.equal(result.status, 1, result.stdout)
-  assert.equal(oneJson(result).error.code, "CANDIDATE_DISCLAIMER_MISSING")
-  await assert.rejects(lstat(fx.output), (error) => error.code === "ENOENT")
-  assert.equal((await readdir(fx.paths.work)).length, 0)
-  const protectedAfter = Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault"].map(async (role) => [role, await snapshot(fx.paths[role])])))
-  assert.deepEqual(protectedAfter, protectedBefore)
-})
-
 test("T03 never prunes arbitrary extra HTML before the exact route gate", async (t) => {
   const fx = await fixture("tracer-extra-html-")
   t.after(() => rm(fx.root, { recursive: true, force: true }))
@@ -624,6 +656,7 @@ test("T03 candidate URL-bearing attributes, active HTML, and CSS URLs are gated 
     ["meta refresh", "meta-refresh", "CANDIDATE_META_REFRESH"],
     ["inline CSS missing baseline asset", "css-url-missing", "CANDIDATE_ASSET_MISSING"],
     ["unsafe attribute scheme", "unsafe-attribute-scheme", "CANDIDATE_UNSAFE_SCHEME"],
+    ["Zotero scheme disclosure", "zotero-scheme-disclosure", "CANDIDATE_UNSAFE_SCHEME"],
   ]
   for (const [name, variant, expectedCode] of cases) await t.test(name, async (t) => {
     const fx = await fixture("tracer-candidate-url-")
@@ -651,7 +684,7 @@ test("T03 test hooks require the explicit regression capability", async (t) => {
   assert.equal((await readdir(fx.paths.work)).length, 0)
 })
 
-test("T04 generated paper exposes the scholarly three-slot and closed Zotero contracts", async (t) => {
+test("T04 Architecture A generated artifacts expose exactly one project navigation surface per route", async (t) => {
   const fx = await fixture("tracer-theme-static-")
   t.after(() => rm(fx.root, { recursive: true, force: true }))
   const protectedBefore = Object.fromEntries(await Promise.all(
@@ -662,6 +695,7 @@ test("T04 generated paper exposes the scholarly three-slot and closed Zotero con
   assert.deepEqual(oneJson(result).routes, ["/", "/knowledge/concept/synthetic-support/", "/papers/synthetic-paper/"])
   const paper = await readFile(path.join(fx.output, "papers", "synthetic-paper", "index.html"), "utf8")
   const support = await readFile(path.join(fx.output, "knowledge", "concept", "synthetic-support", "index.html"), "utf8")
+  const home = await readFile(path.join(fx.output, "index.html"), "utf8")
   const headings = [...paper.matchAll(/<h([1-6])\b[^>]*\bid="([^"]+)"[^>]*>[\s\S]*?<\/h\1>/gi)].map((match) => match[2])
   const scholarly = ["bibliography", "one-sentence-takeaway", "research-question", "citation"]
   assert.deepEqual(headings.filter((id) => scholarly.includes(id)), scholarly)
@@ -695,8 +729,15 @@ test("T04 generated paper exposes the scholarly three-slot and closed Zotero con
   assert.deepEqual(Object.keys(search), ["schema_version", "records"])
   assert.equal(search.schema_version, 1)
   assert.deepEqual(search.records.map((record) => record.public_id), ["synthetic-paper", "synthetic-support"])
+  assert.equal(search.records.length, fx.manifest.nodes.length)
+  for (const record of search.records) {
+    assert.deepEqual(Object.keys(record), ["public_id", "title", "node_class", "url", "authors", "doi", "source_tags", "search_text"])
+    assert.equal(Object.hasOwn(record, "slug"), false)
+    assert.equal(Object.hasOwn(record, "content"), false)
+  }
   assert.deepEqual(contentIndex, search)
   assert.match(css, /--tyler-tracer-theme\s*:\s*warm/)
+  assert.match(css, /article table\s*\{[^}]*display:\s*block[^}]*overflow-x:\s*auto/)
   assert.match(css, /body\[data-slug\^=papers\\\/\]/)
   assert.match(css, /body\[data-slug\^=knowledge\\\/\]/)
   assert.match(css, /\.public-graph-glyph/)
@@ -705,10 +746,280 @@ test("T04 generated paper exposes the scholarly three-slot and closed Zotero con
   assert.match(paper, /class="public-search"/)
   assert.match(paper, /<section\b(?=[^>]*id="public-graph-local-synthetic-paper")(?=[^>]*data-graph-scope="local")(?=[^>]*data-graph-root-id="synthetic-paper")[^>]*>/)
   assert.doesNotMatch(paper, /@quartz-community\/graph|cdnjs\.cloudflare\.com/i)
+  const classTokenCount = (html, token) => [...html.matchAll(/\bclass="([^"]*)"/g)].filter((match) => match[1].split(/\s+/).includes(token)).length
+  for (const [route, html, scope, backlinks] of [
+    ["/", home, "global", 0],
+    ["/papers/synthetic-paper/", paper, "local", 1],
+    ["/knowledge/concept/synthetic-support/", support, "local", 1],
+  ]) {
+    assert.equal(classTokenCount(html, "explorer"), 1, `${route}: project Explorer must be unique`)
+    assert.equal(classTokenCount(html, "public-search"), 1, `${route}: project search must be unique`)
+    assert.equal(classTokenCount(html, "public-graph"), 1, `${route}: route graph must be unique`)
+    assert.equal((html.match(/\bdata-public-backlinks(?:\s|=|>)/g) ?? []).length, backlinks, `${route}: backlinks contract`)
+    assert.equal((html.match(new RegExp(`data-graph-scope="${scope}"`, "g")) ?? []).length, 1, `${route}: graph scope contract`)
+    assert.equal((html.match(/data-tracer-extension="t05-search"/g) ?? []).length, 1, `${route}: search runtime must be unique`)
+    assert.equal((html.match(/data-tracer-extension="t05-graph"/g) ?? []).length, 1, `${route}: graph runtime must be unique`)
+    assert.doesNotMatch(html, /(?:cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com|(?:^|[\W])d3(?:[.@/]|\W)|pixi(?:\.min)?\.js|Math\.random\s*\()/i, `${route}: vendor or nondeterministic graph runtime`)
+    assert.doesNotMatch(html, /@quartz-community\/(?:explorer|search|graph|backlinks)/i, `${route}: vendor navigation marker`)
+  }
   const protectedAfter = Object.fromEntries(await Promise.all(
     ["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]),
   ))
   assert.deepEqual(protectedAfter, protectedBefore)
+})
+
+test("Architecture A config transform fails closed for every pinned vendor plugin drift", async (t) => {
+  for (const plugin of pinnedVendorNavigationPlugins) {
+    for (const drift of ["missing", "renamed", "schema", "enable-token"]) await t.test(`${plugin}: ${drift}`, async (t) => {
+      const fx = await fixture("architecture-config-drift-")
+      t.after(() => rm(fx.root, { recursive: true, force: true }))
+      const protectedBefore = Object.fromEntries(await Promise.all(
+        ["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]),
+      ))
+
+      const result = invoke(fx, "build", {}, { TYLER_TRACER_TEST_CONFIG_CASE: `navigation:${plugin}:${drift}` })
+
+      assert.equal(result.status, 1, `${plugin}/${drift}: ${result.stdout}`)
+      assert.equal(oneJson(result).error.code, "QUARTZ_CONFIG_TRANSFORM_FAILED", `${plugin}/${drift}`)
+      await assert.rejects(lstat(fx.output), (error) => error.code === "ENOENT")
+      assert.deepEqual(Object.fromEntries(await Promise.all(
+        ["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]),
+      )), protectedBefore, `${plugin}/${drift}`)
+    })
+  }
+})
+
+test("Architecture A public search artifacts reject vendor broad and virtual-record schemas", async (t) => {
+  const cases = [
+    ["vendor slug-keyed content index", "vendor-slug-keyed-search"],
+    ["broad record fields", "broad-search-record"],
+    ["extra virtual record", "extra-virtual-search-record"],
+  ]
+  for (const [name, variant] of cases) await t.test(name, async (t) => {
+    const fx = await fixture("architecture-search-schema-")
+    t.after(() => rm(fx.root, { recursive: true, force: true }))
+    const protectedBefore = Object.fromEntries(await Promise.all(
+      ["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]),
+    ))
+
+    const result = invoke(fx, "build", {}, { TYLER_TRACER_TEST_PREBASELINE_CASE: variant })
+
+    assert.equal(result.status, 1, `${name}: ${result.stdout}`)
+    assert.equal(oneJson(result).error.code, "CANDIDATE_PUBLIC_DATA_INVALID", name)
+    await assert.rejects(lstat(fx.output), (error) => error.code === "ENOENT")
+    assert.deepEqual(Object.fromEntries(await Promise.all(
+      ["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]),
+    )), protectedBefore, name)
+  })
+})
+
+test("Architecture A candidate gate rejects nondeterministic graph layout before output creation", async (t) => {
+  const fx = await fixture("architecture-random-graph-")
+  t.after(() => rm(fx.root, { recursive: true, force: true }))
+  const protectedBefore = Object.fromEntries(await Promise.all(
+    ["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]),
+  ))
+
+  const result = invoke(fx, "build", {}, { TYLER_TRACER_TEST_PREBASELINE_CASE: "graph-math-random" })
+
+  assert.equal(result.status, 1, result.stdout)
+  assert.equal(oneJson(result).error.code, "T04_BOUNDARY_VIOLATION")
+  await assert.rejects(lstat(fx.output), (error) => error.code === "ENOENT")
+  assert.deepEqual(Object.fromEntries(await Promise.all(
+    ["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]),
+  )), protectedBefore)
+})
+
+test("Architecture A pinned Quartz HTML integration seam drift fails closed", async (t) => {
+  const fx = await fixture("architecture-html-seam-")
+  t.after(() => rm(fx.root, { recursive: true, force: true }))
+  const protectedBefore = Object.fromEntries(await Promise.all(
+    ["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]),
+  ))
+
+  const result = invoke(fx, "build", {}, { TYLER_TRACER_TEST_QUARTZ_HTML_CASE: "content-index-fetch-seam-renamed" })
+
+  assert.equal(result.status, 1, result.stdout)
+  assert.equal(oneJson(result).error.code, "QUARTZ_HTML_INTEGRATION_SEAM_INVALID")
+  await assert.rejects(lstat(fx.output), (error) => error.code === "ENOENT")
+  assert.deepEqual(Object.fromEntries(await Promise.all(
+    ["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]),
+  )), protectedBefore)
+})
+
+test("T10 integrated Vault paper shape projects the accepted scholarly masthead without changing source", async (t) => {
+  const fx = await fixture("t10-integrated-shape-")
+  t.after(() => rm(fx.root, { recursive: true, force: true }))
+  const source = Buffer.from(`---\ntitle: Synthetic Integrated Paper\ntype: literature-note\nstatus: integrated\n---\n\n# Synthetic Integrated Paper\n\n${disclaimer}\n\n## One-sentence Takeaway\n\nSynthetic integrated takeaway.\n\n## Citation\n\nSynthetic integrated citation.\n\n## Research Question\n\nSynthetic integrated question.\n\n## Findings\n\n| Long synthetic column one | Long synthetic column two | Long synthetic column three | Long synthetic column four |\n| --- | --- | --- | --- |\n| fixture-only value | fixture-only value | fixture-only value | fixture-only value |\n\nData: Synthetic prose label; this is not a URL.\n\n<!-- zotero-annotations:start -->\n## Zotero Annotations\n\n| Color | Meaning |\n| --- | --- |\n| <span style="background-color:#aaaaaa; color:#000; padding:1px 6px; border-radius:4px;">Gray</span> | fixture only |\n\n- Zotero item: [Open in Zotero](zotero://select/library/items/SYNTHETIC)\n\n- [Open PDF](zotero://open-pdf/library/items/ATTACHMENT?page=1&annotation=SYNTHETIC) <!-- zotero-annotation: SYNTHETIC -->\n  - Metadata: attachment \`ATTACHMENT\`; color \`#aaaaaa\`; type \`highlight\`; position \`{\"pageIndex\":0}\`\n\nSynthetic annotation.\n\n<!-- zotero-annotations:end -->\n\n## Connections\n\n[[Knowledge/Concepts/synthetic-support|approved support alias]]\n`)
+  await replaceSource(fx, "synthetic-paper", source)
+  const sourceBefore = await readFile(path.join(fx.paths.export, "Literature", "Notes", "synthetic-paper.md"))
+
+  const result = invoke(fx, "build")
+  assert.equal(result.status, 0, result.stdout)
+  const paper = await readFile(path.join(fx.output, "papers", "synthetic-paper", "index.html"), "utf8")
+  assert.deepEqual(semanticHeadings(paper).filter(({ level }) => level === 2).slice(0, 5).map(({ id }) => id), [
+    "bibliography", "one-sentence-takeaway", "research-question", "citation", "findings",
+  ])
+  const article = /<article\b[^>]*>([\s\S]*?)<\/article>/.exec(paper)?.[1]
+  assert.ok(article)
+  assert.match(article, /<h2[^>]*id="bibliography"[^>]*>[\s\S]*?<\/h2>\s*<p>Not stated\.<\/p>/)
+  assert.equal((article.match(/Synthetic integrated citation\./g) ?? []).length, 1)
+  assert.match(paper, /<details class="zotero-annotations">/)
+  assert.doesNotMatch(paper, /zotero:\/\//)
+  assert.doesNotMatch(paper, /ATTACHMENT|pageIndex|Metadata:\s*attachment/i)
+  assert.doesNotMatch(paper, /<span style=/)
+  assert.doesNotMatch(paper, /<!--\s*zotero-annotation:|`annotation:/i)
+  for (const relative of ["search-index.json", "static/contentIndex.json"]) {
+    const contract = JSON.parse(await readFile(path.join(fx.output, ...relative.split("/")), "utf8"))
+    const record = contract.records.find((entry) => entry.public_id === "synthetic-paper")
+    assert.ok(record, relative)
+    assert.doesNotMatch(record.search_text, /Synthetic annotation|Zotero Annotations|Open PDF|zotero:/i, relative)
+  }
+  assert.deepEqual(await readFile(path.join(fx.paths.export, "Literature", "Notes", "synthetic-paper.md")), sourceBefore)
+})
+
+test("T10 Zotero projection rejects a managed local link outside the exact inert dialect", async (t) => {
+  const fx = await fixture("t10-zotero-link-shape-")
+  t.after(() => rm(fx.root, { recursive: true, force: true }))
+  const source = Buffer.from(`---\ntitle: Synthetic Integrated Paper\ntype: literature-note\nstatus: integrated\n---\n\n# Synthetic Integrated Paper\n\n${disclaimer}\n\n## One-sentence Takeaway\n\nSynthetic integrated takeaway.\n\n## Citation\n\nSynthetic integrated citation.\n\n## Research Question\n\nSynthetic integrated question.\n\n<!-- zotero-annotations:start -->\n## Zotero Annotations\n\n- [Open PDF](zotero://select/library/items/SYNTHETIC?unexpected=1)\n\n<!-- zotero-annotations:end -->\n\n## Connections\n\n[[Knowledge/Concepts/synthetic-support|approved support alias]]\n`)
+  await replaceSource(fx, "synthetic-paper", source)
+  const before = await snapshot(fx.root)
+  const result = invoke(fx, "build")
+  assert.equal(result.status, 1, result.stdout)
+  assert.equal(oneJson(result).error.code, "SOURCE_UNSAFE_URL_SCHEME")
+  assert.deepEqual(await snapshot(fx.root), before)
+  await assert.rejects(lstat(fx.output), (error) => error.code === "ENOENT")
+})
+
+test("T10 public preflight rejects every Zotero Markdown link outside an authenticated managed block", async (t) => {
+  const cases = [
+    ["select without managed markers", "[Open in Zotero](zotero://select/library/items/SYNTHETIC)"],
+    ["open-pdf without managed markers", "[Open PDF](zotero://open-pdf/library/items/ATTACHMENT?page=1&annotation=SYNTHETIC)"],
+    ["open-pdf with only an annotation marker", "[Open PDF](zotero://open-pdf/library/items/ATTACHMENT?page=1&annotation=SYNTHETIC) <!-- zotero-annotation: SYNTHETIC -->"],
+    ["literal plain text", "zotero://select/library/items/OPAQUE123"],
+    ["mixed-case plain text", "ZoTeRo://select/library/items/OPAQUE123"],
+    ["whitespace-control split plain text", "zotero\t\n:\u000b//select/library/items/OPAQUE123"],
+    ["HTML named entity colon", "zotero&colon;//select/library/items/OPAQUE123"],
+    ["HTML numeric entity colon", "zotero&#x3a;//select/library/items/OPAQUE123"],
+    ["nested HTML entity colon", "zotero&amp;#58;//select/library/items/OPAQUE123"],
+    ["single percent layer plain text", "zotero%3A//select/library/items/OPAQUE123"],
+    ["double percent layer plain text", "zotero%253A//select/library/items/OPAQUE123"],
+    ["triple percent layer plain text", "zotero%25253A//select/library/items/OPAQUE123"],
+    ["twelve percent layers plain text", `zotero%${"25".repeat(11)}3A//select/library/items/OPAQUE123`],
+  ]
+  for (const [name, markdownLink] of cases) await t.test(name, async (t) => {
+    const fx = await fixture("t10-zotero-outside-")
+    t.after(() => rm(fx.root, { recursive: true, force: true }))
+    await replaceSource(fx, "synthetic-support", Buffer.from(`---\ntitle: Synthetic Support\ntype: concept\n---\n\n# Synthetic Support\n\n${markdownLink}\n`))
+    const protectedBefore = Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])])))
+
+    const result = invoke(fx, "preflight")
+
+    assert.equal(result.status, 1, `${name}: ${result.stdout}`)
+    assert.deepEqual(oneJson(result), { ok: false, error: { code: "SOURCE_UNSAFE_URL_SCHEME", message: "Zotero local URLs require the authenticated managed block" } })
+    await assert.rejects(lstat(fx.output), (error) => error.code === "ENOENT")
+    assert.deepEqual(Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]))), protectedBefore)
+  })
+})
+
+test("T10 public preflight rejects Zotero disclosure in frontmatter before output mutation", async (t) => {
+  const fx = await fixture("t10-zotero-frontmatter-")
+  t.after(() => rm(fx.root, { recursive: true, force: true }))
+  await replaceSource(fx, "synthetic-support", Buffer.from(`---\ntitle: zotero://select/library/items/OPAQUE123\ntype: concept\n---\n\n# Synthetic Support\n\n${disclaimer}\n`))
+  const protectedBefore = Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])])))
+
+  const result = invoke(fx, "preflight")
+
+  assert.equal(result.status, 1, result.stdout)
+  assert.deepEqual(oneJson(result), { ok: false, error: { code: "SOURCE_UNSAFE_URL_SCHEME", message: "Zotero local URLs require the authenticated managed block" } })
+  await assert.rejects(lstat(fx.output), (error) => error.code === "ENOENT")
+  assert.deepEqual(Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]))), protectedBefore)
+})
+
+test("T10 exact paper zotero_uri frontmatter remains private and never reaches public output", async (t) => {
+  const fx = await fixture("t10-zotero-private-frontmatter-")
+  t.after(() => rm(fx.root, { recursive: true, force: true }))
+  const source = zoteroPaperSource("Synthetic private-metadata compatibility annotation.")
+    .toString("utf8")
+    .replace("status: integrated\n", "status: integrated\nzotero_uri: zotero://select/library/items/SYNTHETIC\n")
+  await replaceSource(fx, "synthetic-paper", Buffer.from(source))
+
+  const result = invoke(fx, "build")
+
+  assert.equal(result.status, 0, result.stdout)
+  for (const [, bytes] of await outputTree(fx.output)) assert.doesNotMatch(bytes.toString("utf8"), /zotero\s*(?::|%3a|&colon;)/i)
+})
+
+test("T10 private zotero_uri frontmatter accepts only an exact paper item URI", async (t) => {
+  const paperSource = (line) => Buffer.from(zoteroPaperSource("Synthetic private frontmatter boundary annotation.").toString("utf8").replace("status: integrated\n", `status: integrated\n${line}\n`))
+  const cases = [
+    ["support node", "synthetic-support", Buffer.from(`---\ntitle: Synthetic Support\ntype: concept\nzotero_uri: zotero://select/library/items/SYNTHETIC\n---\n\n# Synthetic Support\n\n${disclaimer}\n`)],
+    ["extra query", "synthetic-paper", paperSource("zotero_uri: zotero://select/library/items/SYNTHETIC?extra=1")],
+    ["array value", "synthetic-paper", paperSource("zotero_uri:\n  - zotero://select/library/items/SYNTHETIC")],
+    ["encoded scheme", "synthetic-paper", paperSource("zotero_uri: zotero%3A//select/library/items/SYNTHETIC")],
+  ]
+  for (const [name, nodeId, source] of cases) await t.test(name, async (t) => {
+    const fx = await fixture("t10-zotero-frontmatter-invalid-")
+    t.after(() => rm(fx.root, { recursive: true, force: true }))
+    await replaceSource(fx, nodeId, source)
+    const protectedBefore = Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])])))
+
+    const result = invoke(fx, "preflight")
+
+    assert.equal(result.status, 1, `${name}: ${result.stdout}`)
+    assert.equal(oneJson(result).error.code, "SOURCE_UNSAFE_URL_SCHEME")
+    await assert.rejects(lstat(fx.output), (error) => error.code === "ENOENT")
+    assert.deepEqual(Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]))), protectedBefore)
+  })
+})
+
+test("T10 table-driven Zotero writer dialect accepts only current and legacy inert forms", async (t) => {
+  const valid = [
+    ["current", `| Color | Meaning |\n| --- | --- |\n| <span style="background-color:#aaaaaa; color:#000; padding:1px 6px; border-radius:4px;">Gray</span> | fixture only |\n\n- Zotero item: [Open in Zotero](zotero://select/library/items/SYNTHETIC)\n\n- [Open PDF](zotero://open-pdf/library/items/ATTACHMENT?page=1&annotation=SYNTHETIC) <!-- zotero-annotation: SYNTHETIC -->\n  - Metadata: attachment \`ATTACHMENT\`; color \`#aaaaaa\`; type \`highlight\`; position \`{\"pageIndex\":0}\`\n\nSynthetic annotation.`],
+    ["current URL with legacy annotation marker", `- [Open PDF](zotero://open-pdf/library/items/ATTACHMENT?page=12&annotation=SYNTHETIC) · \`annotation:SYNTHETIC\`\n\nSynthetic legacy annotation.`],
+    ["legacy page-only URL with annotation marker", `- [Open PDF](zotero://open-pdf/library/items/ATTACHMENT?page=12) · \`annotation:SYNTHETIC\`\n\nSynthetic legacy annotation.`],
+  ]
+  for (const [name, block] of valid) await t.test(`accepts ${name}`, async (t) => {
+    const fx = await fixture("t10-zotero-valid-")
+    t.after(() => rm(fx.root, { recursive: true, force: true }))
+    await replaceSource(fx, "synthetic-paper", zoteroPaperSource(block))
+    const before = await snapshot(fx.root)
+    const result = invoke(fx, "preflight")
+    assert.equal(result.status, 0, `${name}: ${result.stdout}`)
+    assert.deepEqual(await snapshot(fx.root), before)
+    await assert.rejects(lstat(fx.output), (error) => error.code === "ENOENT")
+  })
+
+  const invalid = [
+    ["missing item key", "- [Open in Zotero](zotero://select/library/items/)", "SOURCE_UNSAFE_URL_SCHEME"],
+    ["extra select path", "- [Open in Zotero](zotero://select/library/items/SYNTHETIC/extra)", "SOURCE_UNSAFE_URL_SCHEME"],
+    ["page-only URL without legacy marker", "- [Open PDF](zotero://open-pdf/library/items/ATTACHMENT?page=1)", "SOURCE_UNSAFE_URL_SCHEME"],
+    ["page-only URL with current marker", "- [Open PDF](zotero://open-pdf/library/items/ATTACHMENT?page=1) <!-- zotero-annotation: SYNTHETIC -->", "SOURCE_UNSAFE_URL_SCHEME"],
+    ["current URL without annotation marker", "- [Open PDF](zotero://open-pdf/library/items/ATTACHMENT?page=1&annotation=SYNTHETIC)", "SOURCE_ACTIVE_CONTENT_NOT_ALLOWED"],
+    ["extra query", "- [Open PDF](zotero://open-pdf/library/items/ATTACHMENT?page=1&annotation=SYNTHETIC&extra=1)", "SOURCE_UNSAFE_URL_SCHEME"],
+    ["reordered query", "- [Open PDF](zotero://open-pdf/library/items/ATTACHMENT?annotation=SYNTHETIC&page=1)", "SOURCE_UNSAFE_URL_SCHEME"],
+    ["percent-encoded scheme", "- [Open in Zotero](zotero%3A//select/library/items/SYNTHETIC)", "SOURCE_UNSAFE_URL_SCHEME"],
+    ["double-percent-encoded scheme", "- [Open in Zotero](zotero%253A//select/library/items/SYNTHETIC)", "SOURCE_UNSAFE_URL_SCHEME"],
+    ["triple-percent-encoded scheme", "- [Open in Zotero](zotero%25253A//select/library/items/SYNTHETIC)", "SOURCE_UNSAFE_URL_SCHEME"],
+    ["deep-percent-encoded scheme", `- [Open in Zotero](zotero%${"25".repeat(11)}3A//select/library/items/SYNTHETIC)`, "SOURCE_UNSAFE_URL_SCHEME"],
+    ["percent-encoded key", "- [Open in Zotero](zotero://select/library/items/SYN%54HETIC)", "SOURCE_UNSAFE_URL_SCHEME"],
+    ["link title", "- [Open in Zotero](zotero://select/library/items/SYNTHETIC \"local title\")", "SOURCE_UNSAFE_URL_SCHEME"],
+    ["metadata spacing variant", "- [Open PDF](zotero://open-pdf/library/items/ATTACHMENT?page=1&annotation=SYNTHETIC) <!-- zotero-annotation: SYNTHETIC -->\n  - Metadata : attachment \`ATTACHMENT\`; color \`#aaaaaa\`; type \`highlight\`; position \`{\"pageIndex\":0}\`", "SOURCE_ACTIVE_CONTENT_NOT_ALLOWED"],
+    ["duplicate annotation marker", "- [Open PDF](zotero://open-pdf/library/items/ATTACHMENT?page=1&annotation=SYNTHETIC) <!-- zotero-annotation: SYNTHETIC --> <!-- zotero-annotation: SYNTHETIC -->", "SOURCE_ACTIVE_CONTENT_NOT_ALLOWED"],
+    ["mismatched annotation marker", "- [Open PDF](zotero://open-pdf/library/items/ATTACHMENT?page=1&annotation=SYNTHETIC) <!-- zotero-annotation: OTHER -->", "SOURCE_ACTIVE_CONTENT_NOT_ALLOWED"],
+    ["opaque annotation leakage", "- annotation:SYNTHETIC", "SOURCE_ACTIVE_CONTENT_NOT_ALLOWED"],
+  ]
+  for (const [name, block, expectedCode] of invalid) await t.test(`rejects ${name}`, async (t) => {
+    const fx = await fixture("t10-zotero-invalid-")
+    t.after(() => rm(fx.root, { recursive: true, force: true }))
+    await replaceSource(fx, "synthetic-paper", zoteroPaperSource(block))
+    const protectedBefore = Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])])))
+    const result = invoke(fx, "preflight")
+    assert.equal(result.status, 1, `${name}: ${result.stdout}`)
+    assert.equal(oneJson(result).error.code, expectedCode, name)
+    await assert.rejects(lstat(fx.output), (error) => error.code === "ENOENT")
+    assert.deepEqual(Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(fx.paths[role])]))), protectedBefore, name)
+  })
 })
 
 test("T04 semantic template preflight rejects missing/reordered paper mastheads and paper-only support headings", async (t) => {
@@ -733,7 +1044,7 @@ test("T04 semantic template preflight rejects missing/reordered paper mastheads 
   })
 })
 
-test("T04 build fails closed on config quote drift and prebaseline external resources", async (t) => {
+test("T04 Architecture A external-resource gate and pinned config seam fail closed", async (t) => {
   const cases = [
     ["content-index single-quote drift", { TYLER_TRACER_TEST_CONFIG_CASE: "content-index-single-quote" }, "QUARTZ_CONFIG_TRANSFORM_FAILED"],
     ["external script before baseline", { TYLER_TRACER_TEST_PREBASELINE_CASE: "external-script" }, "T04_BOUNDARY_VIOLATION"],
@@ -797,7 +1108,81 @@ test("T04 fixed theme swap changes only theme assets and preserves public semant
   assert.deepEqual(Object.fromEntries(await Promise.all(["context", "runtime", "export", "vault", "work"].map(async (role) => [role, await snapshot(contrast.paths[role])]))), contrastProtected)
 })
 
-test("T04 Chromium CDP acceptance covers desktop three-slot and mobile Explorer/ToC drawers", async (t) => {
+test("T10 CDP error audit persists across navigation and catches later console errors and exceptions", async (t) => {
+  const fx = await fixture("t10-browser-error-audit-")
+  t.after(() => rm(fx.root, { recursive: true, force: true }))
+  const buildResult = invoke(fx, "build")
+  assert.equal(buildResult.status, 0, buildResult.stdout)
+  const session = await edgeSession(fx.output)
+  t.after(() => session.close())
+  const errors = []
+  session.client.on("Runtime.consoleAPICalled", (event) => {
+    if (event.type === "error") errors.push({ kind: "console", text: event.args.map((value) => value.value ?? value.description ?? "").join(" ") })
+  })
+  session.client.on("Runtime.exceptionThrown", (event) => {
+    errors.push({ kind: "exception", text: event.exceptionDetails.exception?.description ?? event.exceptionDetails.text })
+  })
+  await session.client.send("Page.addScriptToEvaluateOnNewDocument", { source: `if(location.pathname.includes("synthetic-support")){queueMicrotask(()=>console.error("T10_LATER_NAV_CONSOLE"));setTimeout(()=>{throw new Error("T10_LATER_NAV_EXCEPTION")},0)}` })
+
+  await cdpNavigate(session, "/papers/synthetic-paper/", 1440, 1100)
+  assert.deepEqual(errors, [])
+  await cdpNavigate(session, "/knowledge/concept/synthetic-support/", 1440, 1100)
+  await waitFor(() => errors.length >= 2)
+
+  assert.equal(errors.some((entry) => entry.kind === "console" && entry.text.includes("T10_LATER_NAV_CONSOLE")), true, JSON.stringify(errors))
+  assert.equal(errors.some((entry) => entry.kind === "exception" && entry.text.includes("T10_LATER_NAV_EXCEPTION")), true, JSON.stringify(errors))
+})
+
+test("T10 native CDP Tab and Enter activate mobile Explorer and ToC buttons", async (t) => {
+  const fx = await fixture("t10-native-keyboard-")
+  t.after(() => rm(fx.root, { recursive: true, force: true }))
+  const buildResult = invoke(fx, "build")
+  assert.equal(buildResult.status, 0, buildResult.stdout)
+  const session = await edgeSession(fx.output)
+  t.after(() => session.close())
+  await cdpNavigate(session, "/papers/synthetic-paper/", 390, 844)
+  await cdpValue(session, `() => { document.activeElement?.blur(); return true }`)
+
+  const tabTo = async (selector) => {
+    for (let index = 0; index < 30; index += 1) {
+      await cdpNativeKey(session, "Tab")
+      if (await cdpValue(session, `() => document.activeElement?.matches(${JSON.stringify(selector)}) === true`)) return
+    }
+    assert.fail(`native Tab did not focus ${selector}`)
+  }
+  const state = (buttonSelector) => cdpValue(session, `() => {
+    const button=document.querySelector(${JSON.stringify(buttonSelector)}),content=button&&document.getElementById(button.getAttribute("aria-controls")),style=content&&getComputedStyle(content)
+    return { focused:document.activeElement===button,expanded:button?.getAttribute("aria-expanded"),contentExpanded:content?.getAttribute("aria-expanded"),display:style?.display,visibility:style?.visibility }
+  }`)
+
+  await tabTo(".explorer-toggle.mobile-explorer")
+  const explorerBefore = await state(".explorer-toggle.mobile-explorer")
+  await cdpNativeKey(session, "Enter")
+  const explorerAfter = await state(".explorer-toggle.mobile-explorer")
+  assert.equal(explorerBefore.focused, true)
+  assert.notEqual(explorerAfter.expanded, explorerBefore.expanded)
+  assert.equal(explorerAfter.focused, true)
+  assert.equal(explorerAfter.expanded, explorerAfter.contentExpanded)
+
+  await cdpNativeKey(session, "Escape")
+  assert.equal((await state(".explorer-toggle.mobile-explorer")).focused, true)
+  await tabTo("button.toc-header")
+  const tocBefore = await state("button.toc-header")
+  await cdpNativeKey(session, "Enter")
+  const tocAfter = await state("button.toc-header")
+  assert.equal(tocBefore.focused, true)
+  assert.notEqual(tocAfter.expanded, tocBefore.expanded)
+  assert.equal(tocAfter.focused, true)
+  assert.equal(tocAfter.expanded, tocAfter.contentExpanded)
+  assert.equal(tocAfter.expanded === "true" ? tocAfter.display !== "none" && tocAfter.visibility !== "hidden" : tocAfter.display === "none", true, JSON.stringify(tocAfter))
+
+  await cdpNativeKey(session, "Escape")
+  const tocEscaped = await state("button.toc-header")
+  assert.equal(tocEscaped.expanded, "false")
+  assert.equal(tocEscaped.focused, true)
+})
+
+test("T04 Architecture A Chromium proves unique project navigation and route-scoped graph/backlinks", async (t) => {
   const fx = await fixture("tracer-theme-browser-")
   t.after(() => rm(fx.root, { recursive: true, force: true }))
   const buildResult = invoke(fx, "build")
@@ -806,7 +1191,26 @@ test("T04 Chromium CDP acceptance covers desktop three-slot and mobile Explorer/
   t.after(() => session.close())
   assert.ok(session.edgeArgs.includes("--headless=new"))
   assert.equal(edgeSpawnOptions.windowsHide, true)
+  const browserErrors = []
+  session.client.on("Runtime.consoleAPICalled", (event) => {
+    if (event.type === "error") browserErrors.push({ kind: "console", text: event.args.map((value) => value.value ?? value.description ?? "").join(" ") })
+  })
+  session.client.on("Runtime.exceptionThrown", (event) => browserErrors.push({ kind: "exception", text: event.exceptionDetails.exception?.description ?? event.exceptionDetails.text }))
+  session.client.on("Log.entryAdded", ({ entry }) => {
+    if (entry.level === "error") browserErrors.push({ kind: "log", text: entry.text })
+  })
+  const browserArchitecture = () => cdpValue(session, `() => ({
+    explorer: document.querySelectorAll(".explorer").length,
+    search: document.querySelectorAll(".public-search").length,
+    graph: document.querySelectorAll(".public-graph").length,
+    graphScopes: [...document.querySelectorAll(".public-graph")].map((element) => element.dataset.graphScope),
+    backlinks: document.querySelectorAll("[data-public-backlinks]").length,
+    externalResources: performance.getEntriesByType("resource").map((entry) => entry.name).filter((name) => new URL(name, location.href).origin !== location.origin),
+  })`)
 
+  await cdpNavigate(session, "/", 1440, 1100)
+  assert.equal(await cdpValue(session, `() => location.pathname`), "/")
+  assert.deepEqual(await browserArchitecture(), { explorer: 1, search: 1, graph: 1, graphScopes: ["global"], backlinks: 0, externalResources: [] })
   await cdpNavigate(session, "/papers/synthetic-paper/", 1440, 1100)
   const desktop = await cdpValue(session, `() => {
     const rect = (selector) => { const element = document.querySelector(selector), value = element?.getBoundingClientRect(), style = element && getComputedStyle(element); return value && { top: value.top, bottom: value.bottom, width: value.width, height: value.height, display: style.display, visibility: style.visibility, opacity: style.opacity } }
@@ -817,7 +1221,7 @@ test("T04 Chromium CDP acceptance covers desktop three-slot and mobile Explorer/
     const bodyStyle = getComputedStyle(document.body), cjkText = "這是合成且非研究內容，僅供繁體中文排版驗收。", walker = document.createTreeWalker(document.querySelector("article"), NodeFilter.SHOW_TEXT); let cjkRect = null
     while (walker.nextNode()) { const index = walker.currentNode.data.indexOf(cjkText); if (index >= 0) { const range = document.createRange(); range.setStart(walker.currentNode, index); range.setEnd(walker.currentNode, index + cjkText.length); const value = range.getBoundingClientRect(); cjkRect = { width: value.width, height: value.height, top: value.top, bottom: value.bottom }; break } }
     const focus = selector => { const element = document.querySelector(selector); element?.focus(); const style = element && getComputedStyle(element); return element && { active: document.activeElement === element, style: style.outlineStyle, width: parseFloat(style.outlineWidth), color: style.outlineColor } }
-    return { slug: document.body.dataset.slug, template: document.body.dataset.tracerTemplate, bibliography: rect("#bibliography"), takeaway: rect("#one-sentence-takeaway"), question: rect("#research-question"), explorer: rect(".sidebar.left .explorer"), toc: rect(".sidebar.right .toc"), explorerRoutes: readable(".sidebar.left .explorer a[href]"), tocSections: readable(".sidebar.right .toc-content a[href^='#']"), typography: { fontFamily: bodyStyle.fontFamily, fontSize: parseFloat(bodyStyle.fontSize), lineHeight: parseFloat(bodyStyle.lineHeight), cjkRect }, controls: { tocHeading: document.querySelector("button.toc-header h3")?.textContent.trim(), explorerHeading: document.querySelector("button.desktop-explorer h2")?.textContent.trim(), explorerFocus: focus("button.desktop-explorer"), tocFocus: focus("button.toc-header") } }
+    return { slug: document.body.dataset.slug, template: document.body.dataset.tracerTemplate, bibliography: rect("#bibliography"), takeaway: rect("#one-sentence-takeaway"), question: rect("#research-question"), explorer: rect(".sidebar.left .explorer"), toc: rect(".sidebar.right .toc"), explorerRoutes: readable(".sidebar.left .explorer a[href]"), tocSections: readable(".sidebar.right .toc-content a[href^='#']"), typography: { fontFamily: bodyStyle.fontFamily, fontSize: parseFloat(bodyStyle.fontSize), lineHeight: parseFloat(bodyStyle.lineHeight), cjkRect }, controls: { tocHeading: document.querySelector("button.toc-header h3")?.textContent.trim(), explorerHeading: document.querySelector(".explorer > h2.desktop-explorer")?.textContent.trim(), explorerFocus: focus(".explorer a[href]"), tocFocus: focus("button.toc-header") } }
   }`)
   assert.equal(desktop.slug, "papers/synthetic-paper/index")
   assert.equal(desktop.template, "paper")
@@ -837,18 +1241,23 @@ test("T04 Chromium CDP acceptance covers desktop three-slot and mobile Explorer/
   assert.ok(desktop.tocSections.every((entry) => entry.left >= 0 && entry.right <= 1440), JSON.stringify(desktop.tocSections))
   assert.ok(desktop.tocSections.every((entry) => ["rgb(32, 29, 26)", "rgb(63, 58, 52)"].includes(entry.color)), JSON.stringify(desktop.tocSections))
   assert.ok(desktop.tocSections.every((entry) => entry.opacity === "1"), JSON.stringify(desktop.tocSections))
+  assert.deepEqual(await browserArchitecture(), { explorer: 1, search: 1, graph: 1, graphScopes: ["local"], backlinks: 1, externalResources: [] })
   await capturePage(session, "t04-desktop-1440x1100.png")
 
   await cdpNavigate(session, "/knowledge/concept/synthetic-support/", 1440, 1100)
   const supportTemplate = await cdpValue(session, `() => ({ slug: document.body.dataset.slug, template: document.body.dataset.tracerTemplate, hasPaperMasthead: Boolean(document.querySelector("#bibliography")) })`)
   assert.deepEqual(supportTemplate, { slug: "knowledge/concept/synthetic-support/index", template: "support", hasPaperMasthead: false })
+  assert.deepEqual(await browserArchitecture(), { explorer: 1, search: 1, graph: 1, graphScopes: ["local"], backlinks: 1, externalResources: [] })
 
+  await cdpNavigate(session, "/", 390, 844)
+  assert.equal(await cdpValue(session, `() => location.pathname`), "/")
   await cdpNavigate(session, "/papers/synthetic-paper/", 390, 844)
   const mobile = await cdpValue(session, `async () => {
     const measure = (selector) => { const element = document.querySelector(selector), rect = element?.getBoundingClientRect(), style = element && getComputedStyle(element); return element && { width: rect.width, height: rect.height, display: style.display, visibility: style.visibility } }
+    const rawBox = element => { const rect = element.getBoundingClientRect(), style = getComputedStyle(element); return { clientWidth: element.clientWidth, scrollWidth: element.scrollWidth, overflowX: style.overflowX, bounds: { left: rect.left, right: rect.right, width: rect.width } } }
     const explorerButton = document.querySelector(".explorer-toggle.mobile-explorer"), tocButton = document.querySelector("button.toc-header"), explorer = document.querySelector(".explorer")
-    const explorerContent = explorerButton && document.getElementById(explorerButton.getAttribute("aria-controls")), tocContent = tocButton && document.getElementById(tocButton.getAttribute("aria-controls")), table = document.querySelector(".table-container")
-    const missing = [["explorerButton", explorerButton], ["explorer", explorer], ["explorerContent", explorerContent], ["tocButton", tocButton], ["tocContent", tocContent], ["table", table]].filter(([, value]) => !value).map(([name]) => name)
+    const explorerContent = explorerButton && document.getElementById(explorerButton.getAttribute("aria-controls")), tocContent = tocButton && document.getElementById(tocButton.getAttribute("aria-controls")), table = document.querySelector("article table"), tableWrapper = table?.closest(".table-container")
+    const missing = [["explorerButton", explorerButton], ["explorer", explorer], ["explorerContent", explorerContent], ["tocButton", tocButton], ["tocContent", tocContent], ["table", table], ["tableWrapper", tableWrapper]].filter(([, value]) => !value).map(([name]) => name)
     if (missing.length) return { missing, diagnostics: { tocButton: tocButton?.outerHTML, tocParent: tocButton?.parentElement?.outerHTML } }
     explorerButton.focus(); const explorerFocused = document.activeElement === explorerButton; explorerButton.click(); await new Promise(resolve => setTimeout(resolve, 300))
     const linkTargets = root => [...root.querySelectorAll("a[href]")].map(anchor => { const rect = anchor.getBoundingClientRect(), style = getComputedStyle(anchor); return { text: anchor.textContent.trim(), href: anchor.getAttribute("href"), width: rect.width, height: rect.height, display: style.display, visibility: style.visibility } }).filter(item => item.width > 0 && item.height > 0 && item.display !== "none" && item.visibility !== "hidden")
@@ -860,7 +1269,7 @@ test("T04 Chromium CDP acceptance covers desktop three-slot and mobile Explorer/
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await new Promise(resolve => setTimeout(resolve, 10))
     const tocEscaped = tocButton.getAttribute("aria-expanded") === "false" && tocContent.classList.contains("collapsed") && getComputedStyle(tocContent).display === "none" && document.activeElement === tocButton
     const closedTocDrawer = document.querySelector(".sidebar.right").getBoundingClientRect()
-    return { missing, explorerState, explorerEscaped, explorerClosedDisplay, overflow: document.documentElement.scrollWidth <= innerWidth && document.body.scrollWidth <= innerWidth, explorerButton: measure(".explorer-toggle.mobile-explorer"), tocButton: measure("button.toc-header"), explorerFocused, explorerOpen, tocFocused, tocState, tocOpen: tocState.buttonExpanded === "true" && tocState.display !== "none", tocEscaped, closedTocDrawer: { width: closedTocDrawer.width, height: closedTocDrawer.height }, table: measure(".table-container"), tableContained: table.scrollWidth > table.clientWidth && getComputedStyle(table).overflowX === "auto" }
+    return { missing, explorerState, explorerEscaped, explorerClosedDisplay, overflow: document.documentElement.scrollWidth <= innerWidth && document.body.scrollWidth <= innerWidth, explorerButton: measure(".explorer-toggle.mobile-explorer"), tocButton: measure("button.toc-header"), explorerFocused, explorerOpen, tocFocused, tocState, tocOpen: tocState.buttonExpanded === "true" && tocState.display !== "none", tocEscaped, closedTocDrawer: { width: closedTocDrawer.width, height: closedTocDrawer.height }, tableRaw: { wrapper: rawBox(tableWrapper), table: rawBox(table) } }
   }`)
   assert.deepEqual(mobile.missing, [], JSON.stringify(mobile.diagnostics))
   assert.equal(mobile.overflow, true)
@@ -885,7 +1294,14 @@ test("T04 Chromium CDP acceptance covers desktop three-slot and mobile Explorer/
   assert.ok(mobile.tocState.entries.every((entry) => entry.height >= 44), JSON.stringify(mobile.tocState.entries))
   assert.equal(mobile.tocEscaped, true)
   assert.ok(mobile.closedTocDrawer.width <= 44 && mobile.closedTocDrawer.height <= 44, JSON.stringify(mobile.closedTocDrawer))
-  assert.equal(mobile.tableContained, true)
+  assert.equal(mobile.tableRaw.wrapper.overflowX, "auto", JSON.stringify(mobile.tableRaw))
+  assert.ok(mobile.tableRaw.wrapper.bounds.left >= 0 && mobile.tableRaw.wrapper.bounds.right <= 390, JSON.stringify(mobile.tableRaw))
+  const tableOverflowsWrapper = mobile.tableRaw.wrapper.scrollWidth > mobile.tableRaw.wrapper.clientWidth
+  if (tableOverflowsWrapper) {
+    assert.ok(mobile.tableRaw.wrapper.scrollWidth >= mobile.tableRaw.table.scrollWidth, JSON.stringify(mobile.tableRaw))
+  } else {
+    assert.ok(mobile.tableRaw.table.bounds.left >= mobile.tableRaw.wrapper.bounds.left && mobile.tableRaw.table.bounds.right <= mobile.tableRaw.wrapper.bounds.right + 1, JSON.stringify(mobile.tableRaw))
+  }
   await cdpValue(session, `async () => { const toc = document.querySelector("button.toc-header"); toc.click(); await new Promise(resolve => setTimeout(resolve, 10)); return true }`)
   await capturePage(session, "t04-mobile-toc-390x844.png")
   if (process.env.TYLER_TRACER_CAPTURE_DIR) {
@@ -897,6 +1313,20 @@ test("T04 Chromium CDP acceptance covers desktop three-slot and mobile Explorer/
   const reduced = await cdpValue(session, `() => ({ transition: getComputedStyle(document.querySelector(".explorer-content")).transitionDuration, scroll: getComputedStyle(document.documentElement).scrollBehavior })`)
   assert.match(reduced.transition, /^(?:0s(?:, 0s)*)$/)
   assert.equal(reduced.scroll, "auto")
+  const explorerNavigationLoaded = session.client.once("Page.loadEventFired", () => true)
+  await cdpValue(session, `() => {
+    const button = document.querySelector(".explorer-toggle.mobile-explorer")
+    if (button?.getAttribute("aria-expanded") !== "true") button?.click()
+    const link = document.querySelector('.explorer a[data-public-id="synthetic-support"]')
+    if (!link) throw new Error("support Explorer link missing")
+    setTimeout(() => link.click(), 0)
+    return true
+  }`)
+  await explorerNavigationLoaded
+  const explorerNavigation = await cdpValue(session, `() => ({ pathname: location.pathname, template: document.body.dataset.tracerTemplate, title: document.querySelector("article h1")?.textContent.trim() })`)
+  assert.deepEqual(explorerNavigation, { pathname: "/knowledge/concept/synthetic-support/", template: "support", title: "Synthetic Support" })
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  assert.deepEqual(browserErrors, [])
   const cleanup = await session.close()
   assert.deepEqual(cleanup, { pid: session.edgePid, exited: true, profileRemoved: true })
   t.diagnostic(`Chromium cleanup ${JSON.stringify(cleanup)}`)
