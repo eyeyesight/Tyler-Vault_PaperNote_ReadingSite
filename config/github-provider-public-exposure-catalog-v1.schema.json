@@ -4,11 +4,22 @@
   "title": "GitHub provider public exposure catalog v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "catalog_id", "provider", "required_surfaces"],
+  "required": ["schema_version", "catalog_id", "provider", "lifecycle", "required_surfaces"],
   "properties": {
     "schema_version": { "const": 1 },
     "catalog_id": { "const": "github-provider-public-exposure-v1" },
     "provider": { "const": "github.com" },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "deploy_authority", "replacement", "reason"],
+      "properties": {
+        "status": { "const": "superseded" },
+        "deploy_authority": { "const": false },
+        "replacement": { "const": "config/github-launch-audit-v1.schema.json" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
     "required_surfaces": {
       "type": "array",
       "minItems": 31,
@@ -19,13 +30,14 @@
     "catalog_surface": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "provider_surface", "public_visibility", "anonymous_probe_required", "derived_bytes_required"],
+      "required": ["id", "provider_surface", "public_visibility", "anonymous_probe_required", "derived_bytes_required", "lifecycle"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
         "provider_surface": { "type": "string", "minLength": 1 },
         "public_visibility": { "enum": ["public", "public-metadata", "authorization-sensitive", "control-plane"] },
         "anonymous_probe_required": { "type": "boolean" },
-        "derived_bytes_required": { "type": "boolean" }
+        "derived_bytes_required": { "type": "boolean" },
+        "lifecycle": { "const": "superseded" }
       }
     },
     "non_empty_string_array": {

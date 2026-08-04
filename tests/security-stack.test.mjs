@@ -68,17 +68,29 @@ function compareVersions(left, right) {
   return 0
 }
 
-test("T08 advisory baseline preserves the two underlying high findings and their seven propagated audit nodes", () => {
-  assert.equal(baseline.schema_version, 1)
-  assert.equal(baseline.checked_at, "2026-07-30")
-  assert.deepEqual(baseline.before.audit_summary, {
+test("T08 advisory baseline preserves historical remediation and separates current revalidation", () => {
+  assert.equal(baseline.schema_version, 2)
+  assert.equal(baseline.checked_at, "2026-08-04")
+
+  const initial = baseline.initial_remediation
+  assert.equal(initial.checked_at, "2026-07-30")
+  assert.deepEqual(initial.before.audit_summary, {
     info: 0, low: 0, moderate: 0, high: 7, critical: 0, total: 7,
   })
-  assert.deepEqual(baseline.advisories.map(/** @param {{ id: string }} advisory */ ({ id }) => id), [
+  assert.deepEqual(initial.before.propagated_audit_nodes, [
+    "@jackyzha0/quartz",
+    "@quartz-community/bases-page",
+    "@quartz-community/canvas-page",
+    "brace-expansion",
+    "minimatch",
+    "serve-handler",
+    "sharp",
+  ])
+  assert.deepEqual(initial.advisories.map(/** @param {{ id: string }} advisory */ ({ id }) => id), [
     "GHSA-f88m-g3jw-g9cj",
     "GHSA-mh99-v99m-4gvg",
   ])
-  for (const advisory of baseline.advisories) {
+  for (const advisory of initial.advisories) {
     assert.equal(advisory.severity, "high")
     assert.equal(advisory.classification, "production")
     assert.equal(advisory.dependency_paths.length > 0, true)
@@ -88,16 +100,43 @@ test("T08 advisory baseline preserves the two underlying high findings and their
     assert.equal(typeof advisory.untrusted_exploit_input_reachable, "boolean")
     assert.equal(advisory.reachable_path.length > 40, true)
     assert.match(advisory.source_url, /^https:\/\/github\.com\/advisories\/GHSA-/)
-    assert.equal(advisory.source_checked_at, baseline.checked_at)
+    assert.equal(advisory.source_checked_at, initial.checked_at)
+  }
+
+  const current = baseline.current_revalidation
+  assert.equal(current.checked_at, "2026-08-04")
+  assert.equal(current.reason, "newly disclosed npm audit advisories require current revalidation")
+  assert.deepEqual(current.before.audit_summary, {
+    info: 0, low: 0, moderate: 0, high: 4, critical: 0, total: 4,
+  })
+  assert.deepEqual(current.before.production_audit_summary, current.before.audit_summary)
+  assert.deepEqual(current.advisories.map(/** @param {{ id: string }} advisory */ ({ id }) => id), [
+    "GHSA-rgw5-rvv9-x895",
+    "GHSA-7p8r-x3mc-p8w7",
+  ])
+  assert.deepEqual(current.accepted_high_advisories, [])
+  assert.equal(current.source_security_boundary, "unchanged")
+  for (const advisory of current.advisories) {
+    assert.equal(advisory.severity, "high")
+    assert.equal(advisory.classification, "current-revalidation")
+    assert.equal(advisory.accepted, false)
+    assert.equal(advisory.dependency_paths.length > 0, true)
+    assert.match(advisory.affected_range, /\d/)
+    assert.equal(advisory.first_fixed_version, advisory.target_version)
+    assert.match(advisory.source_url, /^https:\/\/github\.com\/advisories\/GHSA-/)
+    assert.equal(advisory.source_checked_at, current.checked_at)
+    assert.equal(advisory.remediation.status, "fixed")
+    assert.equal(advisory.remediation.version, advisory.target_version)
   }
 })
 
 test("T08 final lock, audit artifacts, and canonical CycloneDX evidence remain bound", async () => {
   const lockBytes = await readFile(path.join(repoRoot, "package-lock.json"))
-  assert.equal(sha256(lockBytes), baseline.after.package_lock_sha256)
-  assert.equal(baseline.after.quartz_commit, quartzCommit)
-  assert.equal(npmOutput(["--version"]).trim(), baseline.after.audit_evidence.npm)
-  for (const summary of [baseline.after.audit_summary, baseline.after.production_audit_summary]) {
+  const currentAfter = baseline.current_revalidation.after
+  assert.equal(sha256(lockBytes), currentAfter.package_lock_sha256)
+  assert.equal(currentAfter.quartz_commit, quartzCommit)
+  assert.equal(npmOutput(["--version"]).trim(), currentAfter.audit_evidence.npm)
+  for (const summary of [currentAfter.audit_summary, currentAfter.production_audit_summary]) {
     assert.deepEqual(summary, { info: 0, low: 0, moderate: 0, high: 0, critical: 0, total: 0 })
   }
 
@@ -107,7 +146,7 @@ test("T08 final lock, audit artifacts, and canonical CycloneDX evidence remain b
     ["production", ["audit", "--package-lock-only", "--omit=dev", "--json"]],
   ]
   for (const [kind, args] of auditCases) {
-    const evidence = baseline.after.audit_evidence[kind]
+    const evidence = currentAfter.audit_evidence[kind]
     const artifactBytes = await readFile(path.join(repoRoot, ...evidence.artifact.split("/")))
     assert.equal(sha256(artifactBytes), evidence.sha256)
     assert.equal(npmOutput(args), artifactBytes.toString("utf8"))
@@ -139,12 +178,12 @@ test("T08 final lock, audit artifacts, and canonical CycloneDX evidence remain b
   } finally {
     await Promise.all(checkoutRoots.map((checkout) => rm(checkout, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })))
   }
-  assert.equal(sboms.length, baseline.after.sbom.reproducibility_runs)
+  assert.equal(sboms.length, currentAfter.sbom.reproducibility_runs)
   for (const sbom of sboms) {
-    assert.equal(sbom.bomFormat, baseline.after.sbom.format)
-    assert.equal(sbom.specVersion, baseline.after.sbom.spec_version)
-    assert.equal(sbom.components.length, baseline.after.sbom.component_count)
-    assert.equal(sbom.dependencies.length, baseline.after.sbom.dependency_count)
+    assert.equal(sbom.bomFormat, currentAfter.sbom.format)
+    assert.equal(sbom.specVersion, currentAfter.sbom.spec_version)
+    assert.equal(sbom.components.length, currentAfter.sbom.component_count)
+    assert.equal(sbom.dependencies.length, currentAfter.sbom.dependency_count)
   }
   /** @param {Record<string, any>} document */
   const canonicalizeSbom = (document) => {
@@ -157,8 +196,8 @@ test("T08 final lock, audit artifacts, and canonical CycloneDX evidence remain b
   const canonicalRuns = sboms.map(canonicalizeSbom)
   assert.deepEqual(canonicalRuns[0], canonicalRuns[1])
   for (const canonical of canonicalRuns) {
-    assert.equal(canonical.length, baseline.after.sbom.canonical_bytes)
-    assert.equal(sha256(canonical), baseline.after.sbom.canonical_sha256)
+    assert.equal(canonical.length, currentAfter.sbom.canonical_bytes)
+    assert.equal(sha256(canonical), currentAfter.sbom.canonical_sha256)
   }
 })
 
@@ -182,14 +221,15 @@ test("T08 records project ownership because Quartz does not natively support the
   assert.equal(sharpOverride.startsWith("0.34."), false, `${sharpOverride} must remain outside ${sharpRange}`)
   assert.equal(packageJson.overrides.sharp, sharpOverride)
 
-  assert.equal(baseline.resolution.bridge.kind, "temporary-project-owned-bridge")
-  assert.equal(baseline.resolution.bridge.upstream_support, false)
-  assert.equal(baseline.resolution.bridge.accepted_by, "Tyler")
-  assert.equal(baseline.resolution.bridge.accepted_at, "2026-07-30")
-  assert.match(baseline.resolution.quartz_pin_purpose, /lock completeness/i)
-  assert.match(baseline.resolution.sharp_override.ownership, /project/i)
-  assert.equal(baseline.resolution.sharp_override.version, sharpOverride)
-  assert.equal(baseline.resolution.removal_triggers.length >= 3, true)
+  const initialResolution = baseline.initial_remediation.resolution
+  assert.equal(initialResolution.bridge.kind, "temporary-project-owned-bridge")
+  assert.equal(initialResolution.bridge.upstream_support, false)
+  assert.equal(initialResolution.bridge.accepted_by, "Tyler")
+  assert.equal(initialResolution.bridge.accepted_at, "2026-07-30")
+  assert.match(initialResolution.quartz_pin_purpose, /lock completeness/i)
+  assert.match(initialResolution.sharp_override.ownership, /project/i)
+  assert.equal(initialResolution.sharp_override.version, sharpOverride)
+  assert.equal(initialResolution.removal_triggers.length >= 3, true)
 
   const adr = await readFile(path.join(repoRoot, "docs", "adr", "0003-temporary-pinned-stack-bridge.md"), "utf8")
   assert.match(adr, /Status:\s*Accepted/i)
@@ -200,7 +240,7 @@ test("T08 records project ownership because Quartz does not natively support the
   assert.match(adr, /5\.0\.8/)
 })
 
-test("T08 lock graph contains patched image and brace primitives only", async () => {
+test("T08 lock graph contains exact patched image, brace, and URI primitives", async () => {
   assert.equal(lock.packages["node_modules/sharp"].version, "0.35.3")
   assert.match(lock.packages["node_modules/sharp"].integrity, /^sha512-/)
   assert.equal(lock.packages["node_modules/serve-handler"].version, "6.1.7")
@@ -210,25 +250,41 @@ test("T08 lock graph contains patched image and brace primitives only", async ()
     resolved: "vendor/brace-expansion-compat",
     link: true,
   })
-  assert.equal(lock.packages["vendor/brace-expansion-compat"].version, "5.0.8")
-  assert.equal(lock.packages["vendor/brace-expansion-compat"].dependencies["brace-expansion-safe"], "npm:brace-expansion@5.0.8")
-  assert.equal(lock.packages["node_modules/brace-expansion-safe"].version, "5.0.8")
-  assert.match(lock.packages["node_modules/brace-expansion-safe"].integrity, /^sha512-/)
+  assert.equal(lock.packages["vendor/brace-expansion-compat"].version, "5.0.9")
+  assert.equal(lock.packages["vendor/brace-expansion-compat"].dependencies["brace-expansion-safe"], "npm:brace-expansion@5.0.9")
+  const wrappedPath = "vendor/brace-expansion-compat/node_modules/brace-expansion-safe"
+  assert.equal(lock.packages[wrappedPath].version, "5.0.9")
+  assert.equal(lock.packages[wrappedPath].integrity, "sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==")
 
-  const adapter = baseline.resolution.compatibility_adapter
+  const adapterPackage = JSON.parse((await readFile(path.join(repoRoot, "vendor", "brace-expansion-compat", "package.json"))).toString("utf8"))
+  assert.equal(adapterPackage.version, "5.0.9")
+  assert.equal(adapterPackage.dependencies["brace-expansion-safe"], "npm:brace-expansion@5.0.9")
+
+  const currentAfter = baseline.current_revalidation.after
+  const adapter = currentAfter.compatibility_adapter
   assert.equal(adapter.package_sha256, sha256(await readFile(path.join(repoRoot, "vendor", "brace-expansion-compat", "package.json"))))
   assert.equal(adapter.entrypoint_sha256, sha256(await readFile(path.join(repoRoot, "vendor", "brace-expansion-compat", "index.cjs"))))
+  assert.equal(adapter.version, "5.0.9")
+  assert.equal(adapter.wrapped_spec, "npm:brace-expansion@5.0.9")
+  assert.equal(currentAfter.fast_uri.version, "3.1.5")
+  assert.equal(currentAfter.fast_uri.integrity, "sha512-gHwA1O9LDIcKunMKhObS/HimwtehO1nPUECKAu5TpKgaO19fcWEl4bliWe1jWxVFvIXztJjjQ4L8XQ1EU9f7Jw==")
 
   const sharpNodes = Object.entries(lock.packages).filter(([name]) => /(?:^|\/)node_modules\/sharp$/.test(name))
   const braceNodes = Object.entries(lock.packages).filter(([name]) => /(?:^|\/)node_modules\/(?:brace-expansion|brace-expansion-safe)$/.test(name))
+  const fastUriNodes = Object.entries(lock.packages).filter(([name]) => /(?:^|\/)node_modules\/fast-uri$/.test(name))
   assert.equal(sharpNodes.length > 0, true)
   assert.equal(braceNodes.length > 0, true)
+  assert.equal(fastUriNodes.length > 0, true)
   for (const [name, candidate] of sharpNodes) {
     assert.equal(compareVersions(candidate.version, "0.35.0") >= 0, true, `${name}@${candidate.version}`)
   }
   for (const [name, candidate] of braceNodes) {
     const resolved = candidate.link ? lock.packages[candidate.resolved] : candidate
-    assert.equal(compareVersions(resolved.version, "5.0.8") >= 0, true, `${name}@${resolved.version}`)
+    assert.equal(resolved.version, "5.0.9", `${name}@${resolved.version}`)
+  }
+  for (const [name, candidate] of fastUriNodes) {
+    assert.equal(candidate.version, "3.1.5", `${name}@${candidate.version}`)
+    assert.equal(candidate.integrity, "sha512-gHwA1O9LDIcKunMKhObS/HimwtehO1nPUECKAu5TpKgaO19fcWEl4bliWe1jWxVFvIXztJjjQ4L8XQ1EU9f7Jw==")
   }
 })
 

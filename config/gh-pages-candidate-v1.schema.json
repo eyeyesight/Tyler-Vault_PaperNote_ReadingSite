@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tyler-vault-site.local/schemas/gh-pages-candidate-v1.schema.json",
+  "title": "Tyler-Vault GitHub Pages candidate v1",
+  "description": "A deterministic Pages candidate containing only the public site inventory, controlled .nojekyll, and one digest-bound metadata record.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "candidate_kind",
+    "source_release_identity",
+    "source_artifact",
+    "approved_manifest",
+    "approved_receipt",
+    "rights_authority",
+    "expected_url",
+    "base_path",
+    "candidate_site",
+    "candidate_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "candidate_kind": { "const": "gh-pages-candidate" },
+    "source_release_identity": { "$ref": "#/$defs/releaseIdentity" },
+    "source_artifact": { "$ref": "#/$defs/sourceArtifact" },
+    "approved_manifest": { "$ref": "#/$defs/approvedManifest" },
+    "approved_receipt": { "$ref": "#/$defs/approvedReceipt" },
+    "rights_authority": { "$ref": "#/$defs/rightsAuthority" },
+    "expected_url": { "type": "string", "pattern": "^https://[^\\s]+/$", "maxLength": 2048 },
+    "base_path": { "type": "string", "pattern": "^/(?:[^/\\\\\\u0000]+(?:/[^/\\\\\\u0000]+)*)?$", "maxLength": 512 },
+    "candidate_site": { "$ref": "#/$defs/candidateSite" },
+    "candidate_digest": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*[\\\\\\u0000])(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.(?:/|$))[^/]+(?:/[^/]+)*$"
+    },
+    "inventoryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "byteLength"],
+      "properties": {
+        "path": { "$ref": "#/$defs/relativePath" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "byteLength": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+      }
+    },
+    "inventory": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100000,
+      "items": { "$ref": "#/$defs/inventoryEntry" }
+    },
+    "releaseIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["release_id", "release_digest", "generation"],
+      "properties": {
+        "release_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "release_digest": { "$ref": "#/$defs/sha256" },
+        "generation": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      }
+    },
+    "sourceArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_digest", "byte_length", "inventory"],
+      "properties": {
+        "artifact_digest": { "$ref": "#/$defs/sha256" },
+        "byte_length": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        "inventory": { "$ref": "#/$defs/inventory" }
+      }
+    },
+    "approvedManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_id", "plan_digest", "manifest_sha256", "approval_receipt"],
+      "properties": {
+        "manifest_id": { "type": "string", "pattern": "^VPUB-[0-9]{8}-[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "plan_digest": { "$ref": "#/$defs/sha256" },
+        "manifest_sha256": { "$ref": "#/$defs/sha256" },
+        "approval_receipt": { "$ref": "#/$defs/approvalReceipt" }
+      }
+    },
+    "approvedReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["release_digest", "receipt_sha256", "created_at"],
+      "properties": {
+        "release_digest": { "$ref": "#/$defs/sha256" },
+        "receipt_sha256": { "$ref": "#/$defs/sha256" },
+        "created_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" }
+      }
+    },
+    "approvalReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approver", "channel", "source_event_id", "approved_plan_digest", "approved_at"],
+      "properties": {
+        "approver": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "channel": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "source_event_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "approved_plan_digest": { "$ref": "#/$defs/sha256" },
+        "approved_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" }
+      }
+    },
+    "rightsAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "status", "manifest_id", "plan_digest", "approval_receipt"],
+      "properties": {
+        "kind": { "const": "publication-manifest-approval" },
+        "status": { "const": "approved" },
+        "manifest_id": { "type": "string", "pattern": "^VPUB-[0-9]{8}-[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "plan_digest": { "$ref": "#/$defs/sha256" },
+        "approval_receipt": { "$ref": "#/$defs/approvalReceipt" }
+      }
+    },
+    "candidateSite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inventory", "digest"],
+      "properties": {
+        "inventory": { "$ref": "#/$defs/inventory" },
+        "digest": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

@@ -245,3 +245,14 @@ test("candidate artifact verifier reads the exact regular-file set and bytes", a
   await writeFile(path.join(root, "graph.json"), '{"schema_version":2}\n')
   await assert.rejects(verifySealedArtifactTree({ root, receipt }), (error) => error.code === "RELEASE_ARTIFACT_HASH_MISMATCH")
 })
+
+test("Windows accepts a case-only spelling variant of an ordinary artifact root", { skip: process.platform !== "win32" }, async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "safe-release-receipt-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const bytes = Buffer.from("case-variant artifact root\n", "utf8")
+  await writeFile(path.join(root, "index.html"), bytes)
+
+  const variant = path.join(path.dirname(root), path.basename(root).replace("safe-release-receipt-", "SAFE-RELEASE-RECEIPT-"))
+  assert.notEqual(variant, root)
+  assert.deepEqual(await readCandidateArtifactTree(variant), [{ path: "index.html", sha256: sha256(bytes) }])
+})

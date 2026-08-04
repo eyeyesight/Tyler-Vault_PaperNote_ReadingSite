@@ -1,243 +1,190 @@
-# ADR 0002: GitHub Pages deployment and private-to-public exposure contract
+# ADR-0002: GitHub Pages deployment and public exposure responsibility boundary
 
-- **Status:** Accepted for T09 contract work; remote activation remains unapproved
-- **Decision date / official-source check:** 2026-07-30 UTC
-- **Scope:** `eyeyesight/Tyler-Vault_PaperNote_ReadingSite`
-- **Machine-readable contract:** `config/github-pages-deployment-contract-v1.json`
-- **Independent exposure authority/schema:** `config/github-provider-public-exposure-catalog-v1.json`, `config/github-provider-public-exposure-catalog-v1.schema.json`
-- **Local executable contract:** `lib/pages-deployment-contract.mjs`, `lib/verified-sealed-release.mjs`, `tests/support/scripted-local-pages-provider.mjs`, `tests/github-pages-deployment-contract.test.mjs`, and `tests/verified-sealed-release.test.mjs`
+- **Status:** accepted — Wave C gh-pages branch implementation
+- **Date:** 2026-08-04
+- **Owners:** Tyler Vault Reading Site maintainers
+- **Decision type:** public-content, repository-control-plane, and deployment-plane contract
+
+## Decision summary
+
+GitHub is the control plane and deployment plane for this project. Generated site bytes are tracked only on `refs/heads/gh-pages`, while the workflow definition remains on `refs/heads/main`. The public website is the `site/` directory at the root of `gh-pages`; the same commit carries sealed candidate metadata at `.publication/gh-pages-candidate-v1.json` and the finalized visibility launch audit at `.publication/github-launch-audit-v1.json`.
+
+The delivery method is `gh-pages-branch-to-pages-artifact`. A deploy-capable run is started only by `workflow_dispatch` from the workflow on `main`, while the repository default branch is also `main`. It must receive an exact 40-hex `site_commit` plus exact 64-hex `candidate_digest` and `launch_audit_digest` expected values. Pull requests and pushes never publish. Validation first proves that `site_commit` belongs to `refs/heads/gh-pages`, compares the branch metadata and finalized audit with the two GitHub-authenticated expected digests, and uploads only `site/`. The deploy job enters the protected `github-pages` environment only after validation.
+
+Those responsibilities are intentionally separate:
+
+1. **Public content audit (project-owned):** decide whether the exact sealed site bytes, candidate metadata, manifest, receipt, rights, and bounded one-time launch-audit evidence are fit for public exposure.
+2. **GitHub control plane (GitHub-native):** enforce collaborators, merge rules, rulesets/branch protection, Actions permissions, environment reviewers, Pages settings, and provider-visible governance.
+3. **Deployment plane (GitHub-native):** run the manual workflow, wait for the `github-pages` environment approval, serialize runs with GitHub Actions concurrency, deploy the Pages artifact, and expose provider deployment IDs/status.
+
+The machine-readable contract is [`config/github-pages-deployment-contract-v1.json`](../../config/github-pages-deployment-contract-v1.json), validated by [`config/github-pages-deployment-contract-v1.schema.json`](../../config/github-pages-deployment-contract-v1.schema.json). This ADR is its human-readable authority. The existing 31-surface catalog is retained only as a superseded migration reference.
+
+The local prepare CLI is part of the candidate handoff boundary. It requires the exact `--source-root` flag: the operator supplies the canonical source-tree root as the trusted source authority, and the candidate output root must be disjoint from that root as well as from sealed runtime/release custody. The source-root path is not emitted into candidate metadata.
+
+### Single-account operating roles
+
+The repository and deployment path use one GitHub account, `eyeyesight`. Arke is the logical operator role for preparing the exact candidate, pushing the isolated `gh-pages` commit, and dispatching the workflow. Tyler is the logical approver role: Tyler records the visibility decision before the repository/public content mutation, then reviews the specific validated workflow run and approves the `github-pages` environment deployment after comparing the fixed summary with the approved exact digests. These are two separate human decisions at separate lifecycle points; they are not two GitHub identities.
+
+GitHub records both roles as `eyeyesight`. Tyler correlates `workflow_run_id`, `run_started_at`, `environment_reviewed_at`, and the Telegram decision reference with the exact SHA, candidate digest, launch-audit digest, validation summary, and provider readback. Run/approval times and Telegram are operator correlation evidence, not cryptographic proof of Arke/Tyler identity separation.
 
 ## Context
 
-The target is a free public GitHub repository and a GitHub Pages **project site**. The repository currently needs a deployment contract, not a deployment. This ADR therefore does not create a workflow, enable Pages, change visibility, call a mutating GitHub endpoint, or publish any real note.
+The earlier design attempted to make a project-owned opaque evidence/capability chain behave like a provider transaction. It coupled a 31-surface exposure inventory to four uniform evidence lanes, treated an opaque `VerifiedSealedRelease` capability as deployment authority, and specified a custom atomic claim/one-start lifecycle. Those guarantees cannot be made authoritative over GitHub's collaborators, rulesets, environment approvals, Actions scheduler, Pages provider, or cached/forked views.
 
-Changing a private repository to public is much broader than publishing one static directory. GitHub says the code becomes visible to everyone, anyone can fork it, activity is published, and Actions history and logs become visible. GitHub also warns that rewriting Git history does not recall copies from clones/forks, SHA-addressed cached views, or pull requests. A Pages-only artifact scan cannot establish that the repository is safe to expose.
+The Wave C decision keeps the useful content controls but assigns each decision to the system that can actually enforce it. It uses an immutable commit on the dedicated `gh-pages` content branch as the provider-accessible site source, while retaining sealed project custody and rights evidence. It does not call GitHub, DNS, or a live Pages site as part of this repository change, and it never records credentials in an audit or example.
 
-## Decision
+## Normative source map
 
-### 1. Hosting and URL
+The following references are formal sources for this boundary:
 
-Use the public repository on GitHub Free and a Pages project site at:
+| Source | Role after Wave C |
+| --- | --- |
+| This ADR | Human-readable responsibility boundary and lifecycle decision |
+| `config/github-pages-deployment-contract-v1.json` | Active machine-readable gh-pages branch deployment contract |
+| `config/github-pages-deployment-contract-v1.schema.json` | Schema for the active deployment contract |
+| `config/github-launch-audit-v1.schema.json` | Schema for the one-time, human-readable, hashable launch audit |
+| `specs/examples/github-launch-audit-v1.example.json` | Non-live, valid example of the launch-audit shape and digest rule |
+| `config/public-output-allowlist-v1.json` | Project allowlist for public output paths/bytes |
+| `schemas/current-release-v1.schema.json` and `schemas/release-receipt-v1.schema.json` | Release/receipt identity and sealed-artifact records |
+| `specs/tyler-vault-reading-site.md` | Reading-site output, branch layout, route, and hosting requirements |
+| `docs/publication-contract-engine.md` and `docs/manifest-quartz-tracer.md` | Project publication/manifest and renderer provenance inputs |
+| `config/github-provider-public-exposure-catalog-v1.json` and its schema | **Superseded** historical 31-surface reference; never a deploy gate or deploy authority |
 
-- origin: `https://eyeyesight.github.io`
-- base path: `/Tyler-Vault_PaperNote_ReadingSite`
-- canonical site URL: `https://eyeyesight.github.io/Tyler-Vault_PaperNote_ReadingSite/`
-- no custom domain or `CNAME`
+A document may explain these contracts, but it must not promote a superseded source back to deployment authority.
 
-GitHub's Pages overview identifies a project-site default location as `https://<owner>.github.io/<repositoryname>`. GitHub's Pages documentation states that public repositories are supported by GitHub Free. The renderer must generate and test URLs under the project base path; root-only success is not evidence.
+## Public content audit
 
-The Pages artifact root must contain case-exact `index.html` and `404.html`. All canonical internal routes, absolute assets, relative assets, Explorer, search, graph, and 404 navigation must remain under the base path.
+### Required project-owned inputs
 
-### 2. Delivery mechanism
+Before the repository is made public, the project records:
 
-Select a **custom GitHub Actions Pages artifact**:
+- the approved public-output allowlist;
+- the exact sealed artifact digest and sorted byte inventory;
+- the release manifest, receipt, and rights disposition digests;
+- the one-time launch audit, finalized after post-visibility repository readback; and
+- the human visibility approval recorded in that launch audit.
 
-1. obtain the exact approved manifest and sealed local release;
-2. verify the release receipt, path set, bytes, hashes, content rights, and public-exposure gates;
-3. configure Pages metadata;
-4. upload one `github-pages` artifact;
-5. in a separate serialized job, deploy that artifact to the `github-pages` environment;
-6. read back provider state and public bytes before declaring success.
+Unknown rights or an unapproved output unit blocks publication. A content audit does not grant repository write permission, merge permission, the `github-pages` environment approval, or Pages-provider authority. Deployment approval is recorded only by the protected GitHub environment in the deployment receipt.
 
-Do **not** commit generated real-note HTML to a normal branch. Git history would make generated content part of the much larger, forkable repository exposure and would complicate removal. GitHub recommends a custom Actions workflow when a non-Jekyll build or no dedicated compiled-output branch is desired, and its official workflow model is `configure-pages` → `upload-pages-artifact` → `deploy-pages`.
+### One-time launch audit
 
-T09 intentionally adds no active `.github/workflows` file. A later implementation must use the checked full commit pins in the machine contract after re-reviewing them. Moving major tags shown in examples are not accepted as immutable executable pins.
+The launch audit is one complete, human-readable JSON record conforming to `github-launch-audit-v1.schema.json`. It is written once for the repository visibility boundary, finalized only after the post-visibility readback, retained with the sealed release receipt, and identified by SHA-256 over canonical JSON with the `audit_digest` member omitted. The record includes a human-readable summary, scope, evidence locators, findings, limitations, and the visibility approval only. It contains no deployment approval and no Pages post-deploy QA result.
 
-### 3. Workflow authority and least privilege
+The audit scope is bounded and reproducible:
 
-The only deploy input authority is an opaque `VerifiedSealedRelease` capability minted after the existing trusted-filesystem checks load an approved manifest and sealed local receipt and the existing sealed-custody verifier reads the exact artifact tree. The capability carries no enumerable fields and is recognized only by module-private object identity. A plain object, copied authority fields, a forged brand/symbol/prototype, a serialized clone, branch tip, arbitrary workflow artifact, mutable directory, or “latest successful build” is not deployment authority.
+- **Pre-visibility audit:** inspect the local mirror, allowlist, sealed artifact, byte inventory, manifest, and rights;
+- **Visibility approval:** record the human approval before the repository visibility mutation;
+- **Post-visibility readback:** use one authenticated machine lane (`gh api --paginate` or an equivalent authenticated GitHub API) for repository/API readback, optionally corroborate it in the authenticated UI, and perform anonymous repository readback; and
+- **Finalize:** retain all evidence and compute the final `audit_digest` over the complete record with that member omitted.
 
-The deploy job contract is:
+Pages deployment approval and Pages post-deploy anonymous/browser QA belong to the later deployment lifecycle, not to this launch audit.
 
-```yaml
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-environment:
-  name: github-pages
-  url: ${{ steps.deployment.outputs.page_url }}
-concurrency:
-  group: pages
-  cancel-in-progress: false
-```
+The audit must state its limitation plainly. Known clones, cached views, and unknown external copies may be recorded when observed, but their absence is **not provable**, is **not a zero gate**, and must not be converted into a custom deploy failure condition. The bounded audit gates what the project and authenticated GitHub control plane can inspect; it does not claim universal deletion or universal absence.
 
-GitHub documents `pages: write` and `id-token: write` as the minimum deployment permissions and recommends `github-pages`; its example also includes `contents: read`. The environment must allow only the approved default branch, require a distinct deployment approval, and prevent self-review where the plan supports it. The deploy action's OIDC token proves workflow-job/ref context; no PAT is stored or used by this contract.
+## GitHub control plane
 
-Actions concurrency is only a provider-side guard. GitHub documents that a concurrency group permits at most one running and one pending job, may replace an existing pending job, and does not guarantee ordering. Therefore the lifecycle must also compare a monotonic generation and current LKG immediately before mutation. `cancel-in-progress: false` avoids deliberately aborting the running deployment; stale or concurrent candidates fail closed rather than relying on queue order.
+The following are GitHub-native controls and are not reimplemented in project library code:
 
-### 4. Artifact format, size, and retention
+- collaborators, teams, and repository roles;
+- protected default branch rulesets/branch protection, required reviews, and required checks;
+- Actions workflow/job permissions and action pinning policy;
+- Pages source/build-type configuration;
+- the `github-pages` environment and required reviewers, with self-review prevention disabled for the shared `eyeyesight` account; and
+- repository/organization Actions secret and variable metadata without exposing secret values.
 
-Lock the artifact to:
+Use one authenticated machine evidence lane: `gh api --paginate` is accepted, as is an equivalent authenticated GitHub API client. Pagination is required for list endpoints. UI evidence is optional human-readable corroboration only and does not create a second required machine lane. GitHub's current settings and provider responses remain authoritative for this plane.
 
-- name `github-pages`;
-- one gzip archive containing one tar archive;
-- ordinary files/directories only, with no symbolic or hard links;
-- hidden files excluded;
-- official published-site maximum 1 GB;
-- local release gate maximum 900,000,000 bytes, preserving headroom;
-- deploy-status ceiling 600,000 ms (10 minutes);
-- transport artifact retention 1 day.
+## GitHub deployment plane
 
-The official `upload-pages-artifact` action defaults to one-day retention and documents the required tar/gzip structure. Its README mentions an unofficial absolute 10 GB rejection threshold but also says Pages officially supports only 1 GB and larger deployments are not guaranteed. This contract treats **1 GB as the provider maximum** and 900 MB as the stricter release gate; the 10 GB implementation ceiling is not a supported allowance. GitHub separately documents a 1 GB published-site limit and 10-minute deployment timeout. Public repository Actions artifacts/logs can be configured for 1–90 days, so one day is valid.
+The deployment is a GitHub Actions Pages-artifact workflow, not a project-owned provider transaction.
 
-A one-day transport artifact is not rollback custody. The immutable local sealed release remains authoritative.
+### Workflow contract
 
-### 5. Base-path and fixed local-only fixture
+The workflow file is `.github/workflows/deploy-pages.yml`:
 
-`createSyntheticProjectSiteServer` binds only `127.0.0.1` on an ephemeral port. Its complete caller interface is exactly one plain own enumerable data property, `{ basePath }`; accessors, proxies/exotic objects, symbols, non-enumerable properties, `root`, test hooks, and every other extra property fail with `FIXTURE_OPTIONS_INVALID` before fixture loading or listen. It has no caller-selected path, exported loader/test hook, provider URL, credential lookup, or network client. `normalizeBasePath` accepts only one exact canonical absolute path and its single trailing-slash variant; malformed percent escapes and all percent-encoded, repeated-separator, control/NUL, slash/backslash, dot-traversal, and non-NFC forms fail with `BASE_PATH_INVALID`.
+- `workflow_dispatch` is its only trigger; there is no `push`, `pull_request`, schedule, repository-dispatch, or other automatic-publication trigger;
+- required `site_commit`, `candidate_digest`, and `launch_audit_digest` inputs are exact lowercase hexadecimal values; the validation job proves that the commit is contained in `refs/heads/gh-pages` and the two expected digests match the verified branch bytes;
+- the workflow hard-fails before candidate use unless both its dispatch ref and the repository default branch are `main`;
+- the validation job verifies `.publication/gh-pages-candidate-v1.json`, requires and validates `.publication/github-launch-audit-v1.json`, binds that audit to the same sealed artifact, and stages an exact site-only copy;
+- only verifier-staged `site/` is passed to `actions/upload-pages-artifact`; `.publication/` is not served;
+- the deploy job needs `validate`, executes only after the `github-pages` environment required reviewer approves, and invokes `actions/deploy-pages` only with that validated Pages artifact; and
+- neither job builds Quartz, mutates candidate bytes, emits invented manifest/rights outputs, or issues a custom provider claim.
 
-The module-private root is fixed to the repository corpus at `tests/fixtures/pages-project-site/`. Before listen, the server takes exactly one complete snapshot with fixed ceilings of 32 directories, depth 8, 64 files, 256 KiB per file, and 1 MiB total. It incrementally enumerates and closes directory handles; at every level it applies `lstat` plus exact `realpath` canonical-root containment and rejects links, junction redirects, non-file/non-directory entries, and hard-linked files. Every file is opened once and read only through that `FileHandle`: `fstat` → bounded exact-size read plus one-byte growth probe → `fstat`, requiring an ordinary file, `nlink === 1`, and unchanged device, inode, size, and nanosecond mtime. Path identity and containment are checked around the handle read, and every success/error path closes the handle.
+The minimum provider permissions are `contents: read`, `pages: write`, and `id-token: write`, declared at the narrowest applicable workflow/job scope. GitHub evaluates and enforces those permissions.
 
-After snapshot construction, request handling makes zero filesystem calls. The module-private map and source buffers never escape; each response receives a fresh Buffer copy (or only snapshot metadata for `HEAD`). `close()` is idempotent, stops acceptance, closes idle/all connections, destroys tracked sockets, and has a one-second local deadline so an incomplete client request cannot retain the server or port indefinitely.
+### Environment approval and concurrency
 
-The static corpus proves:
+The `github-pages` environment retains required reviewers. Because Arke and Tyler operate through the same `eyeyesight` account, self-review prevention is disabled; the environment review remains the only deployment approval, and GitHub environment/deployment records are authoritative for it.
 
-- canonical root and paper route;
-- an absolute base-path CSS URL and relative JavaScript/route URLs;
-- Explorer's content index;
-- search index route values;
-- graph index route values;
-- a custom `404.html` with base-path-safe return navigation;
-- denial of the same asset outside the project base path;
-- redirect from the no-trailing-slash project path to the canonical path.
+The immutable sealed receipt is not rewritten. The environment review is distinct from the human visibility approval recorded in the launch audit: Tyler records visibility approval before the repository/public-content mutation, while Tyler reviews and approves the specific environment run only after validation and exact digest comparison. Tyler compares the workflow summary's `candidate_digest` and `launch_audit_digest` with the Telegram/out-of-band decision record and correlates `workflow_run_id`, `run_started_at`, and `environment_reviewed_at` before approving. GitHub records both decisions under `eyeyesight`; the correlation evidence does not create account-level identity separation.
 
-Navigation acceptance parses every `href`, `src`, `action`, and `data-index` attribute from the actual served root, paper, Explorer, search, graph, and custom-404 HTML responses. Each value is resolved against that response URL, required to stay on the loopback origin below the project base path, fetched, and checked for status, content type, and nonempty/valid JSON content. Separate public-interface regressions cover repeated legal HTTP reads from the same immutable startup snapshot, `HEAD`, content types, custom 404 metadata, double close, active-connection termination, and immediate port reuse.
+If the `eyeyesight` account or its credential is compromised, the same account can initiate and approve both separate human decisions. This is an explicit limitation, not a reason to weaken exact-SHA, candidate/site-inventory, manifest/receipt, rights, provider-readback, or post-deploy QA controls.
 
-This is a fixed, trusted, synthetic test corpus only—not a production server, preview server, or arbitrary file server—and it contains no Tyler-Vault-derived research content. Node does not expose one portable JavaScript predicate for every possible Windows reparse tag. The fixed trusted root narrows that platform threat model; known symlink/junction redirects are rejected by `lstat`, and any exact-`realpath` redirect or containment mismatch at root, directory, or file fails closed. This contract does not claim resistance to a privileged concurrent writer that can preserve all checked file identity metadata.
+The concurrency group is `github-pages` with `cancel-in-progress: false`, owned by GitHub Actions. A timeout or unknown provider result is reconciled by reading back the same workflow run and deployment objects; the workflow does not infer failure and blindly submit a second mutation.
 
-### 6. External lifecycle, failure semantics, and read-back
+### Provider deployment-ID lifecycle
 
-A lifecycle release identity is the structured tuple `(release_id, release_digest, generation)`: `release_id` is globally unique, `release_digest` hashes the canonical lifecycle descriptor, and `generation` is a positive monotonic integer. This identity is separate from byte custody: `artifact_digest` identifies the exact published artifact bytes and `receipt_digest` identifies the exact sealed local receipt bytes. Reusing an artifact during controlled rollback does not reuse an old lifecycle identity; rollback creates a new tuple with a newer generation. Its release ID uses one canonical reversible encoding of source manifest ID plus new generation, so a later process can recover custody and recompute the lifecycle digest without a caller map or process-local registry.
+The provider lifecycle is recorded using GitHub-native identifiers:
 
-State transition rules:
+1. the workflow run records its source `commit_sha`, `workflow_run_id`, `run_attempt`, and exact `site_commit` input; the verifier validates candidate/site inventory and digests, manifest/receipt hashes, approved rights-authority projection, and launch-audit digest without declaring nonexistent GitHub job outputs;
+2. the Pages artifact is uploaded once for that workflow run;
+3. the deploy job waits for the environment approval and runs `actions/deploy-pages`;
+4. GitHub's Pages provider record supplies `actions_artifact_id`, `deployment_id`, `deployment_status_id`, and `environment_url` (where exposed); and
+5. the operator reads back those records and published bytes, then retains provider evidence and anonymous/browser QA alongside sealed custody and launch evidence without mutating the sealed receipt.
 
-1. **Local authority first:** before any provider read or write, require a module-private branded `VerifiedSealedRelease`; no caller-supplied release or authority object is accepted. Minting loads T06 sealed custody through T03 trusted filesystem boundaries, verifies the exact release tree, and derives the complete approved-manifest digest, sealed descriptor identity, receipt identity/digest, artifact digest/byte length, sorted path/hash/size inventory, and lifecycle digest from those bytes. The same custody and artifact bytes are re-read before every run and replay.
-2. **Preflight read-back:** `safeReadback` uses only the canonical machine policy and first rejects every root, nested-object, and array `Proxy` with `node:util/types.isProxy` before prototype, key, descriptor, symbol, or value reflection on that node. It then rejects accessors, symbols, non-enumerable properties, exotic/cyclic values, clones, and validates exactly `active`, `inProgress`, and required `retained` keys. Identity consistency covers active, retained, the in-progress release, and its expected-active release.
-3. **Replay and resume:** exact active identity with no in-progress operation is an authority-checked no-op. If the same deterministic operation is pending, resume creates a new read-only polling deadline and polls that provider-visible operation ID; it never claims or calls start again. A rollback resume first requires the pending operation's exact expected-active tuple to equal the field-bound approval, otherwise it returns stable `ROLLBACK_EXPECTED_ACTIVE_MISMATCH` without polling or starting. A different in-progress operation blocks the candidate.
-4. **Conflict/stale:** compare the candidate against all active, retained, in-progress, and expected-active history. Reject one release ID bound to another digest/generation, one digest bound to another identity, or a generation not newer than provider history. For an exact pending candidate, generation comparison excludes only occurrences of that exact identity; it still evaluates every newer active, retained, and expected-active identity and returns stable `DEPLOYMENT_STALE` before polling.
-5. **Deterministic operation and atomic durable claim:** derive one operation, claim, and idempotency identity from the candidate plus captured expected-active identity. The production provider protocol requires `claim(operation, options)`. It atomically and durably persists the exact operation and expected-active CAS as a provider-visible pending claim before remote mutation. The first exact caller receives only `{disposition: 'acquired'}`; every later, concurrent, and cross-resume caller receives only `{disposition: 'exists'}`. An unknown value, timeout, or error is ambiguous and can only enter reconciliation. Only the caller that received exact `acquired` may continue to final provider-state validation, reload and byte-verify both candidate and active LKG, and call `start`. Two callers that pass initial read-back therefore produce one acquired claim and at most one `start` call.
-6. **Exactly one mutation call:** `start` requires the already persisted exact claim and is invoked at most once for an operation. Every return, rejection, auth/403, 429, transport error, 5xx, timeout, conflict, or unknown result after start is outcome-uncertain. No error discriminant or adapter flag can authorize a second start. If a process crashes after acquiring the claim but before calling start, the provider-visible operation may remain permanently pending and requires manual adjudication; safety forbids resending start.
-7. **One aggregate absolute deadline:** production `safeReadback`, deploy, and rollback always use the canonical machine-owned 10-second request limit and 10-minute deadline. A fresh operation establishes one absolute deadline immediately before claim; claim, final provider revalidation, start, and reconciliation share it. Before every remote call or delay, the lifecycle recomputes remaining time; each remote call receives and enforces `min(request_timeout_ms, remaining)`, and no next call starts at zero. Resume may create a new read-only polling deadline but can never start. Caller policy, retry-count, timeout, backoff, and sleep overrides are rejected before provider access. The scripted adapter lives only under `tests/support/`; accelerated policies enter only through deep-module functions explicitly named `ForTest`, which are not exported by `pages-deployment-contract.mjs`. If the exact operation is terminal success, the requested identity is active, and `inProgress` is null, return success. Otherwise return nonterminal `pending/unknown`, preserve the claim, and block a different deployment until the same operation converges or is separately resolved.
-8. **Terminal success:** a stale success operation, an active identity without matching terminal operation status, or a terminal operation while another claim remains cannot count as deployment success.
-9. **Unknown read-back:** remain pending and issue no mutation. GitHub may use 404 to hide an unauthorized private resource, so 404 is never proof of absence.
-10. **Public success gate:** after provider terminal success, require Pages settings, provider deployment status and environment URL, public release identity, complete public byte hashes, and every exposure-inventory read-back to match before calling the publication successful.
+A later retry is a new workflow run with new provider IDs and the normal checks/approval policy. There is no custom atomic claim, custom exactly-once/one-start promise, or opaque capability that is authoritative for GitHub.
 
-GitHub's REST guidance says to stop on rate limit, honor `Retry-After`/reset, avoid concurrency, and not ignore repeated 4xx/5xx errors. This project is stricter at the mutation seam: it never retries `start`; `Retry-After` is diagnostic after start, and only bounded read-only reconciliation may continue.
+### Local candidate preparation cleanup boundary
 
-Provider-readable surfaces include `GET /repos/{owner}/{repo}/pages`, deployment objects/statuses, workflow run/artifact metadata, and the public site itself. The Pages API exposes create, status, and cancel operations. As checked on 2026-07-30, it does **not document a native “roll back to prior Pages artifact” endpoint**. Absence from the current API is not assumed permanent.
+Candidate preparation and site-only staging use best-effort cleanup of their own fresh output child. The parent and output staging root are trusted against cooperating same-user replacement during cleanup. Cleanup checks no-link ancestry and matching device/inode identity immediately before a non-recursive `rmdir` of the checked empty directory. This is not an atomic handle-bound deletion and does not claim resistance to a compromised or cooperating same-user writer replacing the path after those checks; the project must not describe it as absolute atomic replacement safety or broaden it to recursive deletion.
 
-### 7. Last-known-good and controlled rollback
+## Sealed artifact, rights, approvals, and QA retained
 
-Before any remote mutation, retain and verify the immutable sealed bytes for the current LKG. A failed candidate must not overwrite or delete those bytes.
+Wave C does not weaken the project-owned content controls:
 
-Rollback is a new, serialized lifecycle release of explicitly approved locally retained bytes, not an API magic switch and not `provider.rollback(digest)`:
+- the sealed artifact hash and sorted byte inventory remain mandatory;
+- release manifest/receipt hashes and the approved rights-authority projection remain bound to the artifact without inventing a separate rights digest;
+- unknown rights or unapproved units remain blocking;
+- visibility and deployment remain two separate human approvals; and
+- provider success is insufficient until anonymous HTTP/browser QA checks the expected URL, base path, representative routes, custom 404, served bytes, deployment status, and rights/output invariants.
 
-1. record a complete rollback approval identity: approval/approver/time, the new lifecycle `(release_id, release_digest, generation)`, expected-active, and prior source-release tuples; derive the canonical reversible release ID from source manifest ID plus new generation and derive the new digest from the opaque source capability, so the approval cannot supply an alias or alter byte authority;
-2. before provider access, revalidate the opaque source capability against trusted sealed custody and exact artifact bytes; after provider preflight, independently reload and verify both those target bytes and the provider-active LKG bytes immediately before `start`;
-3. if the candidate is already exact active with no in-progress operation, revalidate the same approval and custody and return an idempotent no-op; only a first mutation requires current active to equal the approval's expected-active identity;
-4. otherwise, including every pending resume, require the provider operation's expected-active tuple to equal the approval exactly before any operation-status poll, then derive the same deterministic operation/claim/idempotency identity used by forward deployment and atomically persist it with expected-active CAS;
-5. invoke `start` at most once, upload the approved prior sealed bytes as a new one-day transport artifact, and reconcile only through that provider-visible operation ID;
-6. require terminal operation success, the **new** lifecycle release identity, provider status, and all public hashes while retaining the approved prior artifact/receipt byte identities. Later LKG verification parses that canonical ID, reloads the source manifest's opaque capability, and recomputes the lifecycle digest and exact bytes. A deadline returns nonterminal pending/unknown and never authorizes another start.
+## Superseded decisions
 
-If the prior sealed bytes are unavailable, approval identity is incomplete, read-back is ambiguous, or any hash differs, rollback is blocked. The local provider seam tests local custody authority, exact terminal read-back, partial activation reconciliation, and atomic publication without implementing a real deployment or a provider-native rollback operation.
+The following are explicitly **superseded** and have no deployment authority:
 
-### 8. Complete private-to-public exposure inventory
+1. the 31-surface public-exposure inventory as an active four-lane gate;
+2. the uniform four-lane/opaque capability evidence chain;
+3. the opaque `VerifiedSealedRelease` capability as a provider deploy input;
+4. a custom atomic claim, custom exactly-once claim, or one-start lifecycle; and
+5. custom provider operation/claim IDs as the source of deployment truth.
 
-The required-set authority is the separately reviewable `config/github-provider-public-exposure-catalog-v1.json`, validated by `config/github-provider-public-exposure-catalog-v1.schema.json`. The contract inventory must cover that catalog exactly; neither the contract nor its test owns a duplicate complete hard-coded set. Every contract entry independently supplies `policy`, `allowlist`, `paginated_scan`, `authenticated_readback`, `anonymous_probe`, `derived_bytes`, and `block_on_unknown: true`. Its required surfaces are:
+The old catalog is retained only as a historical/reference-only record. The active contract must not contain `public_exposure_inventory` as an executable gate. The superseded project-owned lifecycle/provider implementation is no longer present.
 
-1. all reachable Git objects and all refs;
-2. branches;
-3. tags and annotated-tag metadata;
-4. PR refs, cached GitHub views, forks, and known clones;
-5. Git LFS pointers/objects;
-6. submodules and target commits;
-7. releases and release assets;
-8. packages/registries;
-9. wiki history and attachments;
-10. issues, comments, events, labels, milestones, and attachments;
-11. commit comments, reactions, linked attachments, and rendered context;
-12. PR bodies, commits, diffs, reviews, comments, checks, and attachments;
-13. discussions;
-14. classic Projects and Projects v2 visibility, fields, views, drafts, items, archived content, links, and attachments across repository and owner scopes;
-15. Actions workflow definitions, local/reusable actions, triggers, permissions, pins, and runners;
-16. Actions runs, logs, annotations, and job summaries;
-17. Actions artifacts, including historical/expired metadata;
-18. Actions caches and fork-access risk;
-19. repository Actions variables and exact authorized values;
-20. organization Actions variables plus visibility and selected-repository grants;
-21. repository Actions secret metadata, external value custody, and consuming workflow/ref/event authorization scope;
-22. organization Actions secret metadata, visibility, selected-repository grants, external value custody, and consuming authorization scope;
-23. environments, protection rules, reviewers, variables, and secret metadata;
-24. deployment objects and statuses;
-25. Pages artifact and served site;
-26. Pages settings, custom domain/CNAME, HTTPS, and DNS;
-27. repository metadata, community files, license, authors/contributors, activity, stars/watchers, and fork network;
-28. dependency graph, manifests, submitted dependencies, and external dependency snapshots;
-29. artifact attestations, subjects/predicates/signatures, and public Sigstore transparency-log records/proofs;
-30. security policies, published advisories, alerts/annotations where authorized;
-31. non-public but mutation-relevant control surfaces: webhooks, deploy keys, collaborators/teams, installed apps, rulesets, branch protections, and token defaults.
+## Migration and Wave C
 
-A surface may be `allow`, `deny`, `allow-if-empty`, or `allow-by-manifest`. Empty/read-restricted/expired is never inferred from a single API response: pagination, authorization, local mirror/object scan, downloadable bytes, unauthenticated probes, and provider UI/API cross-checks are required as applicable. Any unknown is blocking.
+Wave B2 lifecycle deletion is complete in this repository snapshot. The removed legacy paths are `lib/pages-provider-lifecycle.mjs`, `tests/support/scripted-local-pages-provider.mjs`, and the four untracked Exposure experimental files (`lib/github-public-exposure-gate.mjs`, `lib/github-readonly-evidence-transport.mjs`, `tests/github-public-exposure-gate.test.mjs`, and `tests/github-readonly-evidence-transport.test.mjs`). The retained `lib/pages-deployment-contract.mjs` is a local Pages façade only; verified release/publication/safe-release custody remains outside the deleted legacy-lifecycle boundary.
 
-### 9. Rights split
-
-- Identified Quartz renderer/theme code and upstream assets remain under MIT.
-- Tyler-authored content is **all rights reserved**; publishing it does not relicense it.
-- Third-party quotations, Zotero excerpts, bibliographic material, images, and linked works retain their original rights. They are not relicensed and must not be described as Tyler-owned.
-- Every public node/asset needs a rights classification and required attribution/provenance. Unknown rights is a blocking finding.
-
-Repository-level licensing must not use a single blanket statement that appears to place Tyler content or third-party material under the renderer's MIT license.
-
-### 10. Publication gate and zero-side-effect boundary
-
-Visibility and deployment are two separate human-approved mutations. Immediately before either one, require:
-
-- current approved manifest;
-- validated sealed local release and exact artifact receipt read-back;
-- source-repository and Pages-artifact allowlists both clean;
-- zero secret, private/local path, Markdown, PDF, unapproved-route, or content-rights finding;
-- complete provider exposure inventory with no unknown;
-- independent contradiction/security review with no open Blocker/High;
-- explicit visibility approval, then separate deployment approval.
-
-T09 authorizes none of those remote mutations. It creates no workflow and performs no GitHub write/API mutation.
+Wave C now supplies the repository-side adapter from an opaque verified sealed release to an exact `gh-pages` candidate, the candidate verifier/staging CLI, and the thin manual workflow. It does **not** claim the live branch, remote environment/ruleset/Pages configuration, authenticated launch audit, either human approval, provider deployment/readback, or independent post-deploy QA. No remote mutation occurs in this repository-only implementation gate; those remain explicit live gates rather than missing local code.
 
 ## Consequences
 
 ### Positive
 
-- Generated real-note HTML does not enter normal Git history.
-- Project-site base-path behavior is executable locally.
-- Deployment retries are bounded, idempotent, and read-back driven.
-- LKG custody does not depend on short-lived Actions artifacts.
-- Public exposure is treated as a repository-wide transition, not a Pages-directory scan.
+- Public-content decisions are auditable without pretending to control external copies.
+- GitHub's actual control and deployment state is authoritative where GitHub can enforce it.
+- Sealed artifact hashes, rights, separate approvals, and post-deploy QA remain strong project gates.
+- Provider IDs and retries are observable through native workflow/deployment records.
 
-### Costs and limits
+### Costs and limitations
 
-- A later ticket must implement the workflow and provider adapters only after approvals.
-- Full historical and GitHub-side exposure inventory is operationally expensive and requires authenticated pagination plus unauthenticated checks.
-- Existing forks/clones/cached views can make exposure irreversible; unknown prior copies block visibility.
-- GitHub plan, API, action SHAs, and limits can change and must be re-checked immediately before implementation/activation.
+- A bounded launch audit cannot prove that all external clones or caches are absent.
+- A real launch still requires human configuration/review in GitHub's remote control plane.
+- A shared `eyeyesight` account records both Arke and Tyler roles as one GitHub actor; run IDs, timestamps, and Telegram references correlate the decisions but cannot prove account-level role separation, and account compromise can collapse both approval boundaries.
+- Wave B2 removed the old implementation rather than preserving two competing deployment authorities; Wave C's exact-branch verifier/workflow preserves that boundary.
 
-## Official primary sources checked 2026-07-30
+## Non-goals
 
-1. [Getting started with GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages) — availability in public repositories on GitHub Free.
-2. [What is GitHub Pages?](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages) — project-site URL shape.
-3. [Configuring a publishing source](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site) — custom Actions recommendation/flow and public-site warning.
-4. [Using custom workflows with GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages) — configure/upload/deploy actions, permissions, environment, and artifact structure.
-5. [GitHub Pages limits](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits) — 1 GB published site, 10-minute deployment, bandwidth/build/rate limits.
-6. [Troubleshooting 404 errors](https://docs.github.com/en/pages/getting-started-with-github-pages/troubleshooting-404-errors-for-github-pages-sites) — top-level artifact `index.html`, case sensitivity, URL rebuild caveats.
-7. [`actions/upload-pages-artifact`](https://github.com/actions/upload-pages-artifact/blob/main/README.md) and [action.yml](https://github.com/actions/upload-pages-artifact/blob/main/action.yml) — artifact format, links, limits, hidden-file behavior, one-day default retention.
-8. [`actions/deploy-pages`](https://github.com/actions/deploy-pages/blob/main/README.md) and [action.yml](https://github.com/actions/deploy-pages/blob/main/action.yml) — permissions/OIDC, environment, 10-minute status timeout, status error bound, output URL.
-9. [`actions/configure-pages` action.yml](https://github.com/actions/configure-pages/blob/main/action.yml) — base URL/origin/base-path outputs and opt-in mutating enablement (not selected).
-10. [Workflow syntax: concurrency](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency) — running/pending behavior and unordered execution.
-11. [Managing environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments) — protection rules, deployment branches/tags, environment creation, and deployment objects.
-12. [Managing Actions settings](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository) — public fork workflow risk, token defaults, cache settings, and 1–90 day public artifact/log retention.
-13. [Dependency caching reference](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching) — base-branch cache access from fork PRs and prohibition on sensitive cache content.
-14. [Setting repository visibility](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/managing-repository-settings/setting-repository-visibility) — public code/forks/activity and Actions history/log visibility.
-15. [Removing sensitive data](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository) — clones, forks, cached views, PR refs, and LFS cleanup limitations.
-16. [REST API endpoints for GitHub Pages](https://docs.github.com/en/rest/pages/pages) — settings/build/deployment create/status/cancel fields and current API version.
-17. [REST API endpoints for deployments](https://docs.github.com/en/rest/deployments/deployments) and [deployment statuses](https://docs.github.com/en/rest/deployments/statuses) — deployment/read-back objects and states.
-18. [REST API rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api) and [REST API best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api) — 403/429 headers, bounded exponential retry, authorization-hidden 404, and repeated 4xx/5xx handling.
-19. [Downloading workflow artifacts](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts) and [REST Actions artifact endpoints](https://docs.github.com/en/rest/actions/artifacts) — read access, expiry, enumeration, and download read-back.
+- No live GitHub, DNS, credential, or remote mutation in this repository change.
+- No custom evidence transport or capability protocol.
+- No claim that GitHub Actions provides a universal exactly-once guarantee beyond its documented concurrency and provider records.
+- No change to Quartz as the primary renderer; see ADR-0001.

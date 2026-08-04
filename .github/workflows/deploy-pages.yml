@@ -1,0 +1,162 @@
+name: Deploy GitHub Pages candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_commit:
+        description: Exact lowercase 40-hex commit from refs/heads/gh-pages
+        required: true
+        type: string
+      candidate_digest:
+        description: Expected lowercase 64-hex candidate digest
+        required: true
+        type: string
+      launch_audit_digest:
+        description: Expected lowercase 64-hex launch-audit digest
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+    steps:
+      - name: Enforce main-only dispatch
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [[ "$WORKFLOW_REF" != "refs/heads/main" || "$DEFAULT_BRANCH" != "main" ]]; then
+            printf '%s\n' 'Pages deployment must use refs/heads/main and the default branch must be main' >&2
+            exit 1
+          fi
+
+      - name: Checkout workflow source at the current commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          path: source
+          persist-credentials: false
+
+      - name: Select Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+
+      - name: Install source dependencies
+        working-directory: source
+        run: npm ci
+
+      - name: Validate workflow inputs
+        env:
+          SITE_COMMIT: ${{ inputs.site_commit }}
+          CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}
+          LAUNCH_AUDIT_DIGEST: ${{ inputs.launch_audit_digest }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$SITE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            printf '%s\n' 'site_commit must be exactly 40 lowercase hexadecimal characters' >&2
+            exit 1
+          fi
+          if [[ ! "$CANDIDATE_DIGEST" =~ ^[0-9a-f]{64}$ ]]; then
+            printf '%s\n' 'candidate_digest must be exactly 64 lowercase hexadecimal characters' >&2
+            exit 1
+          fi
+          if [[ ! "$LAUNCH_AUDIT_DIGEST" =~ ^[0-9a-f]{64}$ ]]; then
+            printf '%s\n' 'launch_audit_digest must be exactly 64 lowercase hexadecimal characters' >&2
+            exit 1
+          fi
+
+      - name: Checkout exact candidate commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ inputs.site_commit }}
+          fetch-depth: 1
+          path: candidate
+          persist-credentials: false
+
+      - name: Prove site_commit is from gh-pages
+        working-directory: candidate
+        env:
+          SITE_COMMIT: ${{ inputs.site_commit }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SITE_COMMIT"
+          # Fetch only the publication branch; a SHA that exists only on another branch is rejected.
+          git fetch --no-tags --prune --unshallow origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages
+          git rev-parse --verify "$SITE_COMMIT^{commit}" >/dev/null
+          git merge-base --is-ancestor "$SITE_COMMIT" refs/remotes/origin/gh-pages
+
+      - name: Verify and stage candidate
+        working-directory: source
+        env:
+          EXPECTED_CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}
+          EXPECTED_LAUNCH_AUDIT_DIGEST: ${{ inputs.launch_audit_digest }}
+        run: |
+          set -euo pipefail
+          stage_parent="$(mktemp -d "${RUNNER_TEMP}/github-pages-site.XXXXXX")"
+          stage_root="${stage_parent}/site"
+          test ! -e "$stage_root"
+          printf 'PAGES_STAGE_DIR=%s\n' "$stage_root" >> "$GITHUB_ENV"
+          node scripts/verify-gh-pages-candidate.mjs \
+            --candidate-root ../candidate \
+            --expected-candidate-digest "$EXPECTED_CANDIDATE_DIGEST" \
+            --expected-launch-audit-digest "$EXPECTED_LAUNCH_AUDIT_DIGEST" \
+            --require-launch-audit \
+            --stage-output "$stage_root"
+          test -d "$stage_root"
+          test -n "$(find "$stage_root" -mindepth 1 -print -quit)"
+
+      - name: Record validated approval inputs
+        env:
+          SITE_COMMIT: ${{ inputs.site_commit }}
+          CANDIDATE_DIGEST: ${{ inputs.candidate_digest }}
+          LAUNCH_AUDIT_DIGEST: ${{ inputs.launch_audit_digest }}
+        run: |
+          set -euo pipefail
+          {
+            printf '%s\n' '## GitHub Pages candidate approval inputs' ''
+            printf '%s\n' '| Input | Validated value |' '| --- | --- |'
+            printf '| `site_commit` | `%s` |\n' "$SITE_COMMIT"
+            printf '| `candidate_digest` | `%s` |\n' "$CANDIDATE_DIGEST"
+            printf '| `launch_audit_digest` | `%s` |\n' "$LAUNCH_AUDIT_DIGEST"
+            printf '%s\n' '' 'Compare `candidate_digest` and `launch_audit_digest` with the Telegram/out-of-band approved digest before approving the github-pages environment.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+
+      - name: Upload staged Pages site
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: ${{ env.PAGES_STAGE_DIR }}
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && github.event.repository.default_branch == 'main'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy the verified Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

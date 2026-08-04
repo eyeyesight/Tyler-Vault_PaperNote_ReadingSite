@@ -1,0 +1,694 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tyler-vault.invalid/contracts/github-pages-deployment-contract-v1.schema.json",
+  "title": "GitHub Pages deployment contract v1 — Wave C gh-pages branch transport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract_id",
+    "contract_status",
+    "rebaseline",
+    "checked_at",
+    "authority",
+    "site",
+    "planes",
+    "public_exposure_catalog",
+    "lifecycle",
+    "delivery",
+    "artifact",
+    "sealed_custody",
+    "rights",
+    "workflow",
+    "trust_boundary",
+    "approvals",
+    "post_deploy_qa",
+    "superseded",
+    "migration"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "contract_id": { "const": "github-pages-deployment-v1" },
+    "contract_status": { "const": "active" },
+    "rebaseline": { "const": "wave-c-gh-pages-branch" },
+    "checked_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "authority": { "const": "docs/adr/0002-github-pages-deployment-and-public-exposure.md" },
+    "site": { "$ref": "#/definitions/site" },
+    "planes": { "$ref": "#/definitions/planes" },
+    "public_exposure_catalog": { "$ref": "#/definitions/superseded_reference" },
+    "lifecycle": { "$ref": "#/definitions/lifecycle" },
+    "delivery": { "$ref": "#/definitions/delivery" },
+    "artifact": { "$ref": "#/definitions/artifact" },
+    "sealed_custody": { "$ref": "#/definitions/sealed_custody" },
+    "rights": { "$ref": "#/definitions/rights" },
+    "workflow": { "$ref": "#/definitions/workflow" },
+    "trust_boundary": { "$ref": "#/definitions/trust_boundary" },
+    "approvals": { "$ref": "#/definitions/approvals" },
+    "post_deploy_qa": { "$ref": "#/definitions/post_deploy_qa" },
+    "superseded": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["legacy_31_surface_four_lane", "legacy_opaque_capability", "legacy_custom_atomic_claim_one_start"],
+      "properties": {
+        "legacy_31_surface_four_lane": { "$ref": "#/definitions/superseded_entry" },
+        "legacy_opaque_capability": { "$ref": "#/definitions/superseded_entry" },
+        "legacy_custom_atomic_claim_one_start": { "$ref": "#/definitions/superseded_entry" }
+      }
+    },
+    "migration": { "$ref": "#/definitions/migration" }
+  },
+  "definitions": {
+    "non_empty_string": { "type": "string", "minLength": 1 },
+    "non_empty_string_array": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/non_empty_string" }
+    },
+    "string_array": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/non_empty_string" }
+    },
+    "site": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "repository", "expected_url", "origin", "base_path", "custom_domain", "entry_file", "custom_404"],
+      "properties": {
+        "kind": { "const": "project-site" },
+        "repository": { "$ref": "#/definitions/non_empty_string" },
+        "expected_url": { "type": "string", "pattern": "^https://" },
+        "origin": { "type": "string", "pattern": "^https://" },
+        "base_path": { "type": "string", "pattern": "^/" },
+        "custom_domain": { "type": ["string", "null"] },
+        "entry_file": { "const": "index.html" },
+        "custom_404": { "const": "404.html" }
+      }
+    },
+    "launch_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "kind", "human_readable", "hash", "required_evidence", "retention"],
+      "properties": {
+        "schema": { "const": "config/github-launch-audit-v1.schema.json" },
+        "kind": { "const": "one-time-launch-audit" },
+        "human_readable": { "const": true },
+        "hash": { "$ref": "#/definitions/non_empty_string" },
+        "required_evidence": {
+          "type": "array",
+          "minItems": 5,
+          "items": { "$ref": "#/definitions/non_empty_string" }
+        },
+        "retention": { "$ref": "#/definitions/non_empty_string" }
+      }
+    },
+    "known_clone_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["must_be_recorded", "status", "zero_gate", "rule"],
+      "properties": {
+        "must_be_recorded": { "const": true },
+        "status": { "const": "not-provable" },
+        "zero_gate": { "const": false },
+        "rule": { "$ref": "#/definitions/non_empty_string" }
+      }
+    },
+    "public_content_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "purpose", "launch_audit", "required_inputs", "known_clones_and_cached_views", "not_authority_for"],
+      "properties": {
+        "authority": { "const": "project-owned" },
+        "purpose": { "$ref": "#/definitions/non_empty_string" },
+        "launch_audit": { "$ref": "#/definitions/launch_audit" },
+        "required_inputs": { "$ref": "#/definitions/non_empty_string_array" },
+        "known_clones_and_cached_views": { "$ref": "#/definitions/known_clone_policy" },
+        "not_authority_for": { "$ref": "#/definitions/non_empty_string_array" }
+      }
+    },
+    "github_control_plane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "purpose", "required_controls", "evidence"],
+      "properties": {
+        "authority": { "const": "github-native" },
+        "purpose": { "$ref": "#/definitions/non_empty_string" },
+        "required_controls": { "$ref": "#/definitions/non_empty_string_array" },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["machine_evidence", "ui_corroboration", "project_must_not_reimplement"],
+          "properties": {
+            "machine_evidence": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["required", "single_lane", "accepted_transports", "pagination"],
+              "properties": {
+                "required": { "const": true },
+                "single_lane": { "const": true },
+                "accepted_transports": { "$ref": "#/definitions/non_empty_string_array" },
+                "pagination": { "$ref": "#/definitions/non_empty_string" }
+              }
+            },
+            "ui_corroboration": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["required", "role"],
+              "properties": {
+                "required": { "const": false },
+                "role": { "$ref": "#/definitions/non_empty_string" }
+              }
+            },
+            "project_must_not_reimplement": { "$ref": "#/definitions/non_empty_string_array" }
+          }
+        }
+      }
+    },
+    "deployment_plane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "purpose", "provider_authority", "provider_objects", "project_responsibilities"],
+      "properties": {
+        "authority": { "const": "github-native" },
+        "purpose": { "$ref": "#/definitions/non_empty_string" },
+        "provider_authority": { "$ref": "#/definitions/non_empty_string" },
+        "provider_objects": { "$ref": "#/definitions/non_empty_string_array" },
+        "project_responsibilities": { "$ref": "#/definitions/non_empty_string_array" }
+      }
+    },
+    "planes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["public_content_audit", "github_control_plane", "deployment_plane"],
+      "properties": {
+        "public_content_audit": { "$ref": "#/definitions/public_content_audit" },
+        "github_control_plane": { "$ref": "#/definitions/github_control_plane" },
+        "deployment_plane": { "$ref": "#/definitions/deployment_plane" }
+      }
+    },
+    "superseded_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "status", "deploy_authority", "role"],
+      "properties": {
+        "path": { "const": "config/github-provider-public-exposure-catalog-v1.json" },
+        "status": { "const": "superseded" },
+        "deploy_authority": { "const": false },
+        "role": { "$ref": "#/definitions/non_empty_string" }
+      }
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "order", "depends_on", "authority", "scope"],
+      "properties": {
+        "id": { "enum": ["previsibility_audit", "visibility_approval", "post_visibility_readback", "finalize_launch_audit", "validate_candidate", "deployment_approval", "deploy", "post_deploy_qa"] },
+        "order": { "type": "integer", "minimum": 1 },
+        "depends_on": { "$ref": "#/definitions/string_array" },
+        "authority": { "$ref": "#/definitions/non_empty_string" },
+        "scope": { "enum": ["launch-audit", "deployment", "post-deploy-qa"] }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phases", "launch_audit_phases", "deployment_approval_phase", "post_deploy_qa_phase", "cycle_policy"],
+      "properties": {
+        "phases": {
+          "type": "array",
+          "minItems": 8,
+          "items": { "$ref": "#/definitions/phase" }
+        },
+        "launch_audit_phases": {
+          "type": "array",
+          "const": ["previsibility_audit", "visibility_approval", "post_visibility_readback", "finalize_launch_audit"]
+        },
+        "deployment_approval_phase": { "const": "deployment_approval" },
+        "post_deploy_qa_phase": { "const": "post_deploy_qa" },
+        "cycle_policy": { "$ref": "#/definitions/non_empty_string" }
+      }
+    },
+    "release_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["release_id", "release_digest", "generation", "authority"],
+      "properties": {
+        "release_id": { "$ref": "#/definitions/non_empty_string" },
+        "release_digest": { "$ref": "#/definitions/non_empty_string" },
+        "generation": { "$ref": "#/definitions/non_empty_string" },
+        "authority": { "$ref": "#/definitions/non_empty_string" }
+      }
+    },
+    "byte_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_digest", "source_artifact_inventory_digest", "candidate_site_inventory_digest", "manifest_digest", "receipt_digest", "rights_authority_binding", "launch_audit_digest"],
+      "properties": {
+        "candidate_digest": { "$ref": "#/definitions/non_empty_string" },
+        "source_artifact_inventory_digest": { "$ref": "#/definitions/non_empty_string" },
+        "candidate_site_inventory_digest": { "$ref": "#/definitions/non_empty_string" },
+        "manifest_digest": { "$ref": "#/definitions/non_empty_string" },
+        "receipt_digest": { "$ref": "#/definitions/non_empty_string" },
+        "rights_authority_binding": { "$ref": "#/definitions/non_empty_string" },
+        "launch_audit_digest": { "$ref": "#/definitions/non_empty_string" }
+      }
+    },
+    "site_commit_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "format", "pattern", "proves_ref"],
+      "properties": {
+        "required": { "const": true },
+        "format": { "const": "exact-40-hex" },
+        "pattern": { "const": "^[0-9a-f]{40}$" },
+        "proves_ref": { "const": "refs/heads/gh-pages" },
+        "source_ref": { "const": "refs/heads/gh-pages" },
+        "description": { "$ref": "#/definitions/non_empty_string" }
+      }
+    },
+    "digest_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "format", "pattern", "description"],
+      "properties": {
+        "required": { "const": true },
+        "format": { "const": "exact-64-lowercase-hex" },
+        "pattern": { "const": "^[0-9a-f]{64}$" },
+        "description": { "$ref": "#/definitions/non_empty_string" }
+      }
+    },
+    "main_only_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "ref", "default_branch", "failure"],
+      "properties": {
+        "required": { "const": true },
+        "ref": { "const": "refs/heads/main" },
+        "default_branch": { "const": "main" },
+        "failure": { "const": "hard-fail before candidate input use" }
+      }
+    },
+    "root_permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contents"],
+      "properties": {
+        "contents": { "const": "read" }
+      }
+    },
+    "validate_permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contents", "pages"],
+      "properties": {
+        "contents": { "const": "read" },
+        "pages": { "const": "write" }
+      }
+    },
+    "deploy_permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contents", "pages", "id-token"],
+      "properties": {
+        "contents": { "const": "read" },
+        "pages": { "const": "write" },
+        "id-token": { "const": "write" }
+      }
+    },
+    "branch_layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_ref", "public_site_root", "candidate_metadata", "final_launch_audit", "upload_path", "main_generated_site_policy"],
+      "properties": {
+        "source_ref": { "const": "refs/heads/gh-pages" },
+        "public_site_root": { "const": "site/" },
+        "candidate_metadata": { "const": ".publication/gh-pages-candidate-v1.json" },
+        "final_launch_audit": { "const": ".publication/github-launch-audit-v1.json" },
+        "upload_path": { "const": "site/" },
+        "main_generated_site_policy": { "$ref": "#/definitions/non_empty_string" }
+      }
+    },
+    "deploy_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["site_commit", "candidate_digest", "candidate_site_inventory", "candidate_site_inventory_digest", "manifest_digest", "receipt_digest", "rights_authority", "launch_audit", "launch_audit_digest"],
+      "properties": {
+        "site_commit": { "$ref": "#/definitions/site_commit_input" },
+        "candidate_digest": { "$ref": "#/definitions/non_empty_string" },
+        "candidate_site_inventory": { "$ref": "#/definitions/non_empty_string" },
+        "candidate_site_inventory_digest": { "$ref": "#/definitions/non_empty_string" },
+        "manifest_digest": { "$ref": "#/definitions/non_empty_string" },
+        "receipt_digest": { "$ref": "#/definitions/non_empty_string" },
+        "rights_authority": { "$ref": "#/definitions/non_empty_string" },
+        "launch_audit": { "const": ".publication/github-launch-audit-v1.json" },
+        "launch_audit_digest": { "$ref": "#/definitions/non_empty_string" }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "pages_build_type", "source_ref", "source_branch", "generated_site_in_git", "workflow_ref", "branch_layout", "deploy_input", "deploy_input_authority", "release_identity", "byte_identity"],
+      "properties": {
+        "method": { "const": "gh-pages-branch-to-pages-artifact" },
+        "pages_build_type": { "const": "workflow" },
+        "source_ref": { "const": "refs/heads/gh-pages" },
+        "source_branch": { "const": "gh-pages" },
+        "generated_site_in_git": { "const": true },
+        "workflow_ref": { "const": "refs/heads/main" },
+        "branch_layout": { "$ref": "#/definitions/branch_layout" },
+        "deploy_input": { "$ref": "#/definitions/deploy_input" },
+        "deploy_input_authority": { "$ref": "#/definitions/non_empty_string" },
+        "release_identity": { "$ref": "#/definitions/release_identity" },
+        "byte_identity": { "$ref": "#/definitions/byte_identity" }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sealed_artifact_required", "sealed_artifact_hash_required", "hash_algorithm", "required_bindings", "provider_upload", "upload_path", "not_uploaded"],
+      "properties": {
+        "sealed_artifact_required": { "const": true },
+        "sealed_artifact_hash_required": { "const": true },
+        "hash_algorithm": { "const": "sha256" },
+        "required_bindings": { "$ref": "#/definitions/non_empty_string_array" },
+        "provider_upload": { "$ref": "#/definitions/non_empty_string" },
+        "upload_path": { "const": "site/" },
+        "not_uploaded": {
+          "type": "array",
+          "const": [".publication/gh-pages-candidate-v1.json", ".publication/github-launch-audit-v1.json"]
+        }
+      }
+    },
+    "sealed_custody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "required", "deploy_authority", "records", "rule"],
+      "properties": {
+        "authority": { "$ref": "#/definitions/non_empty_string" },
+        "required": { "const": true },
+        "deploy_authority": { "const": false },
+        "records": { "$ref": "#/definitions/non_empty_string_array" },
+        "rule": { "$ref": "#/definitions/non_empty_string" }
+      }
+    },
+    "rights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "required", "unknown_rights", "unapproved_unit", "recorded_with"],
+      "properties": {
+        "authority": { "$ref": "#/definitions/non_empty_string" },
+        "required": { "const": true },
+        "unknown_rights": { "const": "block" },
+        "unapproved_unit": { "const": "block" },
+        "recorded_with": { "$ref": "#/definitions/non_empty_string_array" }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workflow_file", "workflow_file_ref", "triggers", "deploy_triggers", "automatic_publication", "main_only_gate", "permissions", "workflow_dispatch", "jobs", "environment", "concurrency", "deployment_id_lifecycle"],
+      "properties": {
+        "workflow_file": { "const": ".github/workflows/deploy-pages.yml" },
+        "workflow_file_ref": { "const": "refs/heads/main" },
+        "triggers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workflow_dispatch"],
+          "properties": {
+            "workflow_dispatch": { "$ref": "#/definitions/non_empty_string" }
+          }
+        },
+        "deploy_triggers": {
+          "type": "array",
+          "const": ["workflow_dispatch"]
+        },
+        "automatic_publication": { "const": false },
+        "main_only_gate": { "$ref": "#/definitions/main_only_gate" },
+        "permissions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["root", "validate", "deploy"],
+          "properties": {
+            "root": { "$ref": "#/definitions/root_permissions" },
+            "validate": { "$ref": "#/definitions/validate_permissions" },
+            "deploy": { "$ref": "#/definitions/deploy_permissions" }
+          }
+        },
+        "workflow_dispatch": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["only_deploy_trigger", "ref", "inputs"],
+          "properties": {
+            "only_deploy_trigger": { "const": true },
+            "ref": { "const": "refs/heads/main" },
+            "inputs": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["site_commit", "candidate_digest", "launch_audit_digest"],
+              "properties": {
+                "site_commit": { "$ref": "#/definitions/site_commit_input" },
+                "candidate_digest": { "$ref": "#/definitions/digest_input" },
+                "launch_audit_digest": { "$ref": "#/definitions/digest_input" }
+              }
+            }
+          }
+        },
+        "jobs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["validate", "deploy"],
+          "properties": {
+            "validate": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["authority", "source_ref", "requires_site_commit_input", "proves_site_commit_on_source_ref", "validates_candidate_and_audit", "candidate_path", "launch_audit_path", "validated_bindings", "verifier_summary_fields", "upload_paths", "must_not_upload", "must_complete_before"],
+              "properties": {
+                "authority": { "$ref": "#/definitions/non_empty_string" },
+                "source_ref": { "const": "refs/heads/gh-pages" },
+                "requires_site_commit_input": { "const": true },
+                "proves_site_commit_on_source_ref": { "const": true },
+                "validates_candidate_and_audit": { "const": true },
+                "candidate_path": { "const": ".publication/gh-pages-candidate-v1.json" },
+                "launch_audit_path": { "const": ".publication/github-launch-audit-v1.json" },
+                "validated_bindings": { "$ref": "#/definitions/non_empty_string_array" },
+                "verifier_summary_fields": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["candidate_digest", "launch_audit_digest"],
+                  "properties": {
+                    "candidate_digest": { "const": "verifier.candidateDigest" },
+                    "launch_audit_digest": { "const": "verifier.launchAuditDigest" }
+                  }
+                },
+                "upload_paths": { "type": "array", "const": ["site/"] },
+                "must_not_upload": { "type": "array", "const": [".publication/gh-pages-candidate-v1.json", ".publication/github-launch-audit-v1.json"] },
+                "must_complete_before": { "const": "deploy" }
+              }
+            },
+            "deploy": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["needs", "enters_environment_after", "environment", "action", "approval_recorded_in", "must_not"],
+              "properties": {
+                "needs": { "type": "array", "const": ["validate"] },
+                "enters_environment_after": { "const": "validate" },
+                "environment": { "const": "github-pages" },
+                "action": { "const": "actions/deploy-pages" },
+                "approval_recorded_in": { "$ref": "#/definitions/non_empty_string" },
+                "must_not": { "$ref": "#/definitions/non_empty_string_array" }
+              }
+            }
+          }
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "required_reviewers", "prevent_self_review", "review_is_deployment_approval", "approval_recorded_in", "url_source"],
+          "properties": {
+            "name": { "const": "github-pages" },
+            "required_reviewers": { "const": true },
+            "prevent_self_review": { "const": false },
+            "review_is_deployment_approval": { "const": true },
+            "approval_recorded_in": { "$ref": "#/definitions/non_empty_string" },
+            "url_source": { "$ref": "#/definitions/non_empty_string" }
+          }
+        },
+        "concurrency": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["group", "cancel_in_progress", "authority", "unknown_outcome_rule"],
+          "properties": {
+            "group": { "const": "github-pages" },
+            "cancel_in_progress": { "const": false },
+            "authority": { "const": "GitHub Actions concurrency" },
+            "unknown_outcome_rule": { "$ref": "#/definitions/non_empty_string" }
+          }
+        },
+        "deployment_id_lifecycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authority", "ids", "steps", "retry_rule", "custom_claim_or_one_start"],
+          "properties": {
+            "authority": { "const": "GitHub provider records" },
+            "ids": { "$ref": "#/definitions/non_empty_string_array" },
+            "steps": {
+              "type": "array",
+              "minItems": 7,
+              "items": { "$ref": "#/definitions/non_empty_string" }
+            },
+            "retry_rule": { "$ref": "#/definitions/non_empty_string" },
+            "custom_claim_or_one_start": { "$ref": "#/definitions/superseded_entry" }
+          }
+        }
+      }
+    },
+    "trust_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected_digest_inputs", "human_authority", "github_account_model", "source_root", "candidate_cleanup", "limitations"],
+      "properties": {
+        "expected_digest_inputs": { "$ref": "#/definitions/non_empty_string" },
+        "human_authority": { "$ref": "#/definitions/non_empty_string" },
+        "github_account_model": { "$ref": "#/definitions/github_account_model" },
+        "source_root": { "$ref": "#/definitions/source_root_boundary" },
+        "candidate_cleanup": { "$ref": "#/definitions/candidate_cleanup_boundary" },
+        "limitations": { "$ref": "#/definitions/non_empty_string_array" }
+      }
+    },
+    "github_account_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "github_login", "operator_role", "approver_role", "prevent_self_review", "correlation_evidence", "limitation"],
+      "properties": {
+        "mode": { "const": "single-owner-account" },
+        "github_login": { "const": "eyeyesight" },
+        "operator_role": { "const": "Arke" },
+        "approver_role": { "const": "Tyler" },
+        "prevent_self_review": { "const": false },
+        "correlation_evidence": {
+          "const": [
+            "workflow_run_id",
+            "run_started_at",
+            "environment_reviewed_at",
+            "Telegram decision reference"
+          ]
+        },
+        "limitation": {
+          "const": "GitHub records only the same eyeyesight account and cannot prove Arke/Tyler role separation; compromise of the eyeyesight account can simultaneously initiate and approve both human decisions."
+        }
+      }
+    },
+    "source_root_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "flag", "authority", "output_must_be_disjoint", "description"],
+      "properties": {
+        "required": { "const": true },
+        "flag": { "const": "--source-root" },
+        "authority": { "const": "operator-supplied canonical source tree" },
+        "output_must_be_disjoint": { "const": true },
+        "description": { "$ref": "#/definitions/non_empty_string" }
+      }
+    },
+    "candidate_cleanup_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parent_and_output_staging_root", "best_effort", "method", "checks_before_rmdir", "resistance", "atomic_handle_bound_rmdir"],
+      "properties": {
+        "parent_and_output_staging_root": { "const": "trusted against cooperating same-user replacement during cleanup" },
+        "best_effort": { "const": true },
+        "method": { "const": "best-effort non-recursive rmdir of the checked empty directory" },
+        "checks_before_rmdir": { "const": "no-link and matching dev/ino checks immediately before rmdir" },
+        "resistance": { "const": "does not claim resistance to a compromised or cooperating same-user writer" },
+        "atomic_handle_bound_rmdir": { "const": false }
+      }
+    },
+    "approval_boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "authority", "recorded_in", "before", "distinct_from"],
+      "properties": {
+        "required": { "const": true },
+        "authority": { "$ref": "#/definitions/non_empty_string" },
+        "recorded_in": { "$ref": "#/definitions/non_empty_string" },
+        "before": { "$ref": "#/definitions/non_empty_string" },
+        "distinct_from": { "enum": ["visibility", "deployment"] },
+        "prevent_self_review": { "const": false }
+      }
+    },
+    "approvals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["visibility", "deployment", "must_be_separate"],
+      "properties": {
+        "visibility": { "$ref": "#/definitions/approval_boundary" },
+        "deployment": { "$ref": "#/definitions/approval_boundary" },
+        "must_be_separate": { "const": true }
+      }
+    },
+    "post_deploy_qa": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "phase", "runs_after", "authority", "checks", "result"],
+      "properties": {
+        "required": { "const": true },
+        "phase": { "const": "post_deploy_qa" },
+        "runs_after": { "const": "provider success" },
+        "authority": { "$ref": "#/definitions/non_empty_string" },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/non_empty_string" }
+        },
+        "result": { "$ref": "#/definitions/non_empty_string" }
+      }
+    },
+    "superseded_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "deploy_authority", "replacement"],
+      "properties": {
+        "status": { "const": "superseded" },
+        "deploy_authority": { "const": false },
+        "components": { "$ref": "#/definitions/non_empty_string_array" },
+        "replacement": { "$ref": "#/definitions/non_empty_string" }
+      }
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "new_callers_may_use_legacy_implementation", "legacy_implementation", "rule", "wave_c", "remaining_blockers"],
+      "properties": {
+        "status": { "const": "wave-c-gh-pages-branch-implementation" },
+        "new_callers_may_use_legacy_implementation": { "const": false },
+        "legacy_implementation": {
+          "type": "array",
+          "minItems": 0,
+          "items": { "$ref": "#/definitions/non_empty_string" }
+        },
+        "rule": { "$ref": "#/definitions/non_empty_string" },
+        "wave_c": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["branch_transport", "generated_site_ref", "workflow_ref", "deploy_trigger", "live_state"],
+          "properties": {
+            "branch_transport": { "const": "gh-pages-branch-to-pages-artifact" },
+            "generated_site_ref": { "const": "refs/heads/gh-pages" },
+            "workflow_ref": { "const": "refs/heads/main" },
+            "deploy_trigger": { "const": "workflow_dispatch" },
+            "live_state": { "const": "not-live" }
+          }
+        },
+        "remaining_blockers": {
+          "type": "array",
+          "const": [
+            "remote GitHub settings",
+            "actual gh-pages branch contents",
+            "live launch audit",
+            "visibility and deployment approvals",
+            "provider deployment and readback",
+            "post-deploy anonymous/browser QA"
+          ]
+        }
+      }
+    }
+  }
+}
