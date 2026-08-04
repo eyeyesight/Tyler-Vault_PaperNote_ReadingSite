@@ -71,10 +71,12 @@ import {
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const Ajv2020 = /** @type {any} */ (Ajv2020Module)
+const deploymentContractPath = path.join(repoRoot, "config", "github-pages-deployment-contract-v1.json")
 const toolchainMetadataPath = path.join(repoRoot, "config", "quartz-toolchain.json")
 const outputAllowlistPath = path.join(repoRoot, "config", "public-output-allowlist-v1.json")
 const secretRulesPath = path.join(repoRoot, "config", "public-secret-rules.toml")
 const scholarlyThemePath = path.join(repoRoot, "styles", "tracer-scholarly.scss")
+const quartzContentIndexFile = "index.html"
 const sharedRequiredFlags = ["manifest", "exportReceipt", "runtimeRoot", "exportRoot", "vaultRoot", "workRoot", "now"]
 const testCapability = "t03-regression-v1"
 const releaseTestCapability = "t06-regression-v1"
@@ -209,6 +211,69 @@ function sha256(bytes) {
 
 function utf8Order(/** @type {string} */ left, /** @type {string} */ right) {
   return Buffer.compare(Buffer.from(left), Buffer.from(right))
+}
+
+/** @param {unknown} value */
+function normalizeDeploymentSiteFile(value) {
+  if (typeof value !== "string"
+    || value.length === 0
+    || value.normalize("NFC") !== value
+    || /[\u0000-\u001f\u007f]/.test(value)
+    || value.startsWith("/")
+    || value.endsWith("/")
+    || value.includes("\\")
+    || /^[A-Za-z]:/.test(value)
+    || path.posix.normalize(value) !== value
+    || value.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) {
+    throw new TracerError("DEPLOYMENT_CONTRACT_INVALID", "active deployment site file contract is invalid")
+  }
+  return value
+}
+
+async function readDeploymentSiteFiles() {
+  try {
+    const raw = await readStableEarlyFile(deploymentContractPath, "DEPLOYMENT_CONTRACT_INVALID", "active deployment site file contract is invalid")
+    let deploymentContract
+    try {
+      deploymentContract = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw))
+    } catch {
+      throw new TracerError("DEPLOYMENT_CONTRACT_INVALID", "active deployment site file contract is invalid")
+    }
+    if (!deploymentContract || typeof deploymentContract !== "object" || Array.isArray(deploymentContract)
+      || deploymentContract.contract_id !== "github-pages-deployment-v1"
+      || deploymentContract.contract_status !== "active"
+      || !deploymentContract.site || typeof deploymentContract.site !== "object" || Array.isArray(deploymentContract.site)) {
+      throw new TracerError("DEPLOYMENT_CONTRACT_INVALID", "active deployment site file contract is invalid")
+    }
+    const entryFile = normalizeDeploymentSiteFile(deploymentContract.site.entry_file)
+    const custom404 = normalizeDeploymentSiteFile(deploymentContract.site.custom_404)
+    if (entryFile === custom404) throw new TracerError("DEPLOYMENT_CONTRACT_INVALID", "active deployment site file contract is invalid")
+    return Object.freeze({ entryFile, custom404 })
+  } catch (error) {
+    if (error instanceof TracerError) throw error
+    throw new TracerError("DEPLOYMENT_CONTRACT_INVALID", "active deployment site file contract is invalid")
+  }
+}
+
+/** @param {string} route */
+function quartzContentRouteFile(route) {
+  return `${route.slice(1)}${quartzContentIndexFile}`
+}
+
+/** @param {string} relative @param {{entryFile:string,custom404:string}} deploymentFiles */
+function generatedHtmlRoute(relative, deploymentFiles) {
+  if (relative === deploymentFiles.entryFile) return "/"
+  if (relative === deploymentFiles.custom404) return `/${deploymentFiles.custom404}`
+  if (relative.endsWith(`/${quartzContentIndexFile}`)) return `/${relative.slice(0, -quartzContentIndexFile.length)}`
+  return `/${relative}`
+}
+
+/** @param {{entryFile:string,custom404:string}} deploymentFiles @param {ReadonlyArray<{relative:string}>} baseline */
+function assertQuartzProducesDeploymentFiles(deploymentFiles, baseline) {
+  const baselinePaths = new Set(baseline.map((row) => row.relative))
+  if (!baselinePaths.has(deploymentFiles.entryFile) || !baselinePaths.has(deploymentFiles.custom404)) {
+    throw new TracerError("DEPLOYMENT_SITE_FILES_UNSUPPORTED", "active deployment site files are not produced by the pinned Quartz renderer")
+  }
 }
 
 async function readOutputAllowlist(/** @type {{name:string,version:string,commit:string}} */ metadata) {
@@ -1136,7 +1201,7 @@ async function injectQuartzHtmlRegression(candidate, run, variant) {
   if (variant !== "content-index-fetch-seam-renamed") {
     throw new TracerError("TEST_INJECTION_INVALID", "Quartz HTML regression injection is not a fixed supported variant")
   }
-  const index = path.join(candidate, "index.html")
+  const index = path.join(candidate, quartzContentIndexFile)
   const html = await readFile(index, "utf8")
   const mutated = html.replace("const fetchData = fetch(", "const vendorFetchData = fetch(")
   if (mutated === html) throw new TracerError("TEST_INJECTION_INVALID", "pinned Quartz HTML fixture lacks the expected content-index seam")
@@ -1148,8 +1213,8 @@ async function injectQuartzHtmlRegression(candidate, run, variant) {
  * only those renderer-owned breadcrumb links to the approved library root.
  * @param {string} candidate @param {string} run
  * @param {Map<string,{route:string,frontmatter:Record<string,string|string[]>,node:{public_id:string,node_class:string}}>} records
- * @param {Map<string,Set<string>>} outgoing */
-async function normalizeBreadcrumbRoutes(candidate, run, records, outgoing) {
+ * @param {Map<string,Set<string>>} outgoing @param {{entryFile:string,custom404:string}} deploymentFiles */
+async function normalizeBreadcrumbRoutes(candidate, run, records, outgoing, deploymentFiles) {
   const approved = new Set(["/", ...[...records.values()].map((record) => record.route)])
   const explorerEntries = [...records.values()].map((record) => ({
     publicId: record.node.public_id,
@@ -1159,7 +1224,7 @@ async function normalizeBreadcrumbRoutes(candidate, run, records, outgoing) {
   })).sort((left, right) => Buffer.compare(Buffer.from(left.publicId), Buffer.from(right.publicId)))
   for (const file of await listRegularTree(candidate, run)) {
     if (!file.relative.endsWith(".html")) continue
-    const route = `/${file.relative === "index.html" ? "" : file.relative.slice(0, -"index.html".length)}`
+    const route = generatedHtmlRoute(file.relative, deploymentFiles)
     const html = file.bytes.toString("utf8")
     const record = [...records.values()].find((candidateRecord) => candidateRecord.route === route)
     const publicPage = route === "/" || Boolean(record)
@@ -1248,22 +1313,22 @@ async function writePublicDataAssets(/** @type {string} */ candidate, /** @type 
   ])
 }
 
-/** @param {Map<string,{route:string}>} records */
-function virtualHtmlPaths(records) {
-  const virtual = new Set(["404.html"])
+/** @param {Map<string,{route:string}>} records @param {{entryFile:string,custom404:string}} deploymentFiles @param {boolean} [retainCustom404] */
+function virtualHtmlPaths(records, deploymentFiles, retainCustom404 = false) {
+  const virtual = new Set(retainCustom404 ? [] : [deploymentFiles.custom404])
   for (const { route } of records.values()) {
     const segments = route.split("/").filter(Boolean)
-    for (let length = 1; length < segments.length; length += 1) virtual.add(`${segments.slice(0, length).join("/")}/index.html`)
+    for (let length = 1; length < segments.length; length += 1) virtual.add(quartzContentRouteFile(`/${segments.slice(0, length).join("/")}/`))
   }
   return virtual
 }
 
 /** Remove only baseline-authenticated Quartz virtual pages.
  * @param {string} candidate @param {string} run @param {Map<string,{route:string}>} records
- * @param {ReadonlyArray<{relative:string,fileClass:string,sha256:string}>} baseline */
-async function pruneVirtualHtml(candidate, run, records, baseline) {
+ * @param {ReadonlyArray<{relative:string,fileClass:string,sha256:string}>} baseline @param {{entryFile:string,custom404:string}} deploymentFiles @param {boolean} [retainCustom404] */
+async function pruneVirtualHtml(candidate, run, records, baseline, deploymentFiles, retainCustom404 = false) {
   await assertCandidateRoot(candidate, run)
-  const virtual = virtualHtmlPaths(records)
+  const virtual = virtualHtmlPaths(records, deploymentFiles, retainCustom404)
   const baselineByPath = new Map(baseline.map((row) => [row.relative, row]))
   const current = await listRegularTree(candidate, run)
   const currentByPath = new Map(current.map((file) => [file.relative, file]))
@@ -2048,8 +2113,8 @@ async function validatePublicDataStructure(/** @type {Array<{relative:string,byt
   }
 }
 
-/** @param {string} candidate @param {string} run @param {Map<string,{route:string,node:{node_class:string}}>} records @param {Set<string>} suppressedTargets @param {string[]} privatePaths @param {ReadonlyArray<{relative:string,fileClass:string,sha256:string}>} baseline @param {Awaited<ReturnType<typeof readSecretRules>>} secretRules @param {ReadonlyArray<string>|null} outputAllowlist */
-async function gateCandidate(candidate, run, records, suppressedTargets, privatePaths, baseline, secretRules, outputAllowlist, releaseMode = false) {
+/** @param {string} candidate @param {string} run @param {Map<string,{route:string,node:{node_class:string}}>} records @param {Set<string>} suppressedTargets @param {string[]} privatePaths @param {ReadonlyArray<{relative:string,fileClass:string,sha256:string}>} baseline @param {Awaited<ReturnType<typeof readSecretRules>>} secretRules @param {ReadonlyArray<string>|null} outputAllowlist @param {{entryFile:string,custom404:string}} deploymentFiles */
+async function gateCandidate(candidate, run, records, suppressedTargets, privatePaths, baseline, secretRules, outputAllowlist, deploymentFiles, releaseMode = false) {
   await assertCandidateRoot(candidate, run)
   if (testHook("TYLER_TRACER_TEST_GATE_FAILURE", releaseMode) === "1") throw new TracerError("CANDIDATE_GATE_FAILED", "candidate gate test injection")
   const files = await listRegularTree(candidate, run)
@@ -2065,19 +2130,19 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
     if (finding) throw new TracerError("CANDIDATE_SECRET_DISCLOSURE", "candidate contains credential-shaped bytes")
   }
   if (outputAllowlist) {
-    const expectedPaths = [...outputAllowlist, "index.html", ...[...records.values()].map((record) => `${record.route.slice(1)}index.html`)].sort(utf8Order)
+    const expectedPaths = [...outputAllowlist, ...(releaseMode ? [deploymentFiles.custom404] : []), deploymentFiles.entryFile, ...[...records.values()].map((record) => quartzContentRouteFile(record.route))].sort(utf8Order)
     const actualPaths = files.map((file) => file.relative)
     if (JSON.stringify(actualPaths) !== JSON.stringify(expectedPaths)) throw new TracerError("CANDIDATE_OUTPUT_SET_INVALID", "candidate output set is not the project-owned exact allowlist")
   }
   await validatePublicDataStructure(files)
   const html = files.filter((file) => file.relative.endsWith(".html")).map((file) => file.relative)
-  const expectedHtml = ["index.html", ...[...records.values()].map((record) => `${record.route.slice(1)}index.html`)].sort()
+  const expectedHtml = [...(releaseMode ? [deploymentFiles.custom404] : []), deploymentFiles.entryFile, ...[...records.values()].map((record) => quartzContentRouteFile(record.route))].sort()
   if (JSON.stringify(html.sort()) !== JSON.stringify(expectedHtml)) throw new TracerError("CANDIDATE_ROUTE_SET_INVALID", "candidate HTML route set is not exact", { actual: html.sort(), expected: expectedHtml })
   const approvedRoutes = new Set(["/", ...[...records.values()].map((record) => record.route)])
-  const virtual = virtualHtmlPaths(records)
+  const virtual = virtualHtmlPaths(records, deploymentFiles, releaseMode)
   const expectedFinal = baseline.filter((row) => !virtual.has(row.relative))
   const expectedAssets = new Set(expectedFinal.filter((row) => !row.relative.endsWith(".html")).map((row) => `/${row.relative}`))
-  const contentHtml = new Set([...records.values()].map((record) => `${record.route.slice(1)}index.html`))
+  const contentHtml = new Set([...records.values()].map((record) => quartzContentRouteFile(record.route)))
   for (const file of files) {
     if (file.relative.endsWith(".html")) {
       const pageHtml = file.bytes.toString("utf8")
@@ -2089,7 +2154,7 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
           throw new TracerError("CANDIDATE_TEMPLATE_MARKER_INVALID", "candidate content route lacks its renderer-owned template marker")
         }
       }
-      const route = `/${file.relative === "index.html" ? "" : file.relative.slice(0, -"index.html".length)}`
+      const route = generatedHtmlRoute(file.relative, deploymentFiles)
       validateCandidateHtml(pageHtml, route, approvedRoutes, expectedAssets)
     } else if (file.relative.endsWith(".css")) validateCandidateCss(file.bytes.toString("utf8"), `/${file.relative}`, approvedRoutes, expectedAssets)
   }
@@ -2248,9 +2313,10 @@ async function earlyExistingReleaseTarget(cli) {
 /** @param {ReturnType<typeof parseArgs>} cli */
 async function preflight(cli) {
   const releaseMode = cli.command === "release"
+  const deploymentFiles = await readDeploymentSiteFiles()
   if (releaseMode) {
     const existing = await earlyExistingReleaseTarget(cli)
-    if (existing) return existing
+    if (existing) return { ...existing, deploymentFiles }
   }
   const [runtimeRoot, exportRoot, vaultRoot, workRoot, publicationRoot, manifestPath] = await Promise.all([
     openRolePath("runtime root", cli.runtimeRoot, "directory"),
@@ -2376,7 +2442,7 @@ async function preflight(cli) {
   }
   const toolchain = await readToolchainMetadata()
   const outputAllowlist = await readOutputAllowlist(toolchain.metadata)
-  return { runtimeRoot, exportRoot, vaultRoot, workRoot, output: releaseMode ? undefined : publicationRoot, releasesRoot: releaseMode ? publicationRoot : undefined, now: cli.now, manifestPath, manifestRaw, receiptPath, manifest, receipt, currentReceipt, currentReceiptPath, previousPointerBytes, records, contracts, secretRules, privatePaths, outputAllowlist, zoteroSourceBytes, zoteroDelta, baselineReadback, ...projection, ...toolchain }
+  return { runtimeRoot, exportRoot, vaultRoot, workRoot, output: releaseMode ? undefined : publicationRoot, releasesRoot: releaseMode ? publicationRoot : undefined, now: cli.now, deploymentFiles, manifestPath, manifestRaw, receiptPath, manifest, receipt, currentReceipt, currentReceiptPath, previousPointerBytes, records, contracts, secretRules, privatePaths, outputAllowlist, zoteroSourceBytes, zoteroDelta, baselineReadback, ...projection, ...toolchain }
 }
 
 /** @param {any} safe @param {boolean} releaseMode */
@@ -2454,7 +2520,7 @@ async function runCandidatePipeline(safe, releaseMode) {
     if (quartz.code !== 0) throw new TracerError("QUARTZ_BUILD_FAILED", "pinned Quartz build failed", testHook("TYLER_TRACER_TEST_DEBUG", releaseMode) === "1" ? { logs: quartz.logs } : {})
     const quartzHtmlCase = testHook("TYLER_TRACER_TEST_QUARTZ_HTML_CASE", releaseMode)
     if (quartzHtmlCase) await injectQuartzHtmlRegression(candidate, run, quartzHtmlCase)
-    await normalizeBreadcrumbRoutes(candidate, run, safe.records, safe.outgoing)
+    await normalizeBreadcrumbRoutes(candidate, run, safe.records, safe.outgoing, safe.deploymentFiles)
     await repairTocAccessibility(candidate, run)
     await installNetworkCsp(candidate, run)
     await writePublicDataAssets(candidate, run, safe.contracts)
@@ -2468,12 +2534,13 @@ async function runCandidatePipeline(safe, releaseMode) {
     // This frozen manifest is captured after the fixed T04 boundary and before
     // every post-baseline test hook and sanctioned virtual-page pruning.
     const baseline = await immutableCandidateManifest(candidate, run)
+    assertQuartzProducesDeploymentFiles(safe.deploymentFiles, baseline)
     const candidateVariant = testHook("TYLER_TRACER_TEST_CANDIDATE_CASE", releaseMode)
       ?? (testHook("TYLER_TRACER_TEST_EXTRA_HTML", releaseMode) === "1" ? "extra-html" : undefined)
     if (candidateVariant) await injectCandidateRegression(candidate, run, candidateVariant)
-    await pruneVirtualHtml(candidate, run, safe.records, baseline)
+    await pruneVirtualHtml(candidate, run, safe.records, baseline, safe.deploymentFiles, releaseMode)
     const releaseAllowlist = releaseMode ? safe.outputAllowlist : null
-    await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, safe.privatePaths, baseline, safe.secretRules, releaseAllowlist, releaseMode)
+    await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, safe.privatePaths, baseline, safe.secretRules, releaseAllowlist, safe.deploymentFiles, releaseMode)
 
     for (const record of safe.records.values()) {
       const source = path.join(safe.exportRoot, ...record.node.path.split("/"))
@@ -2493,7 +2560,7 @@ async function runCandidatePipeline(safe, releaseMode) {
       }
     }
     await assertCandidateRoot(candidate, run)
-    const finalGate = await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, safe.privatePaths, baseline, safe.secretRules, releaseAllowlist, releaseMode)
+    const finalGate = await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, safe.privatePaths, baseline, safe.secretRules, releaseAllowlist, safe.deploymentFiles, releaseMode)
     await assertCandidateRoot(candidate, run)
     if (releaseMode) {
       if (releaseCase === "zotero-non-target-artifact-tamper") {
