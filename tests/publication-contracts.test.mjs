@@ -12,6 +12,7 @@ import {
   compareUtf8,
   computePlanDigest,
   computePublicSetDigest,
+  decodeContractJsonBytes,
   jcsCanonicalize,
   sha256Jcs,
   sortContractArray,
@@ -39,6 +40,27 @@ function clone(value) {
 function expectCode(code, fn) {
   assert.throws(fn, (error) => error instanceof ContractError && error.code === code)
 }
+const decoderMaxBytes = 16 * 1024 * 1024
+const decoderMaxDepth = 128
+const decoderMaxContainerMembers = 4096
+const decoderMaxNodes = 100000
+const decoderMaxStringBytes = 1024 * 1024
+const decoderMaxTotalStringBytes = 8 * 1024 * 1024
+
+function decodeJsonText(source) {
+  return decodeContractJsonBytes(Buffer.from(source, "utf8"))
+}
+
+function nestedArrayJson(depth) {
+  return `${"[".repeat(depth)}0${"]".repeat(depth)}`
+}
+
+function objectJsonWithMembers(count, value = 0) {
+  return JSON.stringify(Object.fromEntries(
+    Array.from({ length: count }, (_, index) => [`key-${index}`, value]),
+  ))
+}
+
 function sealManifest(manifest) {
   manifest.public_set_digest = computePublicSetDigest(manifest.nodes)
   manifest.plan_digest = computePlanDigest(manifest)
@@ -348,6 +370,168 @@ test("strict JSON reader rejects BOM and invalid UTF-8 with stable codes", async
   await writeFile(invalid, Buffer.from([0xff]))
   await assert.rejects(readContractJson(bom), (e) => e.code === "INPUT_BOM_NOT_ALLOWED")
   await assert.rejects(readContractJson(invalid), (e) => e.code === "INPUT_INVALID_UTF8")
+})
+
+test("exported contract JSON bytes decoder accepts stabilized object and array buffers", () => {
+  assert.deepEqual(decodeContractJsonBytes(Buffer.from('{"value":1}')), { value: 1 })
+  assert.deepEqual(decodeContractJsonBytes(Buffer.from('[true,null,"ok"]')), [true, null, "ok"])
+
+  const value = decodeContractJsonBytes(Buffer.from('{"nested":{"__proto__":{"polluted":true}}}'))
+  assert.equal(Object.getPrototypeOf(value.nested), Object.prototype)
+  assert.deepEqual(Object.getOwnPropertyDescriptor(value.nested, "__proto__")?.value, { polluted: true })
+  assert.equal(Object.prototype.polluted, undefined)
+})
+
+test("exported contract JSON bytes decoder rejects malformed I-JSON with stable codes", () => {
+  const cases = [
+    ["invalid UTF-8", Buffer.from([0xff]), "INPUT_INVALID_UTF8"],
+    ["UTF-8 BOM", Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("{}")]), "INPUT_BOM_NOT_ALLOWED"],
+    ["raw duplicate", Buffer.from('{"a":1,"a":2}'), "INPUT_DUPLICATE_PROPERTY"],
+    ["decoded duplicate", Buffer.from('{"a":1,"\\u0061":2}'), "INPUT_DUPLICATE_PROPERTY"],
+    ["nested duplicate", Buffer.from('{"outer":{"a":1,"a":2}}'), "INPUT_DUPLICATE_PROPERTY"],
+    ["trailing token", Buffer.from("{}[]"), "INPUT_INVALID_JSON"],
+    ["nonfinite number", Buffer.from("1e400"), "INPUT_NUMBER_OUT_OF_RANGE"],
+  ]
+  for (const [name, bytes, code] of cases) expectCode(code, () => decodeContractJsonBytes(bytes), name)
+})
+
+test("exported contract JSON bytes decoder rejects non-Buffer and hostile Proxy inputs before reflection", () => {
+  expectCode("INPUT_BYTES_INVALID", () => decodeContractJsonBytes(new Uint8Array(Buffer.from("{}"))))
+
+  let trapCalls = 0
+  const trap = () => {
+    trapCalls += 1
+    throw new Error("Buffer proxy trap must not run")
+  }
+  const proxy = new Proxy(Buffer.from("{}"), {
+    get: trap,
+    getPrototypeOf: trap,
+    getOwnPropertyDescriptor: trap,
+    ownKeys: trap,
+    has: trap,
+  })
+  expectCode("INPUT_BYTES_INVALID", () => decodeContractJsonBytes(proxy))
+  assert.equal(trapCalls, 0)
+})
+
+test("decoder uses captured byte intrinsics and never invokes own Buffer accessors or methods", () => {
+  let getterCalls = 0
+  let methodCalls = 0
+  const installTraps = (bytes) => {
+    Object.defineProperty(bytes, "subarray", {
+      configurable: true,
+      value() {
+        methodCalls += 1
+        return {
+          equals() {
+            methodCalls += 1
+            return true
+          },
+        }
+      },
+    })
+    Object.defineProperty(bytes, "equals", {
+      configurable: true,
+      get() {
+        getterCalls += 1
+        throw new Error("own equals accessor was invoked")
+      },
+    })
+    for (const name of ["length", "buffer"]) {
+      Object.defineProperty(bytes, name, {
+        configurable: true,
+        get() {
+          getterCalls += 1
+          throw new Error(`own ${name} accessor was invoked`)
+        },
+      })
+    }
+  }
+
+  const valid = Buffer.from("{}")
+  installTraps(valid)
+  assert.deepEqual(decodeContractJsonBytes(valid), {})
+
+  const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("{}")])
+  installTraps(bom)
+  expectCode("INPUT_BOM_NOT_ALLOWED", () => decodeContractJsonBytes(bom))
+  assert.equal(getterCalls, 0)
+  assert.equal(methodCalls, 0)
+
+  const alternate = Buffer.from("{}")
+  installTraps(alternate)
+  Object.defineProperty(alternate, "subarray", {
+    configurable: true,
+    get() {
+      getterCalls += 1
+      throw new Error("own subarray accessor was invoked")
+    },
+  })
+  Object.defineProperty(alternate, "equals", {
+    configurable: true,
+    value() {
+      methodCalls += 1
+      throw new Error("own equals method was invoked")
+    },
+  })
+  getterCalls = 0
+  methodCalls = 0
+  assert.deepEqual(decodeContractJsonBytes(alternate), {})
+  assert.equal(getterCalls, 0)
+  assert.equal(methodCalls, 0)
+})
+
+test("decoder rejects SharedArrayBuffer-backed Buffers without exposing a raw intrinsic error", () => {
+  if (typeof SharedArrayBuffer !== "function") return
+  const backing = new SharedArrayBuffer(2)
+  new Uint8Array(backing).set([0x7b, 0x7d])
+  const bytes = Buffer.from(backing)
+  if (!Buffer.isBuffer(bytes)) return
+  expectCode("INPUT_BYTES_INVALID", () => decodeContractJsonBytes(bytes))
+})
+
+test("decoder enforces the exact intrinsic input byte boundary before parsing", () => {
+  const exact = Buffer.alloc(decoderMaxBytes, 0x20)
+  exact[0] = 0x7b
+  exact[1] = 0x7d
+  assert.deepEqual(decodeContractJsonBytes(exact), {})
+
+  const over = Buffer.alloc(decoderMaxBytes + 1, 0x20)
+  over[0] = 0x7b
+  over[1] = 0x7d
+  expectCode("INPUT_RESOURCE_LIMIT", () => decodeContractJsonBytes(over))
+})
+
+test("decoder bounds depth, parsed nodes, container members, strings, and number tokens incrementally", () => {
+  assert.doesNotThrow(() => decodeJsonText(nestedArrayJson(decoderMaxDepth)))
+  expectCode("INPUT_RESOURCE_LIMIT", () => decodeJsonText(nestedArrayJson(decoderMaxDepth + 1)))
+
+  assert.deepEqual(decodeJsonText(objectJsonWithMembers(decoderMaxContainerMembers)),
+    Object.fromEntries(Array.from({ length: decoderMaxContainerMembers }, (_, index) => [`key-${index}`, 0])))
+  expectCode("INPUT_RESOURCE_LIMIT", () => decodeJsonText(objectJsonWithMembers(decoderMaxContainerMembers + 1)))
+  assert.equal(decodeJsonText(`[${Array(decoderMaxContainerMembers).fill("0").join(",")}]`).length, decoderMaxContainerMembers)
+  expectCode("INPUT_RESOURCE_LIMIT", () => decodeJsonText(`[${Array(decoderMaxContainerMembers + 1).fill("0").join(",")}]`))
+
+  const manyNodes = JSON.stringify(Array.from({ length: decoderMaxContainerMembers }, () => Array(25).fill(0)))
+  expectCode("INPUT_RESOURCE_LIMIT", () => decodeJsonText(manyNodes))
+
+  const numberAtLimit = `0.${"1".repeat(126)}`
+  assert.equal(typeof decodeJsonText(numberAtLimit), "number")
+  expectCode("INPUT_RESOURCE_LIMIT", () => decodeJsonText(`0.${"1".repeat(127)}`))
+  expectCode("INPUT_RESOURCE_LIMIT", () => decodeJsonText(`1${"0".repeat(1024 * 1024)}`))
+
+  assert.equal(decodeJsonText(JSON.stringify({ value: "x".repeat(decoderMaxStringBytes) })).value.length, decoderMaxStringBytes)
+  expectCode("INPUT_RESOURCE_LIMIT", () => decodeJsonText(JSON.stringify({ value: "x".repeat(decoderMaxStringBytes + 1) })))
+
+  const cumulativeAtLimit = Object.fromEntries(
+    Array.from({ length: 8 }, (_, index) => [`k${index}`, "x".repeat(decoderMaxStringBytes - 2)]),
+  )
+  assert.equal(Object.values(decodeJsonText(JSON.stringify(cumulativeAtLimit))).reduce((total, value) => total + value.length, 0),
+    decoderMaxTotalStringBytes - 16)
+  const cumulativeOverLimit = Object.fromEntries(
+    Array.from({ length: 8 }, (_, index) => [`k${index}`, "x".repeat(decoderMaxStringBytes - 1)]),
+  )
+  expectCode("INPUT_RESOURCE_LIMIT", () => decodeJsonText(JSON.stringify(cumulativeOverLimit)))
 })
 
 test("strict I-JSON reader rejects duplicate decoded property names at every object depth", async (t) => {

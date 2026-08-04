@@ -1,6 +1,9 @@
 {
   "schema_version": 1,
-  "checked_at": "2026-07-30",
+  "contract_id": "github-pages-deployment-v1",
+  "contract_status": "active",
+  "rebaseline": "wave-c-gh-pages-branch",
+  "checked_at": "2026-08-04",
   "authority": "docs/adr/0002-github-pages-deployment-and-public-exposure.md",
   "site": {
     "kind": "project-site",
@@ -12,467 +15,488 @@
     "entry_file": "index.html",
     "custom_404": "404.html"
   },
+  "planes": {
+    "public_content_audit": {
+      "authority": "project-owned",
+      "purpose": "Decide whether the exact approved public bytes, metadata, and rights are fit for repository visibility.",
+      "launch_audit": {
+        "schema": "config/github-launch-audit-v1.schema.json",
+        "kind": "one-time-launch-audit",
+        "human_readable": true,
+        "hash": "sha256 of canonical JSON with audit_digest omitted",
+        "required_evidence": [
+          "previsibility local mirror audit",
+          "one authenticated paginated GitHub API machine lane (gh api --paginate or equivalent authenticated API)",
+          "optional authenticated GitHub UI corroboration",
+          "post-visibility repository/API/UI readback",
+          "post-visibility anonymous repository readback"
+        ],
+        "retention": "Store the finalized JSON audit, its digest, and the evidence locators in project launch-evidence custody."
+      },
+      "required_inputs": [
+        "approved public-output allowlist",
+        "sealed candidate metadata and source binding",
+        "sealed candidate site inventory and canonical normalized site-inventory digest",
+        "release manifest and receipt digests",
+        "rights disposition for every published unit"
+      ],
+      "known_clones_and_cached_views": {
+        "must_be_recorded": true,
+        "status": "not-provable",
+        "zero_gate": false,
+        "rule": "Known clones, cached views, and unknown external copies may be documented as limitations or findings, but their unprovable absence is never a launch-blocking zero condition."
+      },
+      "not_authority_for": [
+        "GitHub collaborator, team, ruleset, or branch-protection state",
+        "GitHub Actions permissions or environment reviewer state",
+        "GitHub Pages provider mutation, concurrency, deployment ID, or deployment status"
+      ]
+    },
+    "github_control_plane": {
+      "authority": "github-native",
+      "purpose": "Own repository governance and the permissions that authorize the workflow.",
+      "required_controls": [
+        "collaborators, teams, and least-privilege repository roles",
+        "default-branch ruleset or branch protection with required review and required checks",
+        "GitHub Actions workflow and reusable-action permissions",
+        "GitHub Pages source and build-type settings",
+        "github-pages environment protection and required reviewers (self-review prevention disabled for the shared eyeyesight account)",
+        "repository and organization Actions secret/variable metadata without exposing values"
+      ],
+      "evidence": {
+        "machine_evidence": {
+          "required": true,
+          "single_lane": true,
+          "accepted_transports": [
+            "gh api --paginate",
+            "equivalent authenticated GitHub API"
+          ],
+          "pagination": "Use pagination until every relevant list endpoint is exhausted."
+        },
+        "ui_corroboration": {
+          "required": false,
+          "role": "Human-readable corroboration only; it does not replace the authenticated machine lane."
+        },
+        "project_must_not_reimplement": [
+          "collaborator or merge authorization",
+          "branch protection or ruleset enforcement",
+          "environment approval enforcement",
+          "Pages deployment provider state"
+        ]
+      }
+    },
+    "deployment_plane": {
+      "authority": "github-native",
+      "purpose": "Validate and stage exact approved site bytes, obtain the GitHub-native deployment approval, serialize deployment, and publish through GitHub Actions and GitHub Pages without rebuilding the site.",
+      "provider_authority": "GitHub workflow run, github-pages environment gate, Pages artifact, deployment ID, deployment status, and published URL are the provider record of deployment state.",
+      "provider_objects": [
+        "workflow_run_id",
+        "run_attempt",
+        "commit_sha",
+        "actions_artifact_id",
+        "deployment_id",
+        "deployment_status_id",
+        "environment_url"
+      ],
+      "project_responsibilities": [
+        "validate the sealed artifact and manifest before the deploy job",
+        "bind the deploy job to the finalized launch-audit digest and approved rights-authority projection",
+        "read back provider IDs and published bytes after provider success",
+        "run independent anonymous/browser post-deploy QA after provider success"
+      ]
+    }
+  },
+  "public_exposure_catalog": {
+    "path": "config/github-provider-public-exposure-catalog-v1.json",
+    "status": "superseded",
+    "deploy_authority": false,
+    "role": "historical migration reference only"
+  },
+  "lifecycle": {
+    "phases": [
+      {
+        "id": "previsibility_audit",
+        "order": 10,
+        "depends_on": [],
+        "authority": "project-owned launch audit",
+        "scope": "launch-audit"
+      },
+      {
+        "id": "visibility_approval",
+        "order": 20,
+        "depends_on": ["previsibility_audit"],
+        "authority": "human project owner",
+        "scope": "launch-audit"
+      },
+      {
+        "id": "post_visibility_readback",
+        "order": 30,
+        "depends_on": ["visibility_approval"],
+        "authority": "authenticated GitHub repository/API/UI and anonymous repository readback",
+        "scope": "launch-audit"
+      },
+      {
+        "id": "finalize_launch_audit",
+        "order": 40,
+        "depends_on": ["post_visibility_readback"],
+        "authority": "project-owned launch audit",
+        "scope": "launch-audit"
+      },
+      {
+        "id": "validate_candidate",
+        "order": 50,
+        "depends_on": ["finalize_launch_audit"],
+        "authority": "project content contract",
+        "scope": "deployment"
+      },
+      {
+        "id": "deployment_approval",
+        "order": 60,
+        "depends_on": ["validate_candidate"],
+        "authority": "github-pages environment required reviewer",
+        "scope": "deployment"
+      },
+      {
+        "id": "deploy",
+        "order": 70,
+        "depends_on": ["deployment_approval"],
+        "authority": "GitHub Pages provider",
+        "scope": "deployment"
+      },
+      {
+        "id": "post_deploy_qa",
+        "order": 80,
+        "depends_on": ["deploy"],
+        "authority": "project operator after GitHub provider success",
+        "scope": "post-deploy-qa"
+      }
+    ],
+    "launch_audit_phases": [
+      "previsibility_audit",
+      "visibility_approval",
+      "post_visibility_readback",
+      "finalize_launch_audit"
+    ],
+    "deployment_approval_phase": "deployment_approval",
+    "post_deploy_qa_phase": "post_deploy_qa",
+    "cycle_policy": "The phase dependency graph is acyclic; deployment approval and post-deploy QA are not launch-audit phases."
+  },
   "delivery": {
-    "method": "github-actions-pages-artifact",
+    "method": "gh-pages-branch-to-pages-artifact",
     "pages_build_type": "workflow",
-    "source_ref": "refs/heads/main",
-    "generated_site_in_git": false,
-    "remote_activation_in_t09": false,
-    "deploy_input_authority": "opaque VerifiedSealedRelease capability minted only by trusted filesystem, sealed-custody, and exact artifact-byte verification",
+    "source_ref": "refs/heads/gh-pages",
+    "source_branch": "gh-pages",
+    "generated_site_in_git": true,
+    "workflow_ref": "refs/heads/main",
+    "branch_layout": {
+      "source_ref": "refs/heads/gh-pages",
+      "public_site_root": "site/",
+      "candidate_metadata": ".publication/gh-pages-candidate-v1.json",
+      "final_launch_audit": ".publication/github-launch-audit-v1.json",
+      "upload_path": "site/",
+      "main_generated_site_policy": "Generated site bytes are committed only to refs/heads/gh-pages; refs/heads/main contains workflow and source code, not the generated site."
+    },
+    "deploy_input": {
+      "site_commit": {
+        "required": true,
+        "format": "exact-40-hex",
+        "pattern": "^[0-9a-f]{40}$",
+        "proves_ref": "refs/heads/gh-pages"
+      },
+      "candidate_digest": "workflow_dispatch.inputs.candidate_digest",
+      "candidate_site_inventory": "candidate.candidate_site.inventory",
+      "candidate_site_inventory_digest": "candidate.candidate_site.digest",
+      "manifest_digest": "candidate.approved_manifest.manifest_sha256",
+      "receipt_digest": "candidate.approved_receipt.receipt_sha256",
+      "rights_authority": "candidate.rights_authority",
+      "launch_audit": ".publication/github-launch-audit-v1.json",
+      "launch_audit_digest": "workflow_dispatch.inputs.launch_audit_digest"
+    },
+    "deploy_input_authority": "Exact 40-hex site_commit proven to belong to refs/heads/gh-pages; candidate_digest and launch_audit_digest are GitHub-authenticated workflow_dispatch inputs independent of branch bytes; candidate/site inventory digests, manifest/receipt digests, and the approved rights-authority projection are validated before the protected github-pages environment approval.",
     "release_identity": {
-      "release_id": "globally unique lifecycle release identifier",
-      "release_digest": "sha256 of the canonical lifecycle descriptor, not artifact bytes",
-      "generation": "positive monotonic lifecycle generation"
+      "release_id": "project release identifier recorded in sealed custody",
+      "release_digest": "sha256 of the canonical project release descriptor",
+      "generation": "project release ordering only; not a GitHub deployment claim",
+      "authority": "project-owned sealed custody identity only; not deployment authority"
     },
     "byte_identity": {
-      "artifact_digest": "sha256 identity of the exact published artifact bytes",
-      "receipt_digest": "sha256 identity of the exact sealed local receipt bytes"
-    },
-    "reason": "The official artifact workflow supports non-Jekyll static builds without adding generated real-note HTML to normal Git history."
+      "candidate_digest": "sha256 of canonical candidate metadata with candidate_digest omitted",
+      "source_artifact_inventory_digest": "candidate.source_artifact.artifact_digest: sha256 of the canonical normalized sealed-artifact inventory",
+      "candidate_site_inventory_digest": "candidate.candidate_site.digest: sha256 of the canonical normalized candidate-site inventory",
+      "manifest_digest": "sha256 identity of the approved manifest",
+      "receipt_digest": "sha256 identity of the exact sealed receipt bytes",
+      "rights_authority_binding": "candidate.rights_authority projection that exactly equals the approved manifest authority; no independent rights digest is invented",
+      "launch_audit_digest": "sha256 identity of the canonical finalized one-time launch audit"
+    }
+  },
+  "artifact": {
+    "sealed_artifact_required": true,
+    "sealed_artifact_hash_required": true,
+    "hash_algorithm": "sha256",
+    "required_bindings": [
+      "candidate digest",
+      "sorted site byte inventory",
+      "canonical normalized candidate-site inventory digest",
+      "canonical normalized sealed-artifact inventory digest",
+      "manifest digest",
+      "receipt digest",
+      "approved rights-authority projection",
+      "finalized launch-audit digest"
+    ],
+    "provider_upload": "Upload only site/ from the validated refs/heads/gh-pages site_commit through actions/upload-pages-artifact; never upload .publication metadata and never rebuild or mutate approved bytes.",
+    "upload_path": "site/",
+    "not_uploaded": [
+      ".publication/gh-pages-candidate-v1.json",
+      ".publication/github-launch-audit-v1.json"
+    ]
+  },
+  "sealed_custody": {
+    "authority": "project-owned sealed manifest, receipt, approved rights-authority projection, candidate metadata, site inventory, and exact site bytes",
+    "required": true,
+    "deploy_authority": false,
+    "records": [
+      ".publication/gh-pages-candidate-v1.json",
+      ".publication/github-launch-audit-v1.json",
+      "manifest digest",
+      "receipt digest",
+      "approved rights-authority projection",
+      "candidate-site inventory and canonical normalized inventory digest"
+    ],
+    "rule": "A local opaque release or capability may prove custody and byte identity only; it is not deployment authority and is never mutated to record deployment approval. GitHub Actions, the protected github-pages environment, and Pages provider deployment records own deployment authority."
+  },
+  "rights": {
+    "authority": "project-owned manifest and publication contract",
+    "required": true,
+    "unknown_rights": "block",
+    "unapproved_unit": "block",
+    "recorded_with": ["release manifest", "sealed receipt", "candidate metadata", "candidate site inventory", "candidate digest"]
   },
   "workflow": {
-    "trigger_contract": [
-      "No pull_request deployment",
-      "Only an explicitly approved default-branch release may enter the deploy job",
-      "A later workflow implementation must rebuild or retrieve the exact locally sealed release and verify release_digest before upload"
-    ],
+    "workflow_file": ".github/workflows/deploy-pages.yml",
+    "workflow_file_ref": "refs/heads/main",
+    "triggers": {
+      "workflow_dispatch": "the only workflow trigger and the only deploy-capable trigger; requires exact site_commit, candidate_digest, and launch_audit_digest inputs and does not bypass either approval"
+    },
+    "deploy_triggers": ["workflow_dispatch"],
+    "automatic_publication": false,
+    "main_only_gate": {
+      "required": true,
+      "ref": "refs/heads/main",
+      "default_branch": "main",
+      "failure": "hard-fail before candidate input use"
+    },
     "permissions": {
-      "contents": "read",
-      "pages": "write",
-      "id-token": "write"
+      "root": {
+        "contents": "read"
+      },
+      "validate": {
+        "contents": "read",
+        "pages": "write"
+      },
+      "deploy": {
+        "contents": "read",
+        "pages": "write",
+        "id-token": "write"
+      }
+    },
+    "workflow_dispatch": {
+      "only_deploy_trigger": true,
+      "ref": "refs/heads/main",
+      "inputs": {
+        "site_commit": {
+          "required": true,
+          "format": "exact-40-hex",
+          "pattern": "^[0-9a-f]{40}$",
+          "proves_ref": "refs/heads/gh-pages",
+          "source_ref": "refs/heads/gh-pages",
+          "description": "Exact 40-hex commit SHA that must resolve to the gh-pages source branch."
+        },
+        "candidate_digest": {
+          "required": true,
+          "format": "exact-64-lowercase-hex",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Expected candidate.candidate_digest supplied as a GitHub-authenticated workflow input."
+        },
+        "launch_audit_digest": {
+          "required": true,
+          "format": "exact-64-lowercase-hex",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Expected finalized launch-audit digest supplied as a GitHub-authenticated workflow input."
+        }
+      }
+    },
+    "jobs": {
+      "validate": {
+        "authority": "project content contract",
+        "source_ref": "refs/heads/gh-pages",
+        "requires_site_commit_input": true,
+        "proves_site_commit_on_source_ref": true,
+        "validates_candidate_and_audit": true,
+        "candidate_path": ".publication/gh-pages-candidate-v1.json",
+        "launch_audit_path": ".publication/github-launch-audit-v1.json",
+        "validated_bindings": ["site_commit", "candidate_digest", "candidate_site_inventory", "candidate_site_inventory_digest", "manifest_sha256", "receipt_sha256", "rights_authority", "launch_audit_digest"],
+        "verifier_summary_fields": {
+          "candidate_digest": "verifier.candidateDigest",
+          "launch_audit_digest": "verifier.launchAuditDigest"
+        },
+        "upload_paths": ["site/"],
+        "must_not_upload": [".publication/gh-pages-candidate-v1.json", ".publication/github-launch-audit-v1.json"],
+        "must_complete_before": "deploy"
+      },
+      "deploy": {
+        "needs": ["validate"],
+        "enters_environment_after": "validate",
+        "environment": "github-pages",
+        "action": "actions/deploy-pages",
+        "approval_recorded_in": "GitHub github-pages environment review and provider deployment records",
+        "must_not": ["rebuild artifact", "upload outside site/", "claim provider state", "perform a custom atomic claim", "start a second provider mutation after an unknown result"]
+      }
     },
     "environment": {
       "name": "github-pages",
-      "url_from": "steps.deployment.outputs.page_url",
-      "protect_default_branch_only": true,
-      "required_approval": true,
-      "prevent_self_review_if_available": true
+      "required_reviewers": true,
+      "prevent_self_review": false,
+      "review_is_deployment_approval": true,
+      "approval_recorded_in": "GitHub github-pages environment review and provider deployment records",
+      "url_source": "deploy-pages output and GitHub environment URL"
     },
     "concurrency": {
-      "group": "pages",
+      "group": "github-pages",
       "cancel_in_progress": false,
-      "reject_stale_generation": true
+      "authority": "GitHub Actions concurrency",
+      "unknown_outcome_rule": "Read back the same workflow run and provider deployment objects; do not infer failure and blindly resubmit."
     },
-    "actions_checked_pins": {
-      "actions/checkout@v6": "d23441a48e516b6c34aea4fa41551a30e30af803",
-      "actions/configure-pages@v5": "983d7736d9b0ae728b81ab479565c72886d7745b",
-      "actions/upload-pages-artifact@v4": "7b1f4a764d45c48632c6b24a0339c27f5614fb0b",
-      "actions/deploy-pages@v4": "d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e"
+    "deployment_id_lifecycle": {
+      "authority": "GitHub provider records",
+      "ids": ["workflow_run_id", "run_attempt", "commit_sha", "actions_artifact_id", "deployment_id", "deployment_status_id", "environment_url"],
+      "steps": [
+        "validation proves site_commit resolves to a commit on refs/heads/gh-pages",
+        "validation reads and validates candidate metadata and the finalized launch audit before entering the deploy environment",
+        "validation uploads only site/ through actions/upload-pages-artifact",
+        "deploy waits for the github-pages environment reviewer and records the environment approval",
+        "actions/deploy-pages publishes the Pages artifact and provider records supply deployment/status IDs",
+        "read back the workflow run, artifact, deployment, status, environment URL, and published bytes",
+        "run post-deploy QA only after provider success and retain its result alongside sealed custody and launch evidence without mutating the sealed receipt"
+      ],
+      "retry_rule": "A timeout or unknown provider response is reconciled by readback. A later retry is a new workflow_dispatch run with a new exact site_commit input and must satisfy the normal checks and environment approval.",
+      "custom_claim_or_one_start": {
+        "status": "superseded",
+        "deploy_authority": false,
+        "replacement": "GitHub Actions concurrency, github-pages environment approval, and Pages deployment records"
+      }
+    }
+  },
+  "trust_boundary": {
+    "expected_digest_inputs": "candidate_digest and launch_audit_digest are GitHub-authenticated workflow_dispatch inputs independent of branch bytes; the verifier compares them to the candidate and finalized audit before deployment.",
+    "human_authority": "Tyler uses the approver role on the same eyeyesight GitHub account: the visibility decision is recorded before public mutation, and the specific github-pages environment run is reviewed after validation and exact digest comparison. workflow_run_id, run_started_at, environment_reviewed_at, and the Telegram decision reference correlate the operation but do not prove GitHub identity separation.",
+    "github_account_model": {
+      "mode": "single-owner-account",
+      "github_login": "eyeyesight",
+      "operator_role": "Arke",
+      "approver_role": "Tyler",
+      "prevent_self_review": false,
+      "correlation_evidence": [
+        "workflow_run_id",
+        "run_started_at",
+        "environment_reviewed_at",
+        "Telegram decision reference"
+      ],
+      "limitation": "GitHub records only the same eyeyesight account and cannot prove Arke/Tyler role separation; compromise of the eyeyesight account can simultaneously initiate and approve both human decisions."
     },
-    "action_pin_rule": "Before implementation, re-read official releases and review then pin every action to an approved full commit SHA; moving major tags are documentation aliases, not the executable contract."
-  },
-  "artifact": {
-    "name": "github-pages",
-    "format": "one gzip archive containing one tar archive",
-    "retention_days": 1,
-    "supported_max_bytes": 1000000000,
-    "release_gate_max_bytes": 900000000,
-    "upload_action_absolute_rejection_bytes_unofficial": 10000000000,
-    "max_deploy_timeout_ms": 600000,
-    "allow_symbolic_links": false,
-    "allow_hard_links": false,
-    "include_hidden_files": false,
-    "required_root_files": [
-      "index.html",
-      "404.html"
-    ],
-    "forbidden_suffixes": [
-      ".md",
-      ".markdown",
-      ".pdf"
-    ],
-    "retention_consequence": "The one-day Pages artifact is diagnostic transport, not rollback custody. Controlled rollback must use the approved immutable local sealed release and reproduce the exact release digest."
-  },
-  "failure_policy": {
-    "request_timeout_ms": 10000,
-    "reconcile_deadline_ms": 600000,
-    "poll_interval_ms": 1000,
-    "operation_start_call_limit": 1,
-    "caller_policy_overrides_allowed": false,
-    "auth_401_403": "once start may have entered, authentication or authorization rejection is outcome-uncertain and is reconciled under the same deterministic operation ID; it never authorizes another start",
-    "rate_limit_403_429": "once start may have entered, 403/429 is outcome-uncertain; Retry-After is diagnostic only because mutation is never started again",
-    "provider_error_protocol": "PagesProviderError strict discriminated class including transport; no adapter-supplied post-start ambiguity flag",
-    "post_start_uncertainty": "every start return, rejection, timeout, transport error, 4xx, 5xx, or unknown result enters operation read-back under the already-established aggregate absolute deadline; remaining time is recomputed before every readOperation, readback, and delay, each call timeout is min(request_timeout_ms, remaining), no call starts at zero remaining, exact terminal success deploys, otherwise the lifecycle returns pending/unknown and preserves the operation claim",
-    "idempotency": "one deterministic operation, claim, and idempotency identity is derived by the lifecycle from candidate plus expected active; the provider's atomic durable claim is the sole admission authority, start is called at most once, and every resume polls that same provider-visible operation",
-    "stale_and_concurrent": "reject generations not newer than active, retained, in-progress release, and expected-active history; when validating an exact pending candidate, exclude only that exact identity from the generation maximum and evaluate every other history item; any different in-progress operation blocks a new deployment",
-    "readback_schema": "safeReadback recursively rejects root, nested-object, and array Proxy nodes with node:util/types.isProxy before prototype, descriptor, symbol, key, or value reflection on that node, then clones only recursively plain own-enumerable data-property graphs and validates exact active, inProgress, and retained keys; identity collision checks include active, retained, inProgress.release, and inProgress.expectedActive",
-    "test_harness_boundary": "Production safeReadback, runBoundedPagesDeployment, and rollbackPagesDeployment always use this canonical policy and reject caller policy arguments. The scripted adapter exists only under tests/support; accelerated policy is accepted only by deep-module functions explicitly named ForTest, never by pages-deployment-contract.mjs.",
-    "start_atomicity": "provider claim(operation, options) atomically persists the deterministic operation, expected-active CAS, and provider-visible pending claim before any remote mutation; only the caller receiving exact disposition acquired may call start",
-    "durable_claim": "claim returns exact disposition acquired only to the first caller and exact disposition exists to all later, concurrent, or resumed callers for that operation; an unknown return, timeout, or error never authorizes start and can only reconcile the deterministic operation",
-    "claim_crash_recovery": "a crash after claim but before start may leave a permanent pending claim requiring manual adjudication; the lifecycle must never resend start for that operation",
-    "aggregate_deadline": "a fresh operation creates one absolute deadline before claim; claim, final revalidation, start, and reconciliation share the same absolute deadline, every remote timeout hint is min(request_timeout_ms, remaining), and no remote call begins when remaining is zero",
-    "sealed_authority": "before any provider read or write, accept only a module-private branded VerifiedSealedRelease capability minted after existing trusted-filesystem and sealed-custody validation, with the complete sorted path/hash/size inventory derived from verified bytes; ordinary objects, copied fields, symbols, prototypes, and serialized clones are not authority",
-    "last_known_good": "before start, reload the provider active lifecycle identity through canonical sealed custody recovery and re-read both candidate and active LKG artifact bytes after all provider preflight reads; any custody, identity, path, size, or hash mismatch blocks start",
-    "rollback_identity_custody": "rollback uses one canonical reversible lifecycle release ID binding the source manifest ID and new generation; later processes parse that ID, reload opaque sealed custody from the source manifest, and recompute the lifecycle digest exactly without a caller alias map or in-memory identity registry",
-    "rollback": "Rollback approval binds candidate, expected active, and source release, but byte authority comes only from the opaque source capability. Both source candidate and active LKG are reloaded and byte-verified before the one-start mutation seam; every pending resume requires inProgress.expectedActive to equal the approval exactly before any operation poll or start and otherwise returns ROLLBACK_EXPECTED_ACTIVE_MISMATCH; exact replay revalidates custody and is an idempotent no-op."
-  },
-  "readback": {
-    "api_version": "2026-03-10",
-    "headers": [
-      "Accept: application/vnd.github+json",
-      "X-GitHub-Api-Version: 2026-03-10"
-    ],
-    "authentication": "Use the job-scoped GITHUB_TOKEN/OIDC only for deployment. Any later operator read-back token must be least-privilege and supplied at runtime; no token is stored in this repository.",
-    "endpoints": [
-      "GET /repos/{owner}/{repo}/pages",
-      "GET /repos/{owner}/{repo}/deployments?environment=github-pages",
-      "GET /repos/{owner}/{repo}/deployments/{deployment_id}/statuses",
-      "GET /repos/{owner}/{repo}/actions/runs/{run_id}",
-      "GET /repos/{owner}/{repo}/actions/runs/{run_id}/artifacts"
-    ],
-    "public_http": [
-      "GET expected project-site URL and assert resolved URL remains below base path",
-      "GET index, approved routes, assets, Explorer/search/graph indexes, and a missing route",
-      "compare a published release identity file and every public artifact hash with the approved sealed receipt"
-    ],
-    "success_requires": [
-      "Pages build_type is workflow and html_url equals the expected project-site URL",
-      "latest github-pages deployment status is success and environment_url equals the provider-returned page_url",
-      "public release digest and full byte inventory equal the approved sealed release",
-      "all public-exposure inventory read-backs remain within their allowlists"
+    "source_root": {
+      "required": true,
+      "flag": "--source-root",
+      "authority": "operator-supplied canonical source tree",
+      "output_must_be_disjoint": true,
+      "description": "The prepare CLI requires the operator to supply the canonical source-tree root and rejects an output root that overlaps this authority."
+    },
+    "candidate_cleanup": {
+      "parent_and_output_staging_root": "trusted against cooperating same-user replacement during cleanup",
+      "best_effort": true,
+      "method": "best-effort non-recursive rmdir of the checked empty directory",
+      "checks_before_rmdir": "no-link and matching dev/ino checks immediately before rmdir",
+      "resistance": "does not claim resistance to a compromised or cooperating same-user writer",
+      "atomic_handle_bound_rmdir": false
+    },
+    "limitations": [
+      "This boundary does not provide cryptographic resistance to a malicious launcher or prove that a launcher selected the approved digest set.",
+      "No custom signing, token, claim, or custom deployment authority is introduced; GitHub environment and deployment records remain authoritative for deployment approval.",
+      "Candidate cleanup is not an absolute atomic replacement guarantee; its trusted parent/output staging-root assumption excludes compromised or cooperating same-user writers.",
+      "GitHub records only the eyeyesight account for both logical roles; run IDs, run/approval timestamps, and Telegram decision references are operator correlation evidence, not cryptographic proof of Arke/Tyler identity separation.",
+      "If the eyeyesight account is compromised, the same account can simultaneously initiate and approve both the visibility and deployment decisions."
     ]
   },
-  "rights": {
-    "renderer_theme": "MIT",
-    "renderer_theme_scope": "Only identified Quartz renderer/theme code and its upstream MIT-covered assets",
-    "tyler_authored_content": "all-rights-reserved",
-    "third_party_material": "original-rights-retained-not-relicensed",
-    "third_party_scope": "Quotations, bibliographic material, Zotero excerpts, images, and linked works remain under their original rights and must not be represented as Tyler-owned",
-    "gate": "Every published node and asset requires an explicit rights classification and attribution/provenance where applicable; unknown rights is a blocking finding."
+  "approvals": {
+    "visibility": {
+      "required": true,
+      "authority": "human project owner",
+      "recorded_in": "launch audit approvals.visibility",
+      "before": "repository visibility change or public-content exposure",
+      "distinct_from": "deployment"
+    },
+    "deployment": {
+      "required": true,
+      "authority": "github-pages environment required reviewer",
+      "recorded_in": "GitHub github-pages environment review and provider deployment records",
+      "before": "deploy job",
+      "distinct_from": "visibility",
+      "prevent_self_review": false
+    },
+    "must_be_separate": true
   },
-  "publication_gate": {
-    "required": [
-      "Current approved manifest passes schema and cross-release validation",
-      "Sealed local release receipt binds every candidate path and sha256 and passes exact byte read-back",
-      "Source-repository exposure inventory and Pages artifact inventory both match their explicit allowlists",
-      "Secret scan has zero findings",
-      "Private/local path scan has zero findings",
-      "Markdown and PDF scan has zero findings",
-      "Unapproved route scan has zero findings",
-      "Content-rights scan has zero unknown or denied findings",
-      "Independent contradiction/security review has no open Blocker or High finding",
-      "Human visibility approval and separate deployment approval are recorded immediately before each remote mutation"
+  "post_deploy_qa": {
+    "required": true,
+    "phase": "post_deploy_qa",
+    "runs_after": "provider success",
+    "authority": "project operator after GitHub provider success",
+    "checks": [
+      "anonymous HTTP request to the expected Pages URL",
+      "anonymous browser navigation and representative route checks",
+      "canonical candidate site inventory digest or approved derived-byte manifest",
+      "custom 404 and base path behavior",
+      "GitHub deployment status and environment URL readback",
+      "no rights or disallowed-output regression"
     ],
-    "unknown_is_failure": true,
-    "t09_remote_mutation_allowed": false
+    "result": "Record pass, findings, or blocked independently of the provider deployment result; QA is never a pre-deploy input."
   },
-  "public_exposure_catalog": {
-    "authority": "config/github-provider-public-exposure-catalog-v1.json",
-    "schema": "config/github-provider-public-exposure-catalog-v1.schema.json",
-    "catalog_id": "github-provider-public-exposure-v1",
-    "coverage_rule": "public_exposure_inventory IDs must exactly equal the independently reviewed catalog required_surfaces set; every entry must validate against $defs.contract_entry",
-    "required_evidence": ["policy", "allowlist", "paginated_scan", "authenticated_readback", "anonymous_probe", "derived_bytes", "block_on_unknown"]
-  },
-  "public_exposure_inventory": [
-    {
-      "id": "git-objects-and-all-refs",
-      "policy": "allow-by-manifest",
-      "allowlist": ["Approved source/tooling/docs/synthetic fixtures and their reachable history only; no canonical Vault note, real-note generated HTML, secret, private path, PDF, or unapproved binary"],
-      "paginated_scan": ["Mirror-clone locally; enumerate every ref with for-each-ref and every reachable object with rev-list --objects --all; scan object bytes, paths, commit messages, authors, and emails"],
-      "authenticated_readback": ["Fresh read-only mirror after visibility change; compare all refs/object IDs and rerun history/path/secret/rights scanners"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
+  "superseded": {
+    "legacy_31_surface_four_lane": {
+      "status": "superseded",
+      "deploy_authority": false,
+      "components": ["31-surface inventory", "four-lane evidence chain", "opaque capability cap"],
+      "replacement": "one-time launch audit plus GitHub-native control and deployment evidence"
     },
-    {
-      "id": "branches",
-      "policy": "allow-by-manifest",
-      "allowlist": ["Explicitly approved branch-name-to-tip map; default main only unless separately reviewed"],
-      "paginated_scan": ["Enumerate local and remote branch refs, tips, protection assumptions, and unique commits"],
-      "authenticated_readback": ["GET branches with pagination plus fresh mirror refs; exact map comparison"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
+    "legacy_opaque_capability": {
+      "status": "superseded",
+      "deploy_authority": false,
+      "replacement": "sealed artifact hash and GitHub workflow/environment/provider records"
     },
-    {
-      "id": "tags",
-      "policy": "allow-by-manifest",
-      "allowlist": ["Explicit approved lightweight/annotated tag map including tag messages, taggers, signatures, and peeled targets"],
-      "paginated_scan": ["Enumerate refs/tags and cat-file every tag/target; scan metadata and reachable objects"],
-      "authenticated_readback": ["GET Git refs matching tags plus fresh mirror; exact map and peeled-target comparison"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "pull-request-refs-cached-views-forks-clones",
-      "policy": "allow-if-empty",
-      "allowlist": ["No unreviewed PR refs, cached sensitive views, network forks, or known external clones; public forkability after approval is accepted only for approved public bytes"],
-      "paginated_scan": ["Inventory open/closed PR heads/merge refs, repository network/forks, and any known clones; treat provider cached views and unknown clones as irreversible exposure risks"],
-      "authenticated_readback": ["List PRs and forks with pagination and inspect PR commits/files; for sensitive historical data require GitHub Support confirmation because normal ref deletion is insufficient"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "git-lfs",
-      "policy": "allow-if-empty",
-      "allowlist": ["No LFS pointers or LFS objects unless each OID, size, media type, provenance, and rights entry is separately approved"],
-      "paginated_scan": ["Inspect .gitattributes, git lfs ls-files --all, pointer blobs, and local LFS object inventory"],
-      "authenticated_readback": ["Fresh clone with LFS fetch and exact OID/size/hash comparison; account for separate LFS API exposure and retention"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "submodules",
-      "policy": "allow-if-empty",
-      "allowlist": ["No submodules; if later approved, exact URL/path/commit/license/public-visibility tuple only"],
-      "paginated_scan": ["Inspect .gitmodules in every reachable tree and gitlink mode 160000 entries"],
-      "authenticated_readback": ["Fresh recursive clone without credentials; verify each target commit and repeat target exposure inventory"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "releases-and-assets",
-      "policy": "allow-if-empty",
-      "allowlist": ["No releases or assets before initial visibility; later only manifest-listed tag, text, binaries, hashes, provenance, and rights"],
-      "paginated_scan": ["List draft/prerelease/published releases and every asset including uploaded source-adjacent archives"],
-      "authenticated_readback": ["GET releases/assets with pagination; download every allowed asset and compare size/hash; deny extras"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "packages",
-      "policy": "allow-if-empty",
-      "allowlist": ["No repository-linked npm/container/other packages or package versions"],
-      "paginated_scan": ["Inventory user/organization packages linked to the repository, versions, visibility, metadata, attestations, and files"],
-      "authenticated_readback": ["Provider package APIs/UI plus unauthenticated visibility probe; exact empty or approved manifest comparison"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "wiki",
-      "policy": "allow-if-empty",
-      "allowlist": ["Wiki disabled or empty; no private notes, revisions, attachments, or sidebar/footer content"],
-      "paginated_scan": ["Check feature setting and clone wiki Git repository when present; scan all wiki history and attachments"],
-      "authenticated_readback": ["Unauthenticated wiki probe and fresh wiki clone; exact empty/disabled assertion"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "issues",
-      "policy": "allow-if-empty",
-      "allowlist": ["No issues, comments, labels, milestones, attachments, transferred content, or private-note excerpts before launch"],
-      "paginated_scan": ["List all issue states, comments, events, labels, milestones, users, links, and attachments with pagination"],
-      "authenticated_readback": ["Repeat REST/GraphQL listing and unauthenticated UI sampling; compare IDs and normalized content manifest"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "pull-requests-reviews-comments-attachments",
-      "policy": "allow-if-empty",
-      "allowlist": ["No PR body/comment/review/diff/attachment content containing private material; only explicitly reviewed project engineering metadata"],
-      "paginated_scan": ["List all PRs, commits, changed files, review comments, issue comments, reviews, check summaries, and attachments including closed PRs"],
-      "authenticated_readback": ["Repeat complete API pagination and unauthenticated PR/diff views; compare reviewed content manifest"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "discussions",
-      "policy": "allow-if-empty",
-      "allowlist": ["Discussions disabled or empty before launch"],
-      "paginated_scan": ["Inventory discussions, categories, answers, comments, edits, users, and attachments via GraphQL/UI"],
-      "authenticated_readback": ["Unauthenticated feature probe and complete GraphQL listing when enabled"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "actions-workflow-definitions",
-      "policy": "allow-by-manifest",
-      "allowlist": ["Reviewed workflows only; full-SHA-pinned actions; no pull_request_target deployment, broad write token, untrusted interpolation, self-hosted runner, secret echo, or remote deploy outside the approved Pages job"],
-      "paginated_scan": ["Inspect every workflow in every reachable ref, reusable workflow, local action, dependency pin, trigger, permission, environment, runner, shell, and expression boundary"],
-      "authenticated_readback": ["GET workflows and fetch exact workflow blobs from default branch; compare hashes and repository Actions policy"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "actions-runs-logs-summaries",
-      "policy": "allow-if-empty",
-      "allowlist": ["No pre-public run log or job summary containing private paths/content/secrets; later logs may contain only synthetic/build metadata approved for public repository readers"],
-      "paginated_scan": ["List every run/attempt/job/check and download logs where available; scan command lines, annotations, summaries, actor/ref/SHA, and retained historical runs"],
-      "authenticated_readback": ["GET workflow runs/jobs/logs with pagination after transition and sample unauthenticated public UI; compare allowed run IDs and findings"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "actions-artifacts",
-      "policy": "allow-if-empty",
-      "allowlist": ["No retained pre-public artifact; later only the one-day github-pages transport artifact and explicitly manifest-listed diagnostics with no private content"],
-      "paginated_scan": ["List all artifacts including expired metadata; download every available artifact and scan paths, bytes, secrets, rights, Markdown/PDF, and release digest"],
-      "authenticated_readback": ["GET artifacts per repository/run; download with authenticated read access and compare exact ID/name/size/digest/expiry manifest"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "actions-caches",
-      "policy": "allow-if-empty",
-      "allowlist": ["No cache containing source notes, credentials, build output, or private paths; preferably no deployment workflow cache"],
-      "paginated_scan": ["List every cache key/ref/version/size/access time; delete is a separate approved mutation outside T09; assume fork PRs can access base-branch caches"],
-      "authenticated_readback": ["GET Actions caches with pagination and exact empty/approved key manifest comparison"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "environments",
-      "policy": "allow-by-manifest",
-      "allowlist": ["Only github-pages with default-branch restriction, required deployment approval, no plaintext sensitive variable, and no unnecessary secret"],
-      "paginated_scan": ["Inventory all environments, protection rules, branch/tag policies, reviewer identities, bypass settings, wait timers, variable names/values where authorized, and secret names"],
-      "authenticated_readback": ["GET environments, deployment branch policies, variables, and secret metadata; exact policy comparison; secret values are non-readable and require custody attestation"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "deployments-and-statuses",
-      "policy": "allow-if-empty",
-      "allowlist": ["No pre-existing deployment; later only serialized github-pages deployments whose SHA/ref/release digest/environment URL/status match approved receipts"],
-      "paginated_scan": ["List deployment objects and all statuses across every environment, ref, SHA, creator, payload, description, transient/production flags, and URLs"],
-      "authenticated_readback": ["GET deployments filtered and unfiltered plus every status; bind latest success to workflow run, exact release digest, and public byte read-back"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "pages-artifact-and-site",
-      "policy": "allow-by-manifest",
-      "allowlist": ["Exactly one approved sealed static release below the project base path; index/404/routes/assets/Explorer/search/graph only; no Markdown, PDF, secret, private path, unknown right, directory listing, or source map unless approved"],
-      "paginated_scan": ["Before upload, enumerate and hash every regular artifact file; verify no link, hidden file, forbidden suffix, unapproved route, secret/private path, or rights finding; validate base-path URLs"],
-      "authenticated_readback": ["GET Pages settings and deployment status then crawl the public project-site URL, missing routes, all manifest routes/assets/indexes; compare public release identity and byte hashes to sealed receipt"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "pages-settings-domain-dns",
-      "policy": "allow-by-manifest",
-      "allowlist": ["build_type workflow, expected github.io project URL/base path, HTTPS enforced when available, no CNAME/custom domain/DNS record"],
-      "paginated_scan": ["Read Pages settings, source/build type, html_url, public flag, HTTPS state, CNAME, custom_404, protected-domain state, and repository CNAME files in all refs"],
-      "authenticated_readback": ["GET /pages plus public HTTPS redirect/certificate/host/path probes; exact expected settings comparison"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "repository-metadata-and-community-files",
-      "policy": "allow-by-manifest",
-      "allowlist": ["Approved name, owner, description, homepage, topics, default branch, license metadata, language stats, social preview, README, CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, CITATION, authorship and contributor identities"],
-      "paginated_scan": ["Inventory repository API fields/settings/features, topics, community profile/files, license, releases link, commit author/committer names/emails, contributors, stargazers/watchers/fork network, and social preview"],
-      "authenticated_readback": ["Unauthenticated GET repository/topics/community profile/languages/contributors and public UI; compare approved metadata manifest"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "security-publications-and-alert-surfaces",
-      "policy": "allow-if-empty",
-      "allowlist": ["No published security advisory or public disclosure containing private material; SECURITY policy only if approved; alerts remain access-controlled but names/annotations/log effects are audited"],
-      "paginated_scan": ["Inventory SECURITY files/history, repository security advisories, Dependabot/code-scanning/secret-scanning findings and workflow annotations where authorized"],
-      "authenticated_readback": ["Repeat authorized security APIs and unauthenticated advisory/SECURITY UI; compare approved publication set"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "commit-comments",
-      "policy": "allow-if-empty",
-      "allowlist": ["No commit comments, reactions, attachment links, private excerpts, local paths, or unreviewed author identities before launch"],
-      "paginated_scan": ["GET repository commit comments with complete Link-header pagination; enumerate reactions and dereference every linked or embedded attachment"],
-      "authenticated_readback": ["Repeat authenticated commit-comment and reaction pagination after visibility change; compare IDs, commit SHAs, authors, timestamps, normalized bodies, reactions, and attachment hashes"],
-      "anonymous_probe": ["Probe logged-out commit pages and commit-comment API/UI views for every enumerated commit and assert only the approved empty or content manifest is visible"],
-      "derived_bytes": ["Download every comment-linked attachment and provider-rendered patch/context representation; scan exact bytes for secrets, private paths, excluded formats, and rights"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "github-projects-visibility-and-content",
-      "policy": "allow-if-empty",
-      "allowlist": ["No repository- or organization-owned classic Project or Projects v2 board linked or visible to this repository before launch"],
-      "paginated_scan": ["Use authenticated REST plus GraphQL cursor pagination across repository and owner organization/user Projects; enumerate visibility, fields, views, items, draft issues, archived items, linked issues/PRs, descriptions, and attachments"],
-      "authenticated_readback": ["Repeat all Projects classic/v2 owner and repository queries with sufficient project scopes; compare node IDs, visibility, field schema, item content, links, and selected repository associations"],
-      "anonymous_probe": ["Probe logged-out repository Projects tabs and every discovered public project URL; a hidden tab or authorization-shaped 404 is not proof of absence"],
-      "derived_bytes": ["Export or serialize every project field/item/body/attachment and scan normalized text plus downloaded attachment bytes against the exposure allowlist"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "dependency-graph-and-external-snapshots",
-      "policy": "allow-by-manifest",
-      "allowlist": ["Only dependencies derivable from approved public lockfiles/manifests; no private package URL, credential, local path, private repository, or unapproved submitted snapshot"],
-      "paginated_scan": ["Enumerate dependency manifests, SBOM/dependency graph entries, dependency submissions, and every external dependency snapshot/job correlation with REST pagination and GraphQL cursors where offered"],
-      "authenticated_readback": ["Read dependency graph and submission/snapshot status using a token authorized for the complete repository security surface; compare package URLs, versions, scopes, detector, job, correlator, SHA/ref, and manifest paths"],
-      "anonymous_probe": ["No anonymous API is treated as authoritative; compare logged-out dependency/insights UI only when provider exposes it and record authorization-hidden states as unknown"],
-      "derived_bytes": ["Fetch submitted SBOM/snapshot payload custody records and all referenced public manifests/lockfiles; normalize and scan package URLs, metadata, and exact available bytes"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "artifact-attestations-and-public-transparency-log",
-      "policy": "allow-if-empty",
-      "allowlist": ["No attestation before launch; later only manifest-listed subject digests, approved predicate types/content, approved workflow provenance, and expected Sigstore transparency-log entries"],
-      "paginated_scan": ["List repository artifact attestations for every subject digest/name with complete pagination; enumerate bundles, predicates, signatures, certificate identities, and transparency-log indexes"],
-      "authenticated_readback": ["Repeat authenticated attestation enumeration and verify each bundle cryptographically against the approved repository/owner/workflow identity and exact subject digest"],
-      "anonymous_probe": ["Query public attestation download/verification surfaces and Sigstore transparency log by subject/signature/certificate identity; compare every public log record and inclusion proof"],
-      "derived_bytes": ["Download DSSE/Sigstore bundles, predicates, certificates, inclusion proofs, and attested subjects where available; hash and scan every byte before approval"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "actions-repository-variables",
-      "policy": "allow-by-manifest",
-      "allowlist": ["Only explicitly approved non-sensitive repository variable names and exact values; no credential, private URL/path, Vault metadata, or environment substitute for a secret"],
-      "paginated_scan": ["GET repository Actions variables with complete pagination; bind each name/value/created/updated tuple and inspect workflow references in every reachable ref"],
-      "authenticated_readback": ["Repeat repository-variable pagination with actions-variables read authorization and exact value comparison immediately before and after visibility/deployment"],
-      "anonymous_probe": ["Not applicable: repository Actions variable APIs are authorization-controlled; verify absence of value leakage separately through public workflow files, runs, logs, annotations, summaries, and artifacts"],
-      "derived_bytes": ["Metadata-only control surface: scan exact UTF-8 variable names/values plus every public workflow/log/artifact byte derived from variable expansion"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "actions-organization-variables-and-repository-access",
-      "policy": "allow-by-manifest",
-      "allowlist": ["Only explicitly approved non-sensitive organization variables whose visibility and selected-repository grants name this repository exactly when required"],
-      "paginated_scan": ["GET organization Actions variables with complete pagination and paginate every selected-repository grant; enumerate all/private/selected visibility and exact values"],
-      "authenticated_readback": ["Repeat organization-variable and selected-repository pagination with organization-owner authorization; exact name/value/visibility/grant comparison is mandatory"],
-      "anonymous_probe": ["Not applicable: organization Actions variable APIs are authorization-controlled; verify no value leakage through all public workflow-derived surfaces"],
-      "derived_bytes": ["Metadata-only control surface: scan exact variable values and all workflow/log/artifact bytes that can be derived from their expansion"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "actions-repository-secrets-and-authorization",
-      "policy": "allow-if-empty",
-      "allowlist": ["No repository Actions secret unless separately approved by name, owner custody, rotation/expiry, consuming workflow/ref/environment, and least-privilege authorization scope; values are never readable evidence"],
-      "paginated_scan": ["GET repository Actions secret metadata with complete pagination; inspect every workflow reference, event/ref permission boundary, fork behavior, environment flow, and token permission that could authorize use"],
-      "authenticated_readback": ["Repeat secret-name/key-id/timestamp pagination with repository administration authorization; bind non-readable values to external custody attestation and exact approved workflow/ref/event scope"],
-      "anonymous_probe": ["Not applicable to secret metadata/value APIs; probe public workflows, run logs, annotations, summaries, caches, and artifacts for names, expansions, or redaction anomalies without attempting value recovery"],
-      "derived_bytes": ["Secret values are intentionally non-readable; scan every provider-derived workflow/log/cache/artifact byte that could contain an expansion and require external custody attestation for the source value"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "actions-organization-secrets-and-repository-access",
-      "policy": "allow-if-empty",
-      "allowlist": ["No organization Actions secret exposed to this repository unless separately approved by name, owner custody, rotation/expiry, visibility, selected-repository grant, workflow/ref/event, and least-privilege scope"],
-      "paginated_scan": ["GET organization Actions secret metadata with complete pagination and paginate every selected-repository grant; enumerate all/private/selected visibility plus every workflow authorization path"],
-      "authenticated_readback": ["Repeat organization secret and selected-repository grant pagination with organization-owner authorization; bind non-readable values to custody attestation and exact approved consuming scope"],
-      "anonymous_probe": ["Not applicable to organization secret APIs; inspect all public workflow-derived surfaces for name/value leakage or redaction anomalies"],
-      "derived_bytes": ["Secret values remain non-readable; scan all workflow/log/cache/artifact bytes derived from possible use and require external value-custody attestation"],
-      "block_on_unknown": true
-    },
-    {
-      "id": "webhooks-deploy-keys-collaborators-and-apps",
-      "policy": "allow-by-manifest",
-      "allowlist": ["No unexpected webhook, deploy key, collaborator/team, installed app, OAuth authorization, ruleset bypass, or machine credential; these are not public content but can mutate/read the future public repository"],
-      "paginated_scan": ["Authorized inventory of hooks, keys, collaborators/teams, installations, rulesets, branch protections, Actions permissions, token defaults, and Pages-management principals"],
-      "authenticated_readback": ["Repeat authorized settings/API inventory immediately before and after visibility/deployment; exact approved control-plane manifest comparison"],
-      "anonymous_probe": ["Probe the corresponding logged-out API/UI/download surface when it exists; otherwise record that no anonymous representation exists rather than inferring emptiness"],
-      "derived_bytes": ["Download or reconstruct every provider-derived byte object when the surface can produce bytes and scan it against the same allowlist; otherwise record that the surface is metadata-only"],
-      "block_on_unknown": true
+    "legacy_custom_atomic_claim_one_start": {
+      "status": "superseded",
+      "deploy_authority": false,
+      "components": ["custom atomic claim", "custom exactly-once/one-start lifecycle", "custom provider operation IDs"],
+      "replacement": "GitHub Actions concurrency and provider deployment IDs"
     }
-  ]
+  },
+  "migration": {
+    "status": "wave-c-gh-pages-branch-implementation",
+    "new_callers_may_use_legacy_implementation": false,
+    "legacy_implementation": [],
+    "rule": "The generated site is now modeled as a tracked gh-pages branch transport. Project-owned sealed custody, rights, candidate metadata, and launch-audit evidence remain inputs; GitHub-native workflow, environment, provider records, and readback own deployment state.",
+    "wave_c": {
+      "branch_transport": "gh-pages-branch-to-pages-artifact",
+      "generated_site_ref": "refs/heads/gh-pages",
+      "workflow_ref": "refs/heads/main",
+      "deploy_trigger": "workflow_dispatch",
+      "live_state": "not-live"
+    },
+    "remaining_blockers": [
+      "remote GitHub settings",
+      "actual gh-pages branch contents",
+      "live launch audit",
+      "visibility and deployment approvals",
+      "provider deployment and readback",
+      "post-deploy anonymous/browser QA"
+    ]
+  }
 }
