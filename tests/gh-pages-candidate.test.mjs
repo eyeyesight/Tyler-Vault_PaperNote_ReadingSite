@@ -208,6 +208,99 @@ async function rewriteCandidateMetadata(candidateRoot, changes) {
   return updated
 }
 
+test("verify accepts an ordinary Git checkout .git directory without treating it as candidate content", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "gh-pages-candidate-git-directory-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const sealed = await installSealedRelease(root, "git-directory")
+  const candidateRoot = path.join(root, "output")
+  const prepared = await prepareGhPagesCandidate({ verifiedSealedRelease: sealed.capability, targetRoot: candidateRoot, expectedUrl, basePath })
+  const gitRoot = path.join(candidateRoot, ".git")
+  await mkdir(path.join(gitRoot, "objects"), { recursive: true })
+  await writeFile(path.join(gitRoot, "HEAD"), "ref: refs/heads/main\n")
+
+  const stageOutputRoot = path.join(root, "stage-output")
+  const verified = await verifyGhPagesCandidate({
+    candidateRoot,
+    expectedCandidateDigest: prepared.candidateDigest,
+    stageOutputRoot,
+  })
+
+  assert.equal(verified.verified, true)
+  assert.equal(verified.staged, true)
+  assert.equal((await readdir(stageOutputRoot)).includes(".git"), false)
+  assert.deepEqual((await readdir(candidateRoot)).sort(), [".git", ".publication", "site"])
+})
+
+test("verify accepts an ordinary linked-worktree .git file without treating it as candidate content", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "gh-pages-candidate-git-file-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const sealed = await installSealedRelease(root, "git-file")
+  const candidateRoot = path.join(root, "output")
+  const prepared = await prepareGhPagesCandidate({ verifiedSealedRelease: sealed.capability, targetRoot: candidateRoot, expectedUrl, basePath })
+  await writeFile(path.join(candidateRoot, ".git"), "gitdir: ../.git/worktrees/output\n")
+
+  const stageOutputRoot = path.join(root, "stage-output")
+  const verified = await verifyGhPagesCandidate({
+    candidateRoot,
+    expectedCandidateDigest: prepared.candidateDigest,
+    stageOutputRoot,
+  })
+
+  assert.equal(verified.verified, true)
+  assert.equal(verified.staged, true)
+  assert.equal((await readdir(stageOutputRoot)).includes(".git"), false)
+})
+
+test("verify rejects an unexpected root entry even when a Git control entry is present", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "gh-pages-candidate-git-extra-root-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const sealed = await installSealedRelease(root, "git-extra-root")
+  const candidateRoot = path.join(root, "output")
+  await prepareGhPagesCandidate({ verifiedSealedRelease: sealed.capability, targetRoot: candidateRoot, expectedUrl, basePath })
+  await mkdir(path.join(candidateRoot, ".git"))
+  await writeFile(path.join(candidateRoot, "unexpected.txt"), "not candidate content\n")
+
+  await expectCode(verifyGhPagesCandidate({ candidateRoot }), "CANDIDATE_TREE_SET_MISMATCH")
+})
+
+test("verify rejects a symlink or reparse-point Git control entry", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "gh-pages-candidate-git-link-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const sealed = await installSealedRelease(root, "git-link")
+  const candidateRoot = path.join(root, "output")
+  await prepareGhPagesCandidate({ verifiedSealedRelease: sealed.capability, targetRoot: candidateRoot, expectedUrl, basePath })
+
+  try {
+    await symlink(sealed.releaseRoot, path.join(candidateRoot, ".git"), process.platform === "win32" ? "junction" : "dir")
+  } catch (error) {
+    if (["EACCES", "EPERM", "ENOSYS", "UNKNOWN"].includes(error?.code)) {
+      t.skip("symlink or junction creation is unavailable")
+      return
+    }
+    throw error
+  }
+  await expectCode(verifyGhPagesCandidate({ candidateRoot }), "CANDIDATE_SYMLINK_NOT_ALLOWED")
+})
+
+test("verify rejects case-colliding Git control entries", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "gh-pages-candidate-git-case-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const sealed = await installSealedRelease(root, "git-case")
+  const candidateRoot = path.join(root, "output")
+  await prepareGhPagesCandidate({ verifiedSealedRelease: sealed.capability, targetRoot: candidateRoot, expectedUrl, basePath })
+  await mkdir(path.join(candidateRoot, ".git"))
+  try {
+    await mkdir(path.join(candidateRoot, ".GIT"))
+  } catch (error) {
+    if (["EACCES", "EEXIST", "EPERM"].includes(error?.code)) {
+      t.skip("case-colliding root entries are unavailable on this filesystem")
+      return
+    }
+    throw error
+  }
+  await expectCode(verifyGhPagesCandidate({ candidateRoot }), "CANDIDATE_TREE_CASE_COLLISION")
+})
+
 test("prepare creates a deterministic exact candidate with .nojekyll and stable digests", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "gh-pages-candidate-positive-"))
   t.after(() => rm(root, { recursive: true, force: true }))
