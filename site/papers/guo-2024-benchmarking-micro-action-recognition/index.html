@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr"><head><meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self' data:; frame-src 'none'; img-src 'self' data:; media-src 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'none'"><title>Benchmarking Micro-action Recognition: Dataset, Methods, and Applications</title><meta charset="utf-8"/><link rel="preload" href="../../index-aaab3a00.css" as="style"/><link rel="preload" href="../../prescript-e3b0c442.js" as="script"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><meta name="og:site_name" content="Tyler-Vault Reading Site"/><meta property="og:title" content="Benchmarking Micro-action Recognition: Dataset, Methods, and Applications"/><meta property="og:type" content="website"/><meta name="twitter:card" content="summary_large_image"/><meta name="twitter:title" content="Benchmarking Micro-action Recognition: Dataset, Methods, and Applications"/><meta name="twitter:description" content="Guo et al. 2024 — Benchmarking Micro-action Recognition Bibliography Not stated."/><meta property="og:description" content="Guo et al. 2024 — Benchmarking Micro-action Recognition Bibliography Not stated."/><meta property="og:image:alt" content="Guo et al. 2024 — Benchmarking Micro-action Recognition Bibliography Not stated."/><meta property="og:image" content="/static/og-image.png"/><meta property="og:image:url" content="/static/og-image.png"/><meta name="twitter:image" content="/static/og-image.png"/><meta property="og:image:type" content="image/.png"/><meta property="twitter:domain" content="example.invalid"/><meta property="og:url" content="/papers/guo-2024-benchmarking-micro-action-recognition/index"/><meta property="twitter:url" content="/papers/guo-2024-benchmarking-micro-action-recognition/index"/><link rel="icon" href="../../static/icon.png"/><meta name="description" content="Guo et al. 2024 — Benchmarking Micro-action Recognition Bibliography Not stated."/><meta name="generator" content="Quartz"/><link href="../../index-aaab3a00.css" rel="stylesheet" type="text/css" data-persist="true"/><link href="../../component-735924e0.css" rel="stylesheet" type="text/css" data-persist="true"/><link href="../../component-bbc3f7c0.css" rel="stylesheet" type="text/css" data-persist="true"/><link href="../../component-53b25b2b.css" rel="stylesheet" type="text/css" data-persist="true"/><link href="../../component-788c9ca3.css" rel="stylesheet" type="text/css" data-persist="true"/><link href="../../component-274a3dfe.css" rel="stylesheet" type="text/css" data-persist="true"/><link href="../../component-94cb6c84.css" rel="stylesheet" type="text/css" data-persist="true"/><link href="../../static/resource-style-a5c806d2.css" rel="stylesheet" type="text/css" data-persist="true"/><link href="../../static/resource-style-6bd36952.css" rel="stylesheet" type="text/css" data-persist="true"/><script src="../../prescript-e3b0c442.js" type="application/javascript" data-persist="true"></script><script type="application/javascript" data-persist="true">const publicSiteRoot="../../";const fetchData=fetch(new URL(publicSiteRoot+"static/contentIndex.json",document.baseURI)).then(data=>data.json())</script></head><body data-tracer-template="paper" data-slug="papers/guo-2024-benchmarking-micro-action-recognition/index" data-basepath><section class="public-search" role="search" aria-label="Search"><label>Search<input type="search" inputmode="search" autocomplete="off" data-public-search-input></label><p data-public-search-status aria-live="polite">Enter a title, author, DOI, tag, heading, or visible text.</p><ol data-public-search-results></ol></section><div id="quartz-root" class="page" data-frame="default"><div id="quartz-body"><div class="left sidebar"><aside class="explorer" aria-label="Library" aria-expanded="true"><h2 class="desktop-explorer">Library</h2><button type="button" class="explorer-toggle mobile-explorer" aria-label="Toggle Library" aria-controls="tracer-explorer-content" aria-expanded="true">Library</button><div id="tracer-explorer-content" class="explorer-content" aria-expanded="true"><ul class="explorer-ul"></ul></div></aside><h2 class="page-title"><a href="../..">Tyler-Vault Reading Site</a></h2></div><div class="center"><div class="page-header"><div class="popover-hint"><nav class="breadcrumb-container" aria-label="breadcrumbs"><div class="breadcrumb-element"><a href="../../">Home</a><p> ❯ </p></div><div class="breadcrumb-element"><a href="../../">papers</a><p> ❯ </p></div><div class="breadcrumb-element"><a href>Benchmarking Micro-action Recognition: Dataset, Methods, and Applications</a></div></nav></div></div><div class="popover-hint"><article class><div class="markdown-preview-view markdown-rendered"><h1 id="guo-et-al-2024--benchmarking-micro-action-recognition">Guo et al. 2024 — Benchmarking Micro-action Recognition<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#guo-et-al-2024--benchmarking-micro-action-recognition" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h1>
+<h2 id="bibliography">Bibliography<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#bibliography" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<p>Not stated.</p>
+<h2 id="one-sentence-takeaway">One-sentence Takeaway<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#one-sentence-takeaway" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<p>本研究以心理訪談蒐集 205 名參與者的全身微動作，建立含 22,422 段影片與 52 類動作的 MA-52，並提出結合 squeeze-and-excitation（SE）、temporal shift module（TSM）與標籤語意嵌入的 MANet；MANet 在整體與細粒度辨識指標上優於多數比較方法，且加入微動作線索可小幅提升同一資料來源上的情緒辨識，但受長尾分布、相似類別、多人次切分方式未交代及缺乏外部驗證等邊界限制。</p>
+<h2 id="research-question">Research Question<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#research-question" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<p>筆記者重建：</p>
+<ol>
+<li>能否透過專業心理訪談，自然蒐集涵蓋全身、下肢與跨部位互動的大規模微動作資料，形成可供微動作辨識（micro-action recognition, MAR）使用的基準資料集？</li>
+<li>結合 SE、TSM 與動作標籤語意嵌入的 MANet，是否能比一般影片動作辨識方法更有效區分低幅度、視覺上相近且呈長尾分布的微動作？</li>
+<li>在同一訪談資料延伸出的 MA-52-Pro 上，微動作線索是否能補充臉部線索並改善五類情緒辨識？</li>
+</ol>
+<p>來源定位：pp. 1–3, Introduction；p. 10, Section VI。</p>
+<h2 id="citation">Citation<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#citation" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<p>Guo, D., Li, K., Hu, B., Zhang, Y., &amp; Wang, M. (2024). Benchmarking Micro-action Recognition: Dataset, Methods, and Applications. <em>IEEE Transactions on Circuits and Systems for Video Technology</em>. Supplied PDF identifier: arXiv:2403.05234v2.</p>
+<h2 id="argument-structure">Argument Structure<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#argument-structure" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<ol>
+<li>一般動作辨識資料集多處理跑、跳等粗粒度行為；既有細粒度資料集又常侷限於特定活動。微動作則同時要求偵測低幅度動態與區分高度相似類別，因此需要專門資料與方法。來源定位：pp. 1–4, Sections I–II。</li>
+<li>研究以 SCL-90 為訪談引導背景，由專業心理諮商人員進行開放式訪談，在參與者維持坐姿時錄製自然且自發的全身行為，並以三階段流程完成標註，形成 MA-52。來源定位：pp. 4–5, Section III；Fig. 1–2。</li>
+<li>研究以九種一般動作辨識方法建立比較基準，另提出 MANet，以 SE 強化空間通道特徵、以 TSM 交換相鄰影格資訊，並用 joint-embedding loss 對齊影片特徵與動作標籤語意。來源定位：pp. 6–7, Section IV；Fig. 3。</li>
+<li>研究在 MA-52 上比較 coarse-與 fine-grained 指標，並執行元件、損失權重與抽樣影格數的消融分析。來源定位：pp. 7–9, Section V；Tables II–V。</li>
+<li>研究再建立 MA-52-Pro，以臉部與微動作雙路徑進行情緒辨識與多標籤微動作辨識，並檢查下肢標籤的增額價值。來源定位：pp. 10–12, Section VI；Tables VI–VII；Figs. 7–11。</li>
+<li>作者據此主張資料集與方法可推進微動作研究，並提出複合微動作、多模態、微表情整合、生成式資料與真實環境魯棒性等後續方向。來源定位：pp. 12–13, Sections VII–VIII。</li>
+</ol>
+<h2 id="theoretical-background">Theoretical Background<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#theoretical-background" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<ul>
+<li>作者將微動作視為低強度、短暫且常在非意識狀態下出現的非語言行為，並引用既有心理學與情緒研究，主張身體姿態有時可比單獨臉部表情更透明地呈現個人的感受、意圖或心理狀態。這些是本文用來建立研究重要性的背景論述，不是 MA-52 本身直接證明的心理機制。來源定位：pp. 1–2, Introduction。</li>
+<li>一般動作辨識常可依靠靜態或大幅度線索；細粒度辨識則需處理同一大類中的細小差異。本文進一步界定 MAR 的雙重困難：既要感知極小動態，又要區分視覺外觀近似的類別，例如「looking up」與「nodding」。來源定位：pp. 2–3, Introduction and Section II.A。</li>
+<li>自然資料中的動作頻率不均，使微動作類別呈長尾分布；此外，隱私、微小動作不易察覺及資料標註成本，均限制可用資料來源。來源定位：p. 2, Introduction。</li>
+<li>本文以全身視角補足先前偏重上半身或站姿資料的不足，特別強調坐姿下的腿與腳部動作可能帶有情緒與意圖線索。這是研究設計假設與應用動機；其心理效度僅在 MA-52-Pro 的預測表現中獲得有限、資料集內的支持。來源定位：pp. 2–5, Sections I–III；p. 12, Table VII。</li>
+</ul>
+<h2 id="key-terms-and-construct-boundaries">Key Terms and Construct Boundaries<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#key-terms-and-construct-boundaries" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div class="table-container"><table><thead><tr><th>Term</th><th>Source Definition</th><th>Boundary or Distinction</th><th>Source Locator</th></tr></thead><tbody><tr><td>Micro-action</td><td>一種難以察覺、以低強度動作為特徵的非語言行為；作者另描述其為快速、細微、涉及頭、手及上下肢的行為。</td><td>不等同於跑、跳等一般大幅度動作；本文也未將它嚴格等同於臉部 micro-expression。</td><td>p. 1, Abstract and Introduction</td></tr><tr><td>Micro-action recognition (MAR)</td><td>偵測並區分短暫身體動作的影片分類任務；作者稱動作通常發生於約 1/25 s 至 1/3 s。</td><td>輸入片段實際長度為 1–7 s，平均 1.9 s；微動作本體與影片裁切窗長度之關係未完整操作化。</td><td>p. 2, Introduction；p. 5, Section III.B</td></tr><tr><td>Coarse-grained label</td><td>七個身體部位類別：body、head、upper limb、lower limb、body-hand、head-hand、leg-hand。</td><td>指動作所屬身體區域，不是較短或較慢的動作。</td><td>p. 5, Fig. 2 and Section III.B</td></tr><tr><td>Fine-grained label</td><td>52 個具體微動作類別，例如 nodding、tilting head、shaking legs、touching nose。</td><td>同一 coarse 類別中的細分類別可能外觀高度相似，因此辨識難度高於 coarse label。</td><td>pp. 5, 7–9, Fig. 2；Table II</td></tr><tr><td>Long-tailed distribution</td><td>不同微動作在自然情境中的出現頻率差異甚大，例如 nodding 比 rubbing eyes 或 touching ears 常見。</td><td>類別不平衡是資料的自然屬性，也會使整體準確率掩蓋少數類別表現；因此本文同時報告 macro-與 micro-F1。</td><td>p. 2, Introduction；p. 7, Section V.A</td></tr><tr><td>Joint-embedding loss</td><td>將動作標籤的 GloVe 向量與影片視覺特徵映射到共同的 300 維空間，最小化兩者歐氏距離。</td><td>它是分類損失的輔助語意約束，不是獨立的自然語言理解任務。</td><td>pp. 6–7, Fig. 3 and Eq. 2–3</td></tr><tr><td>MA-52-Pro</td><td>從訪談影片延伸出的多標籤微動作與情緒辨識資料集，單一片段可含 1–15 個微動作，並標註五類情緒。</td><td>與 MA-52 的單一 fine-grained 動作分類任務不同；片段較長且允許多動作共現。</td><td>pp. 10–11, Section VI.A</td></tr></tbody></table></div>
+<h2 id="method">Method<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#method" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<h3 id="design-or-approach">Design or Approach<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#design-or-approach" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<p>本文同時包含四個互相連結的研究元件：</p>
+<ol>
+<li>建立全身微動作資料集 MA-52。</li>
+<li>在 MA-52 上比較九種一般動作辨識模型，形成 benchmark。</li>
+<li>提出 MANet 並進行消融與視覺化分析。</li>
+<li>建立 MA-52-Pro，以雙路徑模型測試微動作在線索融合式情緒辨識中的應用。</li>
+</ol>
+<p>此設計屬資料集、基準與方法研究，而非以心理操弄檢驗因果機制的實驗。來源定位：pp. 2–3, Contributions；pp. 4–12, Sections III–VI。</p>
+<h3 id="participants-data-or-source-corpus">Participants, Data, or Source Corpus<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#participants-data-or-source-corpus" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<p><strong>MA-52</strong></p>
+<ul>
+<li>205 名參與者，共 22,422 段微動作影片。來源定位：p. 5, Section III.B。</li>
+<li>性別分布為男性 100 人（49%）、女性 105 人（51%）。來源定位：p. 5, Fig. 2 and Section III.B。</li>
+<li>年齡分布為兒童 16 人（7.8%）、青少年 37 人（18.1%）、成人／文中亦稱 middle-aged 97 人（47.3%）、高齡者 55 人（26.8%）。來源定位：p. 5, Fig. 2 and Section III.B。</li>
+<li>影片解析度為 1920×1080、30 fps，單段 1–7 s，平均 1.9 s，總長 12.29 h。來源定位：p. 5, Section III.B。</li>
+<li>train/validation/test 以 2:1:1 分割，分別為 11,250、5,586、5,586 段。論文未說明是否依參與者互斥切分。來源定位：p. 5, Fig. 2 and Section III.B。</li>
+</ul>
+<p><strong>MA-52-Pro</strong></p>
+<ul>
+<li>7,818 段影片、29,503 個微動作標籤，總長 3,876 分鐘。來源定位：p. 10, Section VI.A。</li>
+<li>每段影片含 1–15 個微動作，片段長度從 5 s 到超過 100 s。來源定位：p. 10, Section VI.A。</li>
+<li>五類情緒為 joy、sadness、surprise、fear、anger。來源定位：p. 10, Section VI.A。</li>
+</ul>
+<p><strong>倫理與同意</strong></p>
+<ul>
+<li>作者報告在蒐集前告知參與者資料用途並取得供學術研究使用的書面同意；資料蒐集與使用受到 Hefei Comprehensive National Science Center 之 Institute of Artificial Intelligence 倫理委員會監督。來源定位：pp. 5 and 13, Section III.B and Acknowledgments。</li>
+</ul>
+<h3 id="task-procedure-or-search-strategy">Task, Procedure, or Search Strategy<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#task-procedure-or-search-strategy" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ol>
+<li>參與者先接受 Symptom Checklist 90（SCL-90）測驗。</li>
+<li>專業心理諮商人員可參考測驗結果，透過開放式問題、即時回饋與追問，引導參與者進行深入自我描述。</li>
+<li>參與者在坐姿下自然交談，不被要求做出指定姿勢；高解析攝影機錄製全身，包含頭、手、上下肢及跨部位互動。</li>
+<li>影片標註經三階段監督：標註者自我檢查、交叉檢查並以多數共識處理歧異、第三方團隊最終覆核。</li>
+</ol>
+<p>來源定位：pp. 4–5, Section III.A；Fig. 1。</p>
+<h3 id="measures-labels-or-constructs">Measures, Labels, or Constructs<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#measures-labels-or-constructs" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li>MA-52 採兩層標籤：七個 coarse-grained 身體部位與 52 個 fine-grained 微動作。完整類別與樣本數見 Fig. 2。來源定位：p. 5, Fig. 2。</li>
+<li>類別涵蓋全身動作，以及 body-hand、head-hand、leg-hand 等互動；下肢例子包含 tiptoe、retracting feet、shaking legs、stretching feet、crossing legs。來源定位：p. 5, Fig. 2。</li>
+<li>MA-52-Pro 的情緒標註根據參與者的整體資料，包括動作、表情、語言內容與語調；論文未進一步交代標註者人數、判定規則或信度。來源定位：p. 10, Section VI.A。</li>
+<li>MA-52-Pro 同時使用多標籤微動作與單一五類情緒標籤。來源定位：pp. 10–11, Section VI。</li>
+</ul>
+<h3 id="analysis-evaluation-or-synthesis">Analysis, Evaluation, or Synthesis<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#analysis-evaluation-or-synthesis" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<p><strong>比較模型</strong></p>
+<ul>
+<li>2D CNN：TSN、TSM、TIN。</li>
+<li>3D CNN：C3D、I3D、SlowFast。</li>
+<li>Transformer：Video-Swin Transformer、TimeSformer、UniFormer。</li>
+</ul>
+<p>來源定位：p. 6, Section IV.B。</p>
+<p><strong>MANet</strong></p>
+<ul>
+<li>以 ResNet-50 為 backbone，於 block 中整合 SE 與 TSM。</li>
+<li>SE 以 channel-wise weighting 強化空間特徵；TSM 將特徵分成八份並沿時間軸移動部分通道。</li>
+<li>使用 cross-entropy classification loss 與 GloVe-based joint-embedding loss；總損失為 <code>L = Lcls + αLemb</code>。</li>
+</ul>
+<p>來源定位：pp. 6–7, Section IV.C；Fig. 3；Eq. 1–3。</p>
+<p><strong>MA-52 訓練與評估</strong></p>
+<ul>
+<li>每段影片抽樣 <code>T = 8</code> frames，縮放至 224×224。</li>
+<li>SGD learning rate 0.001、momentum 0.9、weight decay 1e-4、batch size 10；第 30 與 60 epoch 將 learning rate 降為十分之一，共訓練 80 epochs。</li>
+<li>指標包含 coarse/fine Acc-Top1、fine Acc-Top5、macro-F1、micro-F1，以及四種 F1 的平均 <code>F1mean</code>。</li>
+</ul>
+<p>來源定位：p. 7, Sections V.A–V.B。</p>
+<p><strong>MA-52-Pro 模型與評估</strong></p>
+<ul>
+<li>臉部路徑與微動作路徑皆以 MANet 為基本單元；微動作路徑再加入兩層 Transformer encoder 以處理長期多動作關係。</li>
+<li>多標籤微動作以 binary cross-entropy 優化，情緒以 cross-entropy 優化；<code>L = Lact + βLemo</code>，β = 0.03。</li>
+<li>使用 Acc、weighted-F1、UF1、UAR 與 micro-action mAP；抽樣 <code>T = 16</code> frames，batch size 3。</li>
+</ul>
+<p>來源定位：pp. 10–11, Section VI.A–VI.B；Fig. 7。</p>
+<h2 id="main-results">Main Results<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#main-results" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<h3 id="result-index">Result Index<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#result-index" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div class="table-container"><table><thead><tr><th>Result Area</th><th>What to Inspect</th><th>Main Takeaway</th><th>Source Locator</th></tr></thead><tbody><tr><td>MA-52 規模與覆蓋</td><td>參與者、片段、全身與下肢類別、分割</td><td>資料集涵蓋 205 人、22,422 段與 52 類微動作，特別增加坐姿下肢與跨部位互動。</td><td>pp. 4–5, Table I；Fig. 2</td></tr><tr><td>Benchmark 表現</td><td>MANet 與九種模型的 coarse/fine 指標</td><td>MANet 的 F1mean 與多數 fine-grained 指標最佳，但 coarse micro-F1/Acc-Top1 略低於 UniFormer。</td><td>pp. 7–8, Table II</td></tr><tr><td>元件與參數消融</td><td>SE、embedding loss、frame 數、α</td><td>完整模型的 F1mean 最佳；然而部分 top-5 指標由移除 embedding 或使用 16 frames 的設定略勝。</td><td>p. 8, Tables III–V</td></tr><tr><td>錯誤與可分性</td><td>t-SNE、confusion matrix、範例</td><td>MANet 對部分相似類別的分群較清楚，但近似類別與少樣本類別仍易混淆。</td><td>pp. 8–9, Figs. 4–6</td></tr><tr><td>情緒辨識</td><td>face-only、micro-action-only、融合模型</td><td>融合模型在 MA-52-Pro 上優於單一路徑，但提升幅度有限，且多標籤微動作 mAP 偏低。</td><td>pp. 10–11, Table VI</td></tr><tr><td>下肢線索</td><td>移除 lower limb 與 leg-hand 標籤的消融</td><td>保留下肢標籤改善整體 Acc、weighted-F1、UAR，但降低 micro-action mAP，並非所有情緒類別都受益。</td><td>p. 12, Table VII；Fig. 11</td></tr></tbody></table></div>
+<h3 id="detailed-results">Detailed Results<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#detailed-results" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<h4 id="ma-52-dataset-coverage">MA-52 Dataset Coverage<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#ma-52-dataset-coverage" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h4>
+<ul>
+<li>Evidence or statistics:
+<ul>
+<li>MA-52 包含 205 名參與者、22,422 段影片、七個部位類別與 52 個微動作類別；相較 Table I 中的 iMiGUE、SMG 與 BBSI，MA-52 的參與者數、類別數及下肢覆蓋較大。來源定位：pp. 4–5, Table I and Fig. 2。</li>
+<li>類別分布明顯不均，例如 head 類別占 39.9%，leg-hand 僅占 2.8%；個別 fine-grained 類別亦有極端長尾。來源定位：p. 5, Fig. 2。</li>
+</ul>
+</li>
+<li>Interpretation boundary:
+<ul>
+<li>「規模較大」只相對於論文納入比較的資料集；資料規模本身不證明標籤心理效度或跨情境泛化。</li>
+<li>參與者層級是否在 train/validation/test 間互斥未報告，因此不能確定測試結果是否完全反映對新個體的泛化。</li>
+</ul>
+</li>
+<li>Source locator: pp. 4–5, Table I；Fig. 2；Section III.B。</li>
+</ul>
+<h4 id="micro-action-recognition-benchmark">Micro-action Recognition Benchmark<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#micro-action-recognition-benchmark" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h4>
+<ul>
+<li>Evidence or statistics:
+<ul>
+<li>MANet 的 <code>F1mean = 65.59%</code>，高於 UniFormer 的 64.43% 與 TSM 的 61.39%。來源定位：p. 8, Table II。</li>
+<li>Fine-grained 指標中，MANet 達 <code>F1macro = 49.22%</code>、<code>F1micro/Acc-Top1 = 61.33%</code>、<code>Acc-Top5 = 88.83%</code>；相較 UniFormer，fine micro-F1/Acc-Top1 高 2.44 個百分點。來源定位：p. 8, Table II。</li>
+<li>Coarse-grained <code>F1macro = 72.87%</code> 為最高，但 coarse <code>F1micro/Acc-Top1 = 78.95%</code>，略低於 UniFormer 的 79.03%。來源定位：p. 8, Table II。</li>
+<li>所有模型的 fine-grained 表現均低於 coarse-grained；MANet 的 macro-F1 從 coarse 72.87% 降至 fine 49.22%。來源定位：pp. 7–8, Section V.C and Table II。</li>
+</ul>
+</li>
+<li>Interpretation boundary:
+<ul>
+<li>結果支持 MANet 在整體 F1 與細粒度辨識上的相對優勢，但不支持「所有主要指標都創新高」的無保留說法，因 coarse micro-F1/Acc-Top1 由 UniFormer 略高。</li>
+<li>論文未報告多次訓練的變異、信賴區間或顯著性檢定，1.16 個百分點的 F1mean 差距是否穩定尚不清楚。</li>
+</ul>
+</li>
+<li>Source locator: pp. 7–8, Section V.C；Table II。</li>
+</ul>
+<h4 id="component-and-hyperparameter-ablations">Component and Hyperparameter Ablations<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#component-and-hyperparameter-ablations" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h4>
+<ul>
+<li>Evidence or statistics:
+<ul>
+<li>以 TSM 為 baseline 時，<code>F1mean = 61.39%</code>；移除 SE 的模型為 64.77%，移除 embedding loss 為 63.55%，完整 MANet 為 65.59%。來源定位：p. 8, Table V。</li>
+<li>抽樣 frames 為 <code>T = 4/8/16</code> 時，F1mean 分別為 61.20%、65.59%、64.66%；T = 8 的整體表現最佳，但 T = 16 的 fine Acc-Top5 為 88.95%，略高於 T = 8 的 88.83%。來源定位：p. 8, Table III。</li>
+<li><code>α = 5</code> 時 F1mean 最高（65.59%）；但 <code>α = 0</code> 的 fine Acc-Top5 為 89.12%，高於 α = 5 的 88.83%。來源定位：p. 8, Table IV。</li>
+<li>在元件消融中，w/o SE 與 w/o embedding 的 fine Acc-Top5 分別為 89.01% 與 89.12%，亦高於完整 MANet 的 88.83%。來源定位：p. 8, Table V。</li>
+</ul>
+</li>
+<li>Interpretation boundary:
+<ul>
+<li>SE 與 embedding loss 對 F1mean、fine Top-1 與 macro-F1 有正向貢獻，但其效益並非在所有指標上一致；完整模型偏向提升第一名預測與類別平衡，而不一定提升 top-5 coverage。</li>
+<li>作者將 T = 16 的下降歸因於冗餘影格干擾，屬合理但未直接驗證的解釋。</li>
+</ul>
+</li>
+<li>Source locator: p. 8, Tables III–V；Section V.C。</li>
+</ul>
+<h4 id="visualization-and-error-patterns">Visualization and Error Patterns<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#visualization-and-error-patterns" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h4>
+<ul>
+<li>Evidence or statistics:
+<ul>
+<li>t-SNE 圖顯示 MANet 在 coarse 與 fine label 下的群聚較 TSM 清楚，作者以 nodding 與 head up 為例。來源定位：p. 9, Fig. 5。</li>
+<li>confusion matrix 多數高值位於對角線，但 turning around、shrugging 等類別仍有誤分類；作者歸因於類間差異接近與訓練資料不足。來源定位：p. 9, Fig. 6 and Section V.D。</li>
+<li>範例顯示 MANet 可修正 TSM 對 tilting/turning head、touching nose/touching face、touching/patting legs 等相近類別的錯誤。來源定位：pp. 9–10, Fig. 4 and Section V.D。</li>
+</ul>
+</li>
+<li>Interpretation boundary:
+<ul>
+<li>t-SNE 與挑選出的案例是描述性視覺證據，不足以取代完整的逐類 precision/recall、錯誤率或外部資料測試。</li>
+</ul>
+</li>
+<li>Source locator: pp. 9–10, Figs. 4–6。</li>
+</ul>
+<h4 id="emotion-recognition-application">Emotion Recognition Application<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#emotion-recognition-application" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h4>
+<ul>
+<li>Evidence or statistics:
+<ul>
+<li>在 MA-52-Pro 上，融合 facial 與 micro-action 的 full model 達 <code>Acc = 62.38%</code>、<code>F1weight = 58.49%</code>、<code>UF1 = 41.75%</code>、<code>UAR = 42.28%</code>（Table VI）、micro-action <code>mAP = 15.40%</code>。來源定位：p. 10, Table VI。</li>
+<li>Face-only 的 Acc 為 60.01%，micro-action-only 為 58.86%；融合模型較 face-only 高 2.37 個百分點。來源定位：p. 10, Table VI。</li>
+<li>Micro-action-only 的 UF1 40.30% 與 UAR 41.38% 高於 face-only 的 38.38% 與 38.18%，但 Acc 較低。來源定位：p. 10, Table VI。</li>
+<li>正文量化分析將 full model 的 UAR 寫為 42.88%，與 Table VI 的 42.28% 不一致。來源定位：pp. 10–11, Table VI and Section VI.B。</li>
+</ul>
+</li>
+<li>Interpretation boundary:
+<ul>
+<li>結果顯示微動作可在此資料集與模型設定下提供增額資訊，但提升幅度有限；不能由此推論微動作普遍優於臉部，或能準確推知真實心理狀態。</li>
+<li>情緒標籤同時參考動作、臉部、語言與語調，而模型輸入含臉部與全身影片；資料建立與模型評估均來自同一訪談來源，尚未構成跨資料集效度證據。</li>
+</ul>
+</li>
+<li>Source locator: pp. 10–11, Table VI；Section VI.B；Figs. 8–10。</li>
+</ul>
+<h4 id="lower-limb-contribution">Lower-limb Contribution<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#lower-limb-contribution" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h4>
+<ul>
+<li>Evidence or statistics:
+<ul>
+<li>MA-52-Pro 中 lower limb（D）與 leg-hand（G）合計 5,379 個標籤，占 29,503 個標籤的 18.23%。來源定位：p. 12, Section VI.B and Table VII。</li>
+<li>保留完整標籤相較移除 D&amp;G，使 Acc Avg 從 60.65% 提升至 62.38%、weighted-F1 從 56.90% 提升至 58.49%、UAR 從 41.05% 提升至 42.28%。來源定位：p. 12, Table VII。</li>
+<li>但 mAP 從移除下肢時的 16.20% 降至完整標籤的 15.40%；surprise 與 anger 的類別準確率亦未隨完整標籤提高。來源定位：p. 12, Table VII。</li>
+</ul>
+</li>
+<li>Interpretation boundary:
+<ul>
+<li>下肢線索對整體情緒分類有增額價值，但會增加多標籤微動作辨識難度，且效果依情緒類別而異；不能簡化為「下肢線索全面改善所有任務」。</li>
+</ul>
+</li>
+<li>Source locator: p. 12, Table VII；Fig. 11。</li>
+</ul>
+<h2 id="authors-discussion">Authors’ Discussion<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#authors-discussion" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<h3 id="conclusions">Conclusions<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#conclusions" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<p>作者認為 MA-52 提供大規模、類別豐富、涵蓋全身及下肢的微動作資料，MANet 能捕捉細微時空變化並在主要整體與細粒度指標上取得良好表現；延伸至 MA-52-Pro 的結果則被用來支持微動作線索在情緒辨識中的實用性。來源定位：pp. 12–13, Sections VII–VIII。</p>
+<h3 id="explanations">Explanations<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#explanations" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li>作者將 MANet 的優勢歸因於 SE 對空間 channel 的強化、TSM 對相鄰影格資訊的交換，以及 embedding loss 對影片特徵與動作標籤語意距離的約束。來源定位：pp. 6–8, Fig. 3 and Section V.C。</li>
+<li>作者推測 T = 4 會遺失連續動作細節，而 T = 16 的冗餘影格可能干擾微動作擷取，因此 T = 8 在資訊保留與運算成本間較合適。來源定位：p. 8, Section V.C。</li>
+<li>對部分誤分類，作者提出類別間外觀差異過小、資料量不足與長尾分布作為解釋。來源定位：p. 9, Section V.D。</li>
+</ul>
+<h3 id="applications">Applications<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#applications" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li>本文實際評估的應用是五類情緒辨識，顯示臉部與微動作融合比單一路徑表現較高。來源定位：pp. 10–12, Section VI。</li>
+<li>作者亦列舉心理評估、醫療診斷、智慧車輛、運動競賽、虛擬實境與人機互動等潛在用途；其中除情緒辨識外，多數屬背景或未來應用例示，並未在本文中直接驗證。來源定位：pp. 1 and 4, Introduction and Section II.C。</li>
+</ul>
+<h3 id="limitations">Limitations<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#limitations" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<p>作者在正文與未來方向中明確承認或呈現的限制包括：</p>
+<ul>
+<li>微動作類別呈長尾分布，少數類別資料不足。來源定位：pp. 2, 5, 9, Sections I, III.B, V.D。</li>
+<li>高度相似的 fine-grained 類別仍難以區分。來源定位：pp. 9–10, Section V.D。</li>
+<li>MA-52-Pro 中，多個微動作在長影片中同時出現時，模型難以完整偵測，mAP 僅 15.40%。來源定位：pp. 10–12, Section VI.B。</li>
+<li>真實環境中的背景雜訊、遮擋、光照變化與相機晃動可能顯著降低辨識表現。來源定位：p. 12, Section VII。</li>
+</ul>
+<h3 id="future-research">Future Research<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#future-research" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<p>作者提出五個主要方向：</p>
+<ol>
+<li>Composite MAR：處理多個同時出現的微動作。</li>
+<li>Multimodal MAR：整合音訊、深度等多種感知模態。</li>
+<li>Micro-expression and Micro-action incorporation：聯合建模微表情與微動作。</li>
+<li>Micro-action Generation：以 AIGC 擴增微動作資料，但仍需驗證生成資料的可用性。</li>
+<li>More Challenging Realistic Situations：提升模型在遮擋、雜訊與攝影條件變化下的泛化與魯棒性。</li>
+</ol>
+<p>來源定位：p. 12, Section VII。</p>
+<h2 id="missing-or-unclear-information">Missing or Unclear Information<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#missing-or-unclear-information" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<ul>
+<li>提供的 PDF 未列出 DOI、卷期與正式頁碼範圍；首頁顯示 2024 年期刊名稱與 arXiv:2403.05234v2，但無法由單一文件確認最終出版書目。</li>
+<li>論文提供 GitHub 位置，但未在本文中明示資料與程式碼的授權條款、下載限制或長期保存政策。來源定位：p. 1, Abstract。</li>
+<li>MA-52 的 train/validation/test 是否採 participant-disjoint split 未說明；若同一參與者跨分割，身份、服裝或姿態特徵可能造成資料洩漏。來源定位：p. 5, Section III.B。</li>
+<li>參與者的招募方式、地理與文化背景、排除條件及訪談語言未完整交代，限制外部效度判斷。</li>
+<li>雖有三階段標註流程，未報告標註者人數、標註訓練、類別操作定義、動作 onset/offset 規則或 inter-rater reliability。來源定位：pp. 4–5, Section III.A。</li>
+<li>文中將微動作發生時間描述為 1/25–1/3 s，但 MA-52 片段平均 1.9 s；實際動作持續時間與片段窗口如何區分不清楚。來源定位：pp. 2 and 5。</li>
+<li>MA-52-Pro 的情緒標註依據、評定者、共識程序與信度未充分報告。來源定位：p. 10, Section VI.A。</li>
+<li>未報告模型是否使用預訓練權重、各 baseline 是否經等量超參數調校、隨機種子、重複訓練變異或信賴區間。</li>
+<li>Table VI 的 full-model UAR 為 42.28%，但正文寫為 42.88%，需回查正式版本或程式輸出。來源定位：pp. 10–11。</li>
+</ul>
+<h2 id="critical-appraisal">Critical Appraisal<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#critical-appraisal" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<h3 id="strengths">Strengths<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#strengths" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li>資料蒐集策略與研究問題高度對應：以坐姿心理訪談取得自然全身行為，補足既有資料偏重上半身、站姿或預設情境的限制。來源定位：pp. 3–5。</li>
+<li>MA-52 在參與者數、類別數、影片數與下肢覆蓋上具實質規模，且性別比例接近平衡、年齡跨度廣。來源定位：pp. 4–5, Table I and Fig. 2。</li>
+<li>兩層標籤同時支援 body-part 與 action-category 分析，適合檢查 coarse-to-fine 辨識落差。來源定位：p. 5, Fig. 2。</li>
+<li>研究不只提出新模型，也比較九種常見架構，並用元件、loss weight 與 frame sampling 消融檢驗模型選擇。來源定位：pp. 6–8。</li>
+<li>同時報告 macro-F1、micro-F1、Top-1 與 Top-5，較能反映長尾資料下不同層面的表現。來源定位：pp. 7–8。</li>
+<li>作者提供資料與程式碼位置，有利於重現與後續研究；惟授權細節仍需另行確認。來源定位：p. 1。</li>
+</ul>
+<h3 id="methodological-concerns">Methodological Concerns<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#methodological-concerns" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li><strong>可能的 participant leakage：</strong> 論文只報告 instance counts 的 2:1:1 split，未說明是否按參與者互斥。微動作資料容易攜帶身份、服裝、體型與個人姿態特徵，因此 subject-independent evaluation 是判斷泛化能力的關鍵。</li>
+<li><strong>標註效度與信度不足：</strong> 三階段覆核可降低錯誤，但沒有定量 agreement，也未明確說明 52 類的時間邊界與判斷準則，難以評估標籤的一致性與可複製性。</li>
+<li><strong>情緒 ground truth 的循環風險：</strong> 情緒標籤參考動作、表情、語言與語調，而模型又以臉部與全身行為預測該標籤。這可以作為多模態行為預測任務，但不等同於獨立、臨床有效的情緒真值。</li>
+<li><strong>缺乏外部驗證：</strong> MANet 與情緒模型均主要在作者建立的資料上評估；尚未證明對 iMiGUE、SMG、其他文化、非坐姿或真實場域有效。</li>
+<li><strong>效能差距的不確定性：</strong> MANet 對 UniFormer 的 F1mean 優勢為 1.16 個百分點，且 coarse micro-F1/Acc-Top1 反而略低；未報告重複實驗變異，難以判斷差異是否穩定。</li>
+<li><strong>指標結果具有取捨：</strong> embedding loss 與完整模型改善 F1mean/Top-1，但 fine Top-5 在部分消融設定更高；因此模型改進不宜概括為所有面向均提升。</li>
+<li><strong>類別與場景限制：</strong> 資料來自坐姿心理訪談；對站立、移動、多人互動、運動場景或非訪談脈絡的適用性未知。</li>
+</ul>
+<h3 id="alternative-interpretations">Alternative Interpretations<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#alternative-interpretations" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li>MANet 的提升可能部分來自其架構與 MA-52 的坐姿、固定攝影機特性匹配，而不一定是普遍適用於所有微動作情境的優勢。</li>
+<li>joint-embedding loss 的改善可解釋為額外正則化或更佳類別結構，而不必然表示模型真正理解動作標籤的語意。</li>
+<li>融合模型比 face-only 高 2.37 個百分點，支持微動作具有增額資訊；但也可能是增加第二個視覺分支與模型容量所帶來的效益，需以參數量匹配的控制模型驗證。</li>
+<li>下肢標籤提升整體情緒指標，可能來自真實情緒線索，也可能與坐姿訪談中的個人習慣、年齡或身份特徵相關；participant-disjoint 與跨資料集測試可協助區分。</li>
+</ul>
+<h3 id="evidence-needed-to-resolve-uncertainty">Evidence Needed to Resolve Uncertainty<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#evidence-needed-to-resolve-uncertainty" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li>以參與者互斥方式重新切分並公開 subject IDs，報告跨個體與跨情境結果。</li>
+<li>公開完整 annotation handbook、動作 onset/offset 標準、標註者背景與 inter-rater reliability。</li>
+<li>在 iMiGUE、SMG 或新蒐集的站姿／自然場域資料上外部驗證，並測試跨資料集 transfer。</li>
+<li>報告多個 random seeds、平均值、標準差或信賴區間，檢查 MANet 與 UniFormer 的小幅差距是否穩定。</li>
+<li>為情緒模型加入參數量匹配的雙視覺分支控制、語音／語言基準及獨立情緒評定，區分微動作資訊與模型容量效果。</li>
+<li>逐類報告 precision、recall、support 與 calibration，並分析長尾重加權、重抽樣或 balanced loss 是否改善少數類別。</li>
+</ul>
+<h2 id="relevance-to-my-research">Relevance to My Research<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#relevance-to-my-research" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<h3 id="claims-supported">Claims Supported<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#claims-supported" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li>本文支持將全身微動作視為可操作化、可標註並可由影片模型辨識的行為層級；若研究問題涉及細微姿態變化，攝影範圍不宜只涵蓋臉部與上半身。支持強度：資料集與模型層級；邊界為坐姿心理訪談情境。來源定位：pp. 4–9。</li>
+<li>下肢與 leg-hand 動作在 MA-52-Pro 中占 18.23%，保留其標籤可改善部分整體情緒指標，支持在行為研究中保留腿部與腳部視野。支持強度：同一資料集內的消融證據；不能直接泛化至其他任務。來源定位：p. 12, Table VII。</li>
+<li>Fine-grained 微動作辨識顯著難於部位層級辨識，支持以 hierarchical label 與 macro-F1 評估，而非只報告單一 accuracy。來源定位：pp. 7–8, Table II。</li>
+</ul>
+<h3 id="claims-challenged">Claims Challenged<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#claims-challenged" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li>「身體線索比臉部更能反映情緒」在本文中未獲得一致支持：micro-action-only 的 Acc 低於 face-only，而融合模型僅呈有限增益。來源定位：p. 10, Table VI。</li>
+<li>「MANet 在所有主要指標上最佳」與 Table II 不完全一致；coarse micro-F1/Acc-Top1 由 UniFormer 略高，部分消融設定的 fine Top-5 亦高於完整模型。來源定位：p. 8, Tables II–V。</li>
+</ul>
+<h3 id="design-implications">Design Implications<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#design-implications" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li>未來若建立細微行為資料，應預先規劃 participant-disjoint split、類別層級、少數類別最低樣本數、標註信度與完整身體攝影範圍。</li>
+<li>對長尾多類別任務，至少同時報告 macro-F1、micro-F1、逐類 support 與 confusion matrix；Top-1 與 Top-5 應分別解讀。</li>
+<li>若將微動作用於心理推論，需把「可辨識的行為類別」與「心理狀態的效度」分開驗證，並避免將資料集內預測準確率直接視為臨床或心理測量效度。</li>
+<li>若測試微動作對情緒或其他結果的增額效度，應使用容量匹配的控制模型、獨立 ground truth，以及跨參與者與跨資料集評估。</li>
+</ul>
+<h3 id="use-in-current-projects">Use in Current Projects<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#use-in-current-projects" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li>目前輸入未提供可驗證的 current project 或既有 project page，因此不將本文指派至特定專案。</li>
+</ul>
+<h2 id="connections">Connections<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#connections" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<h3 id="concepts">Concepts<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#concepts" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li><a href="../../knowledge/concept/micro-action/" class="internal internal-link alias" data-slug="knowledge/concept/micro-action/index">Micro-action</a></li>
+</ul>
+<h3 id="methods">Methods<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#methods" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li>無。</li>
+</ul>
+<h3 id="tasks">Tasks<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#tasks" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li><a href="../../knowledge/task/action-recognition/" class="internal internal-link alias" data-slug="knowledge/task/action-recognition/index">Action Recognition</a></li>
+</ul>
+<h3 id="authors">Authors<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#authors" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li>無。</li>
+</ul>
+<h3 id="syntheses-and-maps">Syntheses and Maps<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#syntheses-and-maps" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li>無。</li>
+</ul>
+<h2 id="integration-decisions">Integration Decisions<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#integration-decisions" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<h3 id="approved-and-completed">Approved and completed<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#approved-and-completed" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li>Created/updated <a href="../../knowledge/concept/micro-action/" class="internal internal-link alias" data-slug="knowledge/concept/micro-action/index">Micro-action</a>.</li>
+<li>Created/updated <a href="../../knowledge/task/action-recognition/" class="internal internal-link alias" data-slug="knowledge/task/action-recognition/index">Action Recognition</a>, which generalizes and replaces the proposed micro-action-recognition and whole-body-video emotion-recognition task targets for this lab context.</li>
+</ul>
+<h3 id="excluded-after-tyler-review">Excluded after Tyler review<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#excluded-after-tyler-review" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h3>
+<ul>
+<li>Knowledge/Concepts/Whole-body Behavioral Cues</li>
+<li>Knowledge/Methods/MANet</li>
+<li>Knowledge/Methods/Hierarchical Micro-action Annotation</li>
+<li>Ideas/Participant-independent Evaluation of Micro-action Recognition</li>
+<li>Ideas/Incremental Validity of Lower-limb Behavioral Cues</li>
+<li>Literature/Syntheses/Whole-body Micro-actions as Emotion Cues</li>
+<li>Literature/Reviews &amp; Maps/Micro-action Recognition — Datasets, Methods, and Applications</li>
+</ul>
+<h2 id="quotations-for-verification">Quotations for Verification<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#quotations-for-verification" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<ul>
+<li>“low-intensity movement” — p. 1, Abstract。</li>
+<li>“natural, spontaneous, and authentic micro-actions” — p. 2, Contributions。</li>
+</ul>
+<details class="zotero-annotations">
+<summary>Zotero Annotations</summary>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div class="table-container"><table><thead><tr><th>Color</th><th>Meaning</th></tr></thead><tbody><tr><td>Gray · Gray</td><td>文章大綱</td></tr><tr><td>Red · Red</td><td>有趣觀點</td></tr><tr><td>Yellow · Yellow</td><td>作者觀點</td></tr><tr><td>Green · Green</td><td>可引用觀點</td></tr></tbody></table></div>
+<ul>
+<li>
+<p><strong>Zotero item:</strong> Open in Zotero</p>
+</li>
+<li>
+<p>p. 4 · gray · 文章大綱 · highlight · Open PDF</p>
+<blockquote>
+<p>The field of micro-action recognition offers considerable possibilities and opportunities, especially in applications focused on human interaction.</p>
+</blockquote>
+</li>
+<li>
+<p>p. 4 · red · 有趣觀點 · highlight · Open PDF</p>
+<blockquote>
+<p>High-definition cameras are used to record unconscious behavior from a whole-body perspective during the interviews.</p>
+</blockquote>
+</li>
+<li>
+<p>p. 4 · yellow · 作者觀點 · highlight · Open PDF</p>
+<blockquote>
+<p>These behaviors encompass movements of various parts of the body, including the head, hands, and both upper and lower limbs, as well as interactive movements between different parts of the body (e.g., head-hand and leghand interactions).</p>
+</blockquote>
+</li>
+<li>
+<p>p. 4 · green · 可引用觀點 · highlight · Open PDF</p>
+<blockquote>
+<p>To our knowledge, our dataset is unique in capturing participants while seated, thus providing additional data on lower-limb activities such as “leg shaking,” “touching legs,” and “patting legs.”</p>
+</blockquote>
+</li>
+</ul>
+</details>
+<h2 id="open-questions">Open Questions<a role="anchor" aria-hidden="true" tabindex="-1" data-no-popover="true" href="#open-questions" class="internal internal-link"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></a></h2>
+<ul>
+<li>MA-52 的 train/validation/test 是否完全 participant-disjoint？若不是，改採 subject-independent split 後表現會下降多少？</li>
+<li>52 類微動作的操作定義、onset/offset 規則與標註者 agreement 為何？</li>
+<li>MA-52-Pro 的情緒標籤由誰判定、如何整合 SCL-90、語言內容、語調、表情與動作，信度與效度如何？</li>
+<li>Table VI 中 full-model UAR 應為 42.28% 還是 42.88%？</li>
+<li>MANet 在 iMiGUE、SMG、站姿、移動中或非訪談情境的外部效度如何？</li>
+<li>加入下肢線索的增益是否仍存在於控制模型容量、身份特徵與文化背景後？</li>
+<li>GitHub 所提供資料的實際授權、隱私去識別程序與可再散布範圍為何？</li>
+<li>joint-embedding loss 的效益來自標籤語意結構、額外正則化，或兩者兼具？可否用隨機標籤 embedding 或其他對照加以區分？</li>
+</ul>
+<div class="backlinks" data-public-backlinks data-public-id="guo-2024-benchmarking-micro-action-recognition"><h2 id="backlinks">Backlinks</h2><ul><li><a href="../../knowledge/concept/micro-action/" data-public-id="micro-action" data-node-class="concept">micro-action</a></li><li><a href="../../knowledge/task/action-recognition/" data-public-id="action-recognition" data-node-class="task">action-recognition</a></li></ul></div></div><section class="public-graph" id="public-graph-local-guo-2024-benchmarking-micro-action-recognition" data-graph-scope="local" data-graph-root-id="guo-2024-benchmarking-micro-action-recognition" data-layout-ready="false"><h2>Local Graph</h2><svg role="img" aria-label="Local public graph"></svg></section></article><div class="page-listing"><p>0 items under this folder.</p><div><ul class="section-ul"></ul></div></div></div><hr/><div class="page-footer"></div></div><div class="right sidebar"><div class="toc"><button type="button" class="collapsed toc-header" aria-controls="tracer-toc-0" aria-expanded="false"><h3>Table of Contents</h3><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="fold"><polyline points="6 9 12 15 18 9"></polyline></svg></button><ul id="tracer-toc-0" class="collapsed toc-content overflow"><li class="depth-0"><a href="#guo-et-al-2024--benchmarking-micro-action-recognition" data-for="guo-et-al-2024--benchmarking-micro-action-recognition">Guo et al. 2024 — Benchmarking Micro-action Recognition</a></li><li class="depth-1"><a href="#bibliography" data-for="bibliography">Bibliography</a></li><li class="depth-1"><a href="#one-sentence-takeaway" data-for="one-sentence-takeaway">One-sentence Takeaway</a></li><li class="depth-1"><a href="#research-question" data-for="research-question">Research Question</a></li><li class="depth-1"><a href="#citation" data-for="citation">Citation</a></li><li class="depth-1"><a href="#argument-structure" data-for="argument-structure">Argument Structure</a></li><li class="depth-1"><a href="#theoretical-background" data-for="theoretical-background">Theoretical Background</a></li><li class="depth-1"><a href="#key-terms-and-construct-boundaries" data-for="key-terms-and-construct-boundaries">Key Terms and Construct Boundaries</a></li><li class="depth-1"><a href="#method" data-for="method">Method</a></li><li class="depth-2"><a href="#design-or-approach" data-for="design-or-approach">Design or Approach</a></li><li class="depth-2"><a href="#participants-data-or-source-corpus" data-for="participants-data-or-source-corpus">Participants, Data, or Source Corpus</a></li><li class="depth-2"><a href="#task-procedure-or-search-strategy" data-for="task-procedure-or-search-strategy">Task, Procedure, or Search Strategy</a></li><li class="depth-2"><a href="#measures-labels-or-constructs" data-for="measures-labels-or-constructs">Measures, Labels, or Constructs</a></li><li class="depth-2"><a href="#analysis-evaluation-or-synthesis" data-for="analysis-evaluation-or-synthesis">Analysis, Evaluation, or Synthesis</a></li><li class="depth-1"><a href="#main-results" data-for="main-results">Main Results</a></li><li class="depth-2"><a href="#result-index" data-for="result-index">Result Index</a></li><li class="depth-2"><a href="#detailed-results" data-for="detailed-results">Detailed Results</a></li><li class="depth-1"><a href="#authors-discussion" data-for="authors-discussion">Authors’ Discussion</a></li><li class="depth-2"><a href="#conclusions" data-for="conclusions">Conclusions</a></li><li class="depth-2"><a href="#explanations" data-for="explanations">Explanations</a></li><li class="depth-2"><a href="#applications" data-for="applications">Applications</a></li><li class="depth-2"><a href="#limitations" data-for="limitations">Limitations</a></li><li class="depth-2"><a href="#future-research" data-for="future-research">Future Research</a></li><li class="depth-1"><a href="#missing-or-unclear-information" data-for="missing-or-unclear-information">Missing or Unclear Information</a></li><li class="depth-1"><a href="#critical-appraisal" data-for="critical-appraisal">Critical Appraisal</a></li><li class="depth-2"><a href="#strengths" data-for="strengths">Strengths</a></li><li class="depth-2"><a href="#methodological-concerns" data-for="methodological-concerns">Methodological Concerns</a></li><li class="depth-2"><a href="#alternative-interpretations" data-for="alternative-interpretations">Alternative Interpretations</a></li><li class="depth-2"><a href="#evidence-needed-to-resolve-uncertainty" data-for="evidence-needed-to-resolve-uncertainty">Evidence Needed to Resolve Uncertainty</a></li><li class="depth-1"><a href="#relevance-to-my-research" data-for="relevance-to-my-research">Relevance to My Research</a></li><li class="depth-2"><a href="#claims-supported" data-for="claims-supported">Claims Supported</a></li><li class="depth-2"><a href="#claims-challenged" data-for="claims-challenged">Claims Challenged</a></li><li class="depth-2"><a href="#design-implications" data-for="design-implications">Design Implications</a></li><li class="depth-2"><a href="#use-in-current-projects" data-for="use-in-current-projects">Use in Current Projects</a></li><li class="depth-1"><a href="#connections" data-for="connections">Connections</a></li><li class="depth-2"><a href="#concepts" data-for="concepts">Concepts</a></li><li class="depth-2"><a href="#methods" data-for="methods">Methods</a></li><li class="depth-2"><a href="#tasks" data-for="tasks">Tasks</a></li><li class="depth-2"><a href="#authors" data-for="authors">Authors</a></li><li class="depth-2"><a href="#syntheses-and-maps" data-for="syntheses-and-maps">Syntheses and Maps</a></li><li class="depth-1"><a href="#integration-decisions" data-for="integration-decisions">Integration Decisions</a></li><li class="depth-2"><a href="#approved-and-completed" data-for="approved-and-completed">Approved and completed</a></li><li class="depth-2"><a href="#excluded-after-tyler-review" data-for="excluded-after-tyler-review">Excluded after Tyler review</a></li><li class="depth-1"><a href="#quotations-for-verification" data-for="quotations-for-verification">Quotations for Verification</a></li><li class="depth-1"><a href="#open-questions" data-for="open-questions">Open Questions</a></li><li class="depth-1"><a href="#backlinks" data-for="backlinks">Backlinks</a></li><li class="overflow-end"></li></ul></div></div></div></div><script data-tracer-extension="t04">(()=>{const groups=[{"nodeClass":"paper","label":"Papers","entries":[{"publicId":"guo-2024-benchmarking-micro-action-recognition","nodeClass":"paper","route":"/papers/guo-2024-benchmarking-micro-action-recognition/","label":"Benchmarking Micro-action Recognition: Dataset, Methods, and Applications"},{"publicId":"jackman-2021-flow-clutch-recreational-running","nodeClass":"paper","route":"/papers/jackman-2021-flow-clutch-recreational-running/","label":"Integrating models of self-regulation and optimal experiences: A qualitative study into flow and clutch states in recreational distance running"}]},{"nodeClass":"concept","label":"Concepts","entries":[{"publicId":"flow","nodeClass":"concept","route":"/knowledge/concept/flow/","label":"flow"},{"publicId":"micro-action","nodeClass":"concept","route":"/knowledge/concept/micro-action/","label":"micro-action"}]},{"nodeClass":"method","label":"Methods","entries":[{"publicId":"connecting-analysis","nodeClass":"method","route":"/knowledge/method/connecting-analysis/","label":"connecting-analysis"},{"publicId":"event-focused-interview","nodeClass":"method","route":"/knowledge/method/event-focused-interview/","label":"event-focused-interview"},{"publicId":"thematic-analysis","nodeClass":"method","route":"/knowledge/method/thematic-analysis/","label":"thematic-analysis"}]},{"nodeClass":"task","label":"Tasks","entries":[{"publicId":"action-recognition","nodeClass":"task","route":"/knowledge/task/action-recognition/","label":"action-recognition"}]},{"nodeClass":"author","label":"Authors","entries":[{"publicId":"patricia-c-jackman","nodeClass":"author","route":"/knowledge/author/patricia-c-jackman/","label":"patricia-c-jackman"}]},{"nodeClass":"synthesis","label":"Syntheses","entries":[]},{"nodeClass":"map","label":"Maps","entries":[]}],publicHref=route=>new URL(publicSiteRoot+route.replace(/^\/+/,""),document.baseURI).pathname,mobile=()=>matchMedia("(max-width: 800px)").matches,setOpen=(explorer,button,content,open)=>{explorer.classList.toggle("collapsed",!open);explorer.setAttribute("aria-expanded",String(open));button.setAttribute("aria-expanded",String(open));content.setAttribute("aria-expanded",String(open));content.style.visibility=open?"visible":"hidden";content.style.display=mobile()?(open?"":"none"):"";content.style.transform=open?"translateX(0)":"translateX(-100vw)";document.documentElement.classList.toggle("mobile-no-scroll",mobile()&&open)},renderGroups=list=>{const signature=groups.flatMap(group=>group.entries.map(entry=>entry.publicId)).join("\0");if(list.dataset.publicExplorerSignature===signature&&list.querySelectorAll("[data-tracer-entry]").length===groups.reduce((count,group)=>count+group.entries.length,0))return;list.replaceChildren();for(const group of groups){const groupItem=document.createElement("li"),heading=document.createElement("span"),entriesList=document.createElement("ul");groupItem.className="public-class-group";groupItem.dataset.nodeClass=group.nodeClass;heading.className="public-class-group-label";heading.textContent=group.label;entriesList.className="public-class-group-entries";for(const entry of group.entries){const item=document.createElement("li"),link=document.createElement("a");item.setAttribute("data-tracer-entry","");link.href=publicHref(entry.route);link.className="nav-file-title tree-item-self";link.textContent=entry.label;link.dataset.publicId=entry.publicId;link.dataset.nodeClass=entry.nodeClass;item.append(link);entriesList.append(item)}groupItem.append(heading,entriesList);list.append(groupItem)}list.dataset.publicExplorerSignature=signature},setupExplorer=()=>document.querySelectorAll(".explorer").forEach(explorer=>{const button=explorer.querySelector(".mobile-explorer"),content=explorer.querySelector(".explorer-content"),list=explorer.querySelector(".explorer-ul");if(!button||!content||!list)return;button.classList.remove("hide-until-loaded");renderGroups(list);if(!button.hasAttribute("data-tracer-bound")){button.setAttribute("data-tracer-bound","true");new MutationObserver(()=>renderGroups(list)).observe(list,{childList:true,subtree:true});setOpen(explorer,button,content,!mobile());button.addEventListener("click",event=>{if(!mobile())return;const open=button.getAttribute("aria-expanded")!=="true";event.preventDefault();event.stopImmediatePropagation();setOpen(explorer,button,content,open);setTimeout(()=>setOpen(explorer,button,content,open),0)},true);document.addEventListener("keydown",event=>{if(event.key==="Escape"&&mobile()&&button.getAttribute("aria-expanded")==="true"){setOpen(explorer,button,content,false);button.focus()}},true)}}),setTocOpen=(button,content,open)=>{button.classList.toggle("collapsed",!open);button.setAttribute("aria-expanded",String(open));content.classList.toggle("collapsed",!open);content.setAttribute("aria-expanded",String(open));content.style.display=open?"":"none";content.style.visibility=open?"visible":"hidden"},setupToc=()=>{document.querySelectorAll("button.toc-header").forEach(button=>{const content=document.getElementById(button.getAttribute("aria-controls"))??button.nextElementSibling;if(!content)return;if(!button.hasAttribute("data-tracer-toc-bound")){button.setAttribute("data-tracer-toc-bound","true");button.addEventListener("click",()=>setTimeout(()=>setTocOpen(button,content,button.getAttribute("aria-expanded")==="true"),0))}if(!mobile())setTocOpen(button,content,true)});if(!document.documentElement.hasAttribute("data-tracer-toc-escape-bound")){document.documentElement.setAttribute("data-tracer-toc-escape-bound","true");document.addEventListener("keydown",event=>{if(event.key!=="Escape"||!mobile())return;document.querySelectorAll('button.toc-header[aria-expanded="true"]').forEach(button=>{const content=document.getElementById(button.getAttribute("aria-controls"))??button.nextElementSibling;if(content){setTocOpen(button,content,false);button.focus()}})},true)}},setup=()=>{setupExplorer();setupToc()};setup();window.addEventListener("load",()=>setTimeout(setup,0),{once:true});document.addEventListener("nav",setup)})()</script><script data-tracer-extension="t05-search">(()=>{const compare=(left,right)=>{const a=new TextEncoder().encode(left),b=new TextEncoder().encode(right),length=Math.min(a.length,b.length);for(let index=0;index<length;index+=1)if(a[index]!==b[index])return a[index]-b[index];return a.length-b.length},publicHref=route=>new URL(publicSiteRoot+route.replace(/^\/+/,""),document.baseURI).pathname,setup=root=>{if(root.hasAttribute("data-public-search-ready"))return;root.setAttribute("data-public-search-ready","");const input=root.querySelector("[data-public-search-input]"),results=root.querySelector("[data-public-search-results]"),status=root.querySelector("[data-public-search-status]");if(!input||!results||!status)return;const render=async()=>{const query=input.value.trim().toLocaleLowerCase("en-US"),index=await fetchData,matches=query?index.records.filter(record=>record.search_text.toLocaleLowerCase("en-US").includes(query)).sort((left,right)=>compare(left.public_id,right.public_id)):[];results.replaceChildren();for(const record of matches){const item=document.createElement("li"),link=document.createElement("a");link.href=publicHref(record.url);link.textContent=record.title;link.dataset.publicId=record.public_id;link.dataset.nodeClass=record.node_class;item.append(link);results.append(item)}status.textContent=query?matches.length+" result"+(matches.length===1?"":"s"):"Enter a title, author, DOI, tag, heading, or visible text."};input.addEventListener("input",render)},setupAll=()=>document.querySelectorAll(".public-search").forEach(setup);setupAll();document.addEventListener("nav",setupAll)})()</script><script data-tracer-extension="t05-graph">(()=>{const ns="http://www.w3.org/2000/svg",graphData=fetch(new URL(publicSiteRoot+"graph.json",document.baseURI)).then(response=>{if(!response.ok)throw new Error("public graph unavailable");return response.json()}),publicHref=route=>new URL(publicSiteRoot+route.replace(/^\/+/,""),document.baseURI).pathname,compare=(left,right)=>{const a=new TextEncoder().encode(left),b=new TextEncoder().encode(right),length=Math.min(a.length,b.length);for(let index=0;index<length;index+=1)if(a[index]!==b[index])return a[index]-b[index];return a.length-b.length},svgElement=(name,attributes={})=>{const element=document.createElementNS(ns,name);for(const [key,value] of Object.entries(attributes))element.setAttribute(key,String(value));return element},setup=async root=>{if(root.hasAttribute("data-graph-bound"))return;root.setAttribute("data-graph-bound","");const contract=await graphData,scope=root.dataset.graphScope,rootId=root.dataset.graphRootId??null,selected=new Set();if(scope==="global")contract.nodes.forEach(node=>selected.add(node.public_id));else{selected.add(rootId);contract.edges.forEach(edge=>{if(edge.source===rootId)selected.add(edge.target);if(edge.target===rootId)selected.add(edge.source)})}const nodes=contract.nodes.filter(node=>selected.has(node.public_id)).sort((left,right)=>compare(left.public_id,right.public_id)),edges=contract.edges.filter(edge=>selected.has(edge.source)&&selected.has(edge.target)).sort((left,right)=>compare(left.source+"\0"+left.target,right.source+"\0"+right.target)),svg=root.querySelector("svg"),positions=new Map();svg.replaceChildren();for(const edge of edges)svg.append(svgElement("line",{class:"public-graph-edge","data-graph-edge-source":edge.source,"data-graph-edge-target":edge.target}));for(const node of nodes){const group=svgElement("g",{id:root.id+"-node-"+node.public_id,"data-graph-node-id":node.public_id}),link=svgElement("a",{href:publicHref(node.url)}),glyph=svgElement("circle",{class:"public-graph-glyph",r:7}),label=svgElement("text",{class:"public-graph-label"}),title=svgElement("title");label.textContent=node.title;title.textContent=node.title;link.append(glyph,label,title);group.append(link);svg.append(group)}const layout=()=>{const width=Math.max(240,Math.floor(root.clientWidth)),ideal=Math.max(1,Math.ceil(Math.sqrt(nodes.length))),columns=width<620?1:Math.min(ideal,Math.max(1,Math.floor(width/250))),cellWidth=width/columns,rowHeight=54;nodes.forEach((node,index)=>positions.set(node.public_id,{x:(index%columns)*cellWidth+18,y:32+Math.floor(index/columns)*rowHeight}));const rows=Math.ceil(nodes.length/columns),height=Math.max(88,rows*rowHeight+16);svg.setAttribute("viewBox","0 0 "+width+" "+height);svg.setAttribute("height",String(height));for(const group of svg.querySelectorAll("[data-graph-node-id]")){const point=positions.get(group.dataset.graphNodeId),glyph=group.querySelector(".public-graph-glyph"),label=group.querySelector(".public-graph-label");glyph.setAttribute("cx",String(point.x));glyph.setAttribute("cy",String(point.y));label.setAttribute("x",String(point.x+16));label.setAttribute("y",String(point.y+5))}for(const edge of svg.querySelectorAll("[data-graph-edge-source]")){const source=positions.get(edge.dataset.graphEdgeSource),target=positions.get(edge.dataset.graphEdgeTarget);edge.setAttribute("x1",String(source.x));edge.setAttribute("y1",String(source.y));edge.setAttribute("x2",String(target.x));edge.setAttribute("y2",String(target.y))}root.dataset.layoutReady="true"};layout();new ResizeObserver(layout).observe(root)},setupAll=()=>document.querySelectorAll(".public-graph").forEach(root=>setup(root));setupAll();document.addEventListener("nav",setupAll)})()</script></body><script src="../../static/resource-after-e13fffa1.js" type="application/javascript" data-persist="true"></script><script src="../../static/resource-after-8b336f9a.js" type="application/javascript" data-persist="true"></script><script src="../../static/resource-after-baba652b.js" type="application/javascript" data-persist="true"></script><script src="../../static/resource-after-5eb75950.js" type="module" data-persist="true"></script><script src="../../postscript-f491e311.js" type="module" data-persist="true"></script></html>
