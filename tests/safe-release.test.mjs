@@ -1,7 +1,7 @@
 // @ts-nocheck -- public CLI test intentionally assembles dynamic contract fixtures.
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
-import { lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises"
+import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
@@ -200,6 +200,35 @@ function invokeRelease(fixture, env = {}, trustedNow = now) {
   return spawnSync(npm, args, { cwd: repoRoot, encoding: "utf8", timeout: 180_000, shell: process.platform === "win32", env: childEnv })
 }
 
+async function createTracerSandbox(contract) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "safe-release-tracer-contract-"))
+  await mkdir(path.join(root, "scripts"))
+  await mkdir(path.join(root, "config"))
+  await copyFile(path.join(repoRoot, "scripts", "tracer.mjs"), path.join(root, "scripts", "tracer.mjs"))
+  for (const directory of ["lib", "node_modules", "schemas", "styles"]) {
+    await symlink(path.join(repoRoot, directory), path.join(root, directory), process.platform === "win32" ? "junction" : "dir")
+  }
+  for (const filename of ["quartz-toolchain.json", "public-output-allowlist-v1.json", "public-secret-rules.toml"]) {
+    await copyFile(path.join(repoRoot, "config", filename), path.join(root, "config", filename))
+  }
+  await writeFile(path.join(root, "config", "github-pages-deployment-contract-v1.json"), `${JSON.stringify(contract)}\n`)
+  return root
+}
+
+function invokeReleaseFromTracerSandbox(fixture, tracerRoot, env = {}, trustedNow = now) {
+  const args = [path.join(tracerRoot, "scripts", "tracer.mjs"), "release",
+    "--manifest", fixture.manifestPath,
+    "--export-receipt", fixture.exportReceiptPath,
+    "--runtime-root", fixture.paths.runtime,
+    "--export-root", fixture.paths.export,
+    "--vault-root", fixture.paths.vault,
+    "--work-root", fixture.paths.work,
+    "--releases-root", fixture.paths.releases,
+    "--now", trustedNow,
+  ]
+  return spawnSync(process.execPath, args, { cwd: tracerRoot, encoding: "utf8", timeout: 180_000, env: { ...process.env, ...env } })
+}
+
 const protectedRoots = ["runtime", "releases", "work", "export", "vault"]
 
 async function fixtureSnapshots(fixture) {
@@ -244,6 +273,29 @@ async function assertSecretRulesRejected(t, variant) {
     TYLER_RELEASE_TEST_RULES_CASE: variant,
   }), "SECRET_RULES_INVALID")
 }
+
+test("release fails closed when active root files drift beyond the pinned Quartz output", async (t) => {
+  const fixture = await releaseFixture("2026-07-30T00:00:00Z")
+  const contract = JSON.parse(await readFile(path.join(repoRoot, "config", "github-pages-deployment-contract-v1.json"), "utf8"))
+  const driftedContract = structuredClone(contract)
+  driftedContract.site.entry_file = "home.html"
+  driftedContract.site.custom_404 = "errors/not-found.html"
+  const tracerRoot = await createTracerSandbox(driftedContract)
+  t.after(() => Promise.all([
+    rm(fixture.root, { recursive: true, force: true }),
+    rm(tracerRoot, { recursive: true, force: true }),
+  ]))
+
+  const before = await fixtureSnapshots(fixture)
+  const result = invokeReleaseFromTracerSandbox(fixture, tracerRoot)
+  assert.equal(result.status, 1, result.stdout)
+  assert.equal(result.stderr, "")
+  assert.deepEqual(JSON.parse(result.stdout), {
+    ok: false,
+    error: { code: "DEPLOYMENT_SITE_FILES_UNSUPPORTED", message: "active deployment site files are not produced by the pinned Quartz renderer" },
+  })
+  for (const name of protectedRoots) assert.deepEqual(await exactSnapshot(fixture.paths[name]), before[name], name)
+})
 
 test("T10 baseline approval binding rejects a digest-mismatched rehearsal-shaped manifest", async (t) => {
   const fixture = await releaseFixture("2026-07-30T00:00:00Z")
@@ -414,6 +466,9 @@ test("release with a preflight-valid manifest installs immutable public and cust
   assert.equal(publicFiles.length, output.files)
   assert.equal(publicFiles.some(([relative]) => /(?:manifest|receipt|current-release)/i.test(relative)), false)
   assert.equal(publicFiles.every(([relative]) => !/\.(?:md|pdf)$/i.test(relative)), true)
+  const publicHtml = publicFiles.filter(([relative]) => relative.endsWith(".html")).map(([relative]) => relative).sort()
+  assert.equal(publicHtml.filter((relative) => relative === "404.html").length, 1)
+  assert.deepEqual(publicHtml.filter((relative) => ["knowledge/index.html", "knowledge/concept/index.html", "papers/index.html"].includes(relative)), [])
 
   const custodyRoot = path.join(fixture.paths.runtime, "consumed", fixture.manifest.manifest_id)
   assert.deepEqual((await readdir(custodyRoot)).sort(), ["manifest.json", "release-receipt.json"])

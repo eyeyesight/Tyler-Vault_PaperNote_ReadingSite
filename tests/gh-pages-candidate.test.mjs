@@ -32,7 +32,7 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex")
 }
 
-async function installSealedRelease(root, suffix = "candidate") {
+async function installSealedRelease(root, suffix = "candidate", missingArtifacts = []) {
   const runtimeRoot = path.join(root, "runtime")
   const releasesRoot = path.join(root, "releases")
   const sourceRoot = path.join(root, "Vault")
@@ -47,8 +47,10 @@ async function installSealedRelease(root, suffix = "candidate") {
   manifest.approval_receipt.approved_plan_digest = manifest.plan_digest
   const artifactBytes = new Map([
     ["index.html", Buffer.from("<!doctype html>\n<h1>sealed</h1>\n")],
+    ["404.html", Buffer.from("<!doctype html>\n<h1>not found</h1>\n")],
     ["assets/app.css", Buffer.from("body{color:#123;}\n")],
   ])
+  for (const relative of missingArtifacts) artifactBytes.delete(relative)
   const staging = path.join(root, `input-${suffix}`)
   await mkdir(path.join(staging, "assets"), { recursive: true })
   for (const [relative, bytes] of artifactBytes) await writeFile(path.join(staging, ...relative.split("/")), bytes)
@@ -230,6 +232,62 @@ test("prepare creates a deterministic exact candidate with .nojekyll and stable 
   assert.deepEqual(await verifyGhPagesCandidate({ candidateRoot: targetRoot }), second)
 })
 
+test("prepare rejects a sealed artifact missing the active custom 404 file", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "gh-pages-candidate-missing-custom-404-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const sealed = await installSealedRelease(root, "missing-custom-404", ["404.html"])
+  await expectCode(
+    prepareGhPagesCandidate({
+      verifiedSealedRelease: sealed.capability,
+      targetRoot: path.join(root, "output"),
+      expectedUrl,
+      basePath,
+    }),
+    "CANDIDATE_STATIC_SITE_FILE_MISSING",
+  )
+})
+
+test("prepare rejects a sealed artifact missing the active entry file", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "gh-pages-candidate-missing-entry-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const sealed = await installSealedRelease(root, "missing-entry", ["index.html"])
+  await expectCode(
+    prepareGhPagesCandidate({
+      verifiedSealedRelease: sealed.capability,
+      targetRoot: path.join(root, "output"),
+      expectedUrl,
+      basePath,
+    }),
+    "CANDIDATE_STATIC_SITE_FILE_MISSING",
+  )
+})
+
+test("verify rejects candidate inventories missing the active custom 404 file", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "gh-pages-candidate-verify-missing-custom-404-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const sealed = await installSealedRelease(root, "verify-missing-custom-404")
+  const candidateRoot = path.join(root, "output")
+  await prepareGhPagesCandidate({ verifiedSealedRelease: sealed.capability, targetRoot: candidateRoot, expectedUrl, basePath })
+
+  const metadata = JSON.parse(await readFile(path.join(candidateRoot, ".publication", "gh-pages-candidate-v1.json"), "utf8"))
+  const sourceInventory = metadata.source_artifact.inventory.filter(({ path: relative }) => relative !== "404.html")
+  const siteInventory = metadata.candidate_site.inventory.filter(({ path: relative }) => relative !== "404.html")
+  await rm(path.join(candidateRoot, "site", "404.html"))
+  await rewriteCandidateMetadata(candidateRoot, {
+    source_artifact: {
+      ...metadata.source_artifact,
+      byte_length: sourceInventory.reduce((sum, entry) => sum + entry.byteLength, 0),
+      inventory: sourceInventory,
+      artifact_digest: sha256Jcs(sourceInventory),
+    },
+    candidate_site: {
+      inventory: siteInventory,
+      digest: sha256Jcs(siteInventory),
+    },
+  })
+  await expectCode(verifyGhPagesCandidate({ candidateRoot }), "CANDIDATE_STATIC_SITE_FILE_MISSING")
+})
+
 test("candidate metadata binds real manifest and receipt without inventing a rights digest", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "gh-pages-candidate-metadata-"))
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -332,16 +390,16 @@ test("Windows accepts a case-variant stage path spelling and keeps the canonical
   assert.equal(variantMetadata.dev, canonicalMetadata.dev)
   assert.equal(variantMetadata.ino, canonicalMetadata.ino)
   const resolvedStageRoot = await realpath(caseVariantStageRoot)
-  assert.deepEqual((await readCandidateArtifactTree(resolvedStageRoot)).map(({ path: relative }) => relative), [".nojekyll", "assets/app.css", "index.html"])
+  assert.deepEqual((await readCandidateArtifactTree(resolvedStageRoot)).map(({ path: relative }) => relative), [".nojekyll", "404.html", "assets/app.css", "index.html"])
 })
 
 test("verify rejects tamper, extra, missing, case-collision, symlink, and nonregular site entries", async (t) => {
   const cases = [
     ["tamper", async (candidateRoot) => writeFile(path.join(candidateRoot, "site", "index.html"), "tampered\n"), "CANDIDATE_SITE_HASH_MISMATCH"],
     ["extra", async (candidateRoot) => writeFile(path.join(candidateRoot, "site", "extra.txt"), "extra\n"), "CANDIDATE_SITE_SET_MISMATCH"],
-    ["missing", async (candidateRoot) => rm(path.join(candidateRoot, "site", "index.html")), "CANDIDATE_SITE_SET_MISMATCH"],
+    ["missing", async (candidateRoot) => rm(path.join(candidateRoot, "site", "index.html")), ["CANDIDATE_STATIC_SITE_FILE_MISSING", "CANDIDATE_SITE_SET_MISMATCH"]],
     ["case", async (candidateRoot) => writeFile(path.join(candidateRoot, "site", "INDEX.HTML"), "collision\n"), ["CANDIDATE_SITE_CASE_COLLISION", "CANDIDATE_SITE_HASH_MISMATCH", "CANDIDATE_SITE_SET_MISMATCH"]],
-    ["directory", async (candidateRoot) => { await rm(path.join(candidateRoot, "site", "index.html")); await mkdir(path.join(candidateRoot, "site", "index.html")) }, ["CANDIDATE_SITE_CLASS_INVALID", "CANDIDATE_SITE_SET_MISMATCH"]],
+    ["directory", async (candidateRoot) => { await rm(path.join(candidateRoot, "site", "index.html")); await mkdir(path.join(candidateRoot, "site", "index.html")) }, ["CANDIDATE_STATIC_SITE_FILE_MISSING", "CANDIDATE_SITE_CLASS_INVALID", "CANDIDATE_SITE_SET_MISMATCH"]],
   ]
   for (const [label, mutate, code] of cases) {
     const root = await mkdtemp(path.join(os.tmpdir(), `gh-pages-candidate-${label}-`))
