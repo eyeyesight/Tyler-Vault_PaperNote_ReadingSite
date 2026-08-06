@@ -50,6 +50,7 @@ import {
   pathsOverlap,
 } from "../lib/filesystem-safety.mjs"
 import { createQuartzPublicNavigation } from "../lib/quartz-public-navigation.mjs"
+import { ProjectPageTemplateError, selectProjectPageTemplate } from "../lib/project-page-template.mjs"
 import {
   constructReleaseReceipt,
   readCandidateArtifactTree,
@@ -1246,12 +1247,6 @@ async function normalizeBreadcrumbRoutes(candidate, run, records, outgoing, depl
       backlinks,
     })
     let normalized = html
-    if (record) {
-      const template = record.node.node_class === "paper" ? "paper" : "support"
-      if (/\bdata-tracer-template=/.test(normalized)) throw new TracerError("CANDIDATE_TEMPLATE_MARKER_INVALID", "generated body already contains a template marker")
-      normalized = normalized.replace(/<body\b/, `<body data-tracer-template="${template}"`)
-      if (!normalized.includes(`<body data-tracer-template="${template}"`)) throw new TracerError("CANDIDATE_TEMPLATE_MARKER_INVALID", "generated content route lacks a body element")
-    }
     normalized = normalized.replace(/<nav\b(?=[^>]*class="[^"]*breadcrumb-container)[^>]*>[\s\S]*?<\/nav>/gi, (nav) => nav.replace(/href="([^"]*)"/g, (attribute, href) => {
       if (!href) return attribute
       let pathname
@@ -1287,14 +1282,19 @@ async function normalizeBreadcrumbRoutes(candidate, run, records, outgoing, depl
       if (explorerCount !== 1 || normalized.includes("public-explorer")) throw new TracerError("CANDIDATE_EXPLORER_INVALID", "generated public page must expose exactly one project-owned Explorer")
     }
     if (record) {
-      const beforeBacklinks = normalized
-      normalized = normalized.replace(/<h2\b[^>]*id="backlinks"[^>]*>[\s\S]*?<\/h2>\s*(?:<ul>[\s\S]*?<\/ul>|<p>[\s\S]*?<\/p>)/, navigation.backlinksMarkup)
-      if (normalized === beforeBacklinks) throw new TracerError("CANDIDATE_BACKLINKS_INVALID", "generated content route lacks the project-owned backlinks surface")
+      const template = selectProjectPageTemplate(record.node.node_class === "paper" ? "paper" : "support")
+      try {
+        normalized = template.render(normalized, navigation)
+      } catch (error) {
+        if (error instanceof ProjectPageTemplateError) throw new TracerError(error.code, error.message)
+        throw error
+      }
+    } else {
+      const beforeGraph = normalized
+      normalized = normalized.replace("</article>", `${navigation.graphMarkup}</article>`)
+      if (normalized === beforeGraph) throw new TracerError("CANDIDATE_GRAPH_INVALID", "generated public page lacks an article graph surface")
+      normalized = normalized.replace("</body>", `${navigation.runtimeScripts}</body>`)
     }
-    const beforeGraph = normalized
-    normalized = normalized.replace("</article>", `${navigation.graphMarkup}</article>`)
-    if (normalized === beforeGraph) throw new TracerError("CANDIDATE_GRAPH_INVALID", "generated public page lacks an article graph surface")
-    normalized = normalized.replace("</body>", `${navigation.runtimeScripts}</body>`)
     if (normalized !== html) await writeFile(file.absolute, normalized)
   }
 }
@@ -2643,10 +2643,29 @@ async function main() {
   process.stdout.write(`${JSON.stringify({ ok: true, command: "build", manifestId: safe.manifest.manifest_id, nodes: safe.records.size, routes: gate.routes, files: gate.files, suppressionCount: safe.suppressionCount, quartz: safe.metadata.version })}\n`)
 }
 
-main().catch((error) => {
-  const known = error instanceof TracerError || error instanceof ContractError
-  const code = known ? error.code : "UNEXPECTED_ERROR"
-  const message = known ? error.message : "unexpected tracer failure"
-  process.stdout.write(`${JSON.stringify({ ok: false, error: { code, message } })}\n`)
-  process.exitCode = 1
-})
+export {
+  analyzeMarkdown,
+  decodeMarkdown,
+  normalizePaperMasthead,
+  parseFrontmatter,
+  projectContent,
+  publicContracts,
+  readDeploymentSiteFiles,
+  readSecretRules,
+  readToolchainMetadata,
+  runCandidatePipeline,
+  scholarlyTheme,
+  tracerQuartzConfig,
+  validateMarkdownSafety,
+  validateSemanticTemplates,
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    const known = error instanceof TracerError || error instanceof ContractError
+    const code = known ? error.code : "UNEXPECTED_ERROR"
+    const message = known ? error.message : "unexpected tracer failure"
+    process.stdout.write(`${JSON.stringify({ ok: false, error: { code, message } })}\n`)
+    process.exitCode = 1
+  })
+}
