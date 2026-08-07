@@ -50,6 +50,7 @@ import {
   pathsOverlap,
 } from "../lib/filesystem-safety.mjs"
 import { createQuartzPublicNavigation } from "../lib/quartz-public-navigation.mjs"
+import { ProjectPageTemplateError, selectProjectPageTemplate } from "../lib/project-page-template.mjs"
 import {
   constructReleaseReceipt,
   readCandidateArtifactTree,
@@ -76,6 +77,7 @@ const toolchainMetadataPath = path.join(repoRoot, "config", "quartz-toolchain.js
 const outputAllowlistPath = path.join(repoRoot, "config", "public-output-allowlist-v1.json")
 const secretRulesPath = path.join(repoRoot, "config", "public-secret-rules.toml")
 const scholarlyThemePath = path.join(repoRoot, "styles", "tracer-scholarly.scss")
+const projectSiteBasePath = "/Tyler-Vault_PaperNote_ReadingSite/"
 const quartzContentIndexFile = "index.html"
 const sharedRequiredFlags = ["manifest", "exportReceipt", "runtimeRoot", "exportRoot", "vaultRoot", "workRoot", "now"]
 const testCapability = "t03-regression-v1"
@@ -1246,12 +1248,6 @@ async function normalizeBreadcrumbRoutes(candidate, run, records, outgoing, depl
       backlinks,
     })
     let normalized = html
-    if (record) {
-      const template = record.node.node_class === "paper" ? "paper" : "support"
-      if (/\bdata-tracer-template=/.test(normalized)) throw new TracerError("CANDIDATE_TEMPLATE_MARKER_INVALID", "generated body already contains a template marker")
-      normalized = normalized.replace(/<body\b/, `<body data-tracer-template="${template}"`)
-      if (!normalized.includes(`<body data-tracer-template="${template}"`)) throw new TracerError("CANDIDATE_TEMPLATE_MARKER_INVALID", "generated content route lacks a body element")
-    }
     normalized = normalized.replace(/<nav\b(?=[^>]*class="[^"]*breadcrumb-container)[^>]*>[\s\S]*?<\/nav>/gi, (nav) => nav.replace(/href="([^"]*)"/g, (attribute, href) => {
       if (!href) return attribute
       let pathname
@@ -1287,16 +1283,71 @@ async function normalizeBreadcrumbRoutes(candidate, run, records, outgoing, depl
       if (explorerCount !== 1 || normalized.includes("public-explorer")) throw new TracerError("CANDIDATE_EXPLORER_INVALID", "generated public page must expose exactly one project-owned Explorer")
     }
     if (record) {
-      const beforeBacklinks = normalized
-      normalized = normalized.replace(/<h2\b[^>]*id="backlinks"[^>]*>[\s\S]*?<\/h2>\s*(?:<ul>[\s\S]*?<\/ul>|<p>[\s\S]*?<\/p>)/, navigation.backlinksMarkup)
-      if (normalized === beforeBacklinks) throw new TracerError("CANDIDATE_BACKLINKS_INVALID", "generated content route lacks the project-owned backlinks surface")
+      const template = selectProjectPageTemplate(record.node.node_class === "paper" ? "paper" : "support")
+      try {
+        normalized = template.render(normalized, navigation)
+      } catch (error) {
+        if (error instanceof ProjectPageTemplateError) throw new TracerError(error.code, error.message)
+        throw error
+      }
+    } else {
+      const beforeGraph = normalized
+      normalized = normalized.replace("</article>", `${navigation.graphMarkup}</article>`)
+      if (normalized === beforeGraph) throw new TracerError("CANDIDATE_GRAPH_INVALID", "generated public page lacks an article graph surface")
+      normalized = normalized.replace("</body>", `${navigation.runtimeScripts}</body>`)
     }
-    const beforeGraph = normalized
-    normalized = normalized.replace("</article>", `${navigation.graphMarkup}</article>`)
-    if (normalized === beforeGraph) throw new TracerError("CANDIDATE_GRAPH_INVALID", "generated public page lacks an article graph surface")
-    normalized = normalized.replace("</body>", `${navigation.runtimeScripts}</body>`)
     if (normalized !== html) await writeFile(file.absolute, normalized)
   }
+}
+
+const projectSiteAttribute = /(\b(?:href|src|content)\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi
+const custom404ContentIndexFetch = /(fetch\(\s*)(["'])\/static\/contentIndex\.json\2(\s*\))/g
+
+/** @param {string} html @param {(value:string) => string} rewrite */
+function rewriteProjectSiteAttributes(html, rewrite) {
+  projectSiteAttribute.lastIndex = 0
+  return html.replace(projectSiteAttribute, (whole, prefix, doubleQuoted, singleQuoted, unquoted) => {
+    const value = doubleQuoted ?? singleQuoted ?? unquoted
+    const rewritten = rewrite(value)
+    if (rewritten === value) return whole
+    if (doubleQuoted !== undefined) return `${prefix}"${rewritten}"`
+    if (singleQuoted !== undefined) return `${prefix}'${rewritten}'`
+    return `${prefix}${rewritten}`
+  })
+}
+
+/** @param {string} value */
+function projectSiteReference(value) {
+  if (!value.startsWith("/") || value.startsWith("//")) return value
+  if (value === projectSiteBasePath.slice(0, -1) || value.startsWith(projectSiteBasePath)) return value === projectSiteBasePath.slice(0, -1) ? projectSiteBasePath : value
+  return `${projectSiteBasePath}${value.slice(1)}`
+}
+
+/** @param {string} html */
+function normalizeCustom404References(html) {
+  const normalized = rewriteProjectSiteAttributes(html, projectSiteReference)
+    .replace(custom404ContentIndexFetch, `$1$2${projectSiteBasePath}static/contentIndex.json$2$3`)
+  projectSiteAttribute.lastIndex = 0
+  for (const match of normalized.matchAll(projectSiteAttribute)) {
+    const value = match[2] ?? match[3] ?? match[4]
+    if (value.startsWith("/") && !value.startsWith("//") && !value.startsWith(projectSiteBasePath)) {
+      throw new TracerError("CUSTOM_404_BASE_PATH_INVALID", "generated custom 404 contains an escaping root-absolute URL-bearing attribute")
+    }
+  }
+  if (/fetch\(\s*["']\/(?!Tyler-Vault_PaperNote_ReadingSite\/)/.test(normalized)) {
+    throw new TracerError("CUSTOM_404_BASE_PATH_INVALID", "generated custom 404 contains an escaping root-absolute content-index fetch")
+  }
+  return normalized
+}
+
+/** @param {string} candidate @param {string} run @param {{custom404:string}} deploymentFiles */
+async function normalizeCustom404BasePath(candidate, run, deploymentFiles) {
+  await assertCandidateRoot(candidate, run)
+  const custom404 = (await listRegularTree(candidate, run)).find((file) => file.relative === deploymentFiles.custom404)
+  if (!custom404) throw new TracerError("CUSTOM_404_BASE_PATH_INVALID", "generated custom 404 is missing")
+  const html = custom404.bytes.toString("utf8")
+  const normalized = normalizeCustom404References(html)
+  if (normalized !== html) await writeFile(custom404.absolute, normalized)
 }
 
 /** Replace Quartz's broad content index with the exact public search contract;
@@ -2113,8 +2164,8 @@ async function validatePublicDataStructure(/** @type {Array<{relative:string,byt
   }
 }
 
-/** @param {string} candidate @param {string} run @param {Map<string,{route:string,node:{node_class:string}}>} records @param {Set<string>} suppressedTargets @param {string[]} privatePaths @param {ReadonlyArray<{relative:string,fileClass:string,sha256:string}>} baseline @param {Awaited<ReturnType<typeof readSecretRules>>} secretRules @param {ReadonlyArray<string>|null} outputAllowlist @param {{entryFile:string,custom404:string}} deploymentFiles */
-async function gateCandidate(candidate, run, records, suppressedTargets, privatePaths, baseline, secretRules, outputAllowlist, deploymentFiles, releaseMode = false) {
+/** @param {string} candidate @param {string} run @param {Map<string,{route:string,node:{node_class:string}}>} records @param {Set<string>} suppressedTargets @param {string[]} privatePaths @param {ReadonlyArray<{relative:string,fileClass:string,sha256:string}>} baseline @param {Awaited<ReturnType<typeof readSecretRules>>} secretRules @param {ReadonlyArray<string>|null} outputAllowlist @param {{entryFile:string,custom404:string}} deploymentFiles @param {boolean} [releaseMode] @param {boolean} [retainCustom404] */
+async function gateCandidate(candidate, run, records, suppressedTargets, privatePaths, baseline, secretRules, outputAllowlist, deploymentFiles, releaseMode = false, retainCustom404 = releaseMode) {
   await assertCandidateRoot(candidate, run)
   if (testHook("TYLER_TRACER_TEST_GATE_FAILURE", releaseMode) === "1") throw new TracerError("CANDIDATE_GATE_FAILED", "candidate gate test injection")
   const files = await listRegularTree(candidate, run)
@@ -2136,12 +2187,14 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
   }
   await validatePublicDataStructure(files)
   const html = files.filter((file) => file.relative.endsWith(".html")).map((file) => file.relative)
-  const expectedHtml = [...(releaseMode ? [deploymentFiles.custom404] : []), deploymentFiles.entryFile, ...[...records.values()].map((record) => quartzContentRouteFile(record.route))].sort()
+  const expectedHtml = [...(retainCustom404 ? [deploymentFiles.custom404] : []), deploymentFiles.entryFile, ...[...records.values()].map((record) => quartzContentRouteFile(record.route))].sort()
   if (JSON.stringify(html.sort()) !== JSON.stringify(expectedHtml)) throw new TracerError("CANDIDATE_ROUTE_SET_INVALID", "candidate HTML route set is not exact", { actual: html.sort(), expected: expectedHtml })
   const approvedRoutes = new Set(["/", ...[...records.values()].map((record) => record.route)])
-  const virtual = virtualHtmlPaths(records, deploymentFiles, releaseMode)
+  const custom404Routes = new Set([...approvedRoutes].map((route) => `${projectSiteBasePath}${route.slice(1)}`))
+  const virtual = virtualHtmlPaths(records, deploymentFiles, retainCustom404)
   const expectedFinal = baseline.filter((row) => !virtual.has(row.relative))
   const expectedAssets = new Set(expectedFinal.filter((row) => !row.relative.endsWith(".html")).map((row) => `/${row.relative}`))
+  const custom404Assets = new Set([...expectedAssets].map((asset) => `${projectSiteBasePath}${asset.slice(1)}`))
   const contentHtml = new Set([...records.values()].map((record) => quartzContentRouteFile(record.route)))
   for (const file of files) {
     if (file.relative.endsWith(".html")) {
@@ -2155,7 +2208,8 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
         }
       }
       const route = generatedHtmlRoute(file.relative, deploymentFiles)
-      validateCandidateHtml(pageHtml, route, approvedRoutes, expectedAssets)
+      const custom404 = file.relative === deploymentFiles.custom404
+      validateCandidateHtml(pageHtml, route, custom404 ? custom404Routes : approvedRoutes, custom404 ? custom404Assets : expectedAssets)
     } else if (file.relative.endsWith(".css")) validateCandidateCss(file.bytes.toString("utf8"), `/${file.relative}`, approvedRoutes, expectedAssets)
   }
   const actualManifest = files.map((file) => ({ relative: file.relative, fileClass: "regular-file", sha256: sha256(file.bytes) }))
@@ -2448,6 +2502,7 @@ async function preflight(cli) {
 /** @param {any} safe @param {boolean} releaseMode */
 async function runCandidatePipeline(safe, releaseMode) {
   const releaseCase = releaseMode ? releaseTestHook("TYLER_RELEASE_TEST_CASE") : undefined
+  const retainCustom404 = releaseMode || safe.retainCustom404 === true
   if (releaseCase === "replay-build-must-not-run") {
     throw new TracerError("TEST_INJECTION_INVALID", "exact replay entered the candidate pipeline")
   }
@@ -2521,6 +2576,7 @@ async function runCandidatePipeline(safe, releaseMode) {
     const quartzHtmlCase = testHook("TYLER_TRACER_TEST_QUARTZ_HTML_CASE", releaseMode)
     if (quartzHtmlCase) await injectQuartzHtmlRegression(candidate, run, quartzHtmlCase)
     await normalizeBreadcrumbRoutes(candidate, run, safe.records, safe.outgoing, safe.deploymentFiles)
+    await normalizeCustom404BasePath(candidate, run, safe.deploymentFiles)
     await repairTocAccessibility(candidate, run)
     await installNetworkCsp(candidate, run)
     await writePublicDataAssets(candidate, run, safe.contracts)
@@ -2538,9 +2594,9 @@ async function runCandidatePipeline(safe, releaseMode) {
     const candidateVariant = testHook("TYLER_TRACER_TEST_CANDIDATE_CASE", releaseMode)
       ?? (testHook("TYLER_TRACER_TEST_EXTRA_HTML", releaseMode) === "1" ? "extra-html" : undefined)
     if (candidateVariant) await injectCandidateRegression(candidate, run, candidateVariant)
-    await pruneVirtualHtml(candidate, run, safe.records, baseline, safe.deploymentFiles, releaseMode)
+    await pruneVirtualHtml(candidate, run, safe.records, baseline, safe.deploymentFiles, retainCustom404)
     const releaseAllowlist = releaseMode ? safe.outputAllowlist : null
-    await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, safe.privatePaths, baseline, safe.secretRules, releaseAllowlist, safe.deploymentFiles, releaseMode)
+    await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, safe.privatePaths, baseline, safe.secretRules, releaseAllowlist, safe.deploymentFiles, releaseMode, retainCustom404)
 
     for (const record of safe.records.values()) {
       const source = path.join(safe.exportRoot, ...record.node.path.split("/"))
@@ -2560,7 +2616,7 @@ async function runCandidatePipeline(safe, releaseMode) {
       }
     }
     await assertCandidateRoot(candidate, run)
-    const finalGate = await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, safe.privatePaths, baseline, safe.secretRules, releaseAllowlist, safe.deploymentFiles, releaseMode)
+    const finalGate = await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, safe.privatePaths, baseline, safe.secretRules, releaseAllowlist, safe.deploymentFiles, releaseMode, retainCustom404)
     await assertCandidateRoot(candidate, run)
     if (releaseMode) {
       if (releaseCase === "zotero-non-target-artifact-tamper") {
@@ -2643,10 +2699,29 @@ async function main() {
   process.stdout.write(`${JSON.stringify({ ok: true, command: "build", manifestId: safe.manifest.manifest_id, nodes: safe.records.size, routes: gate.routes, files: gate.files, suppressionCount: safe.suppressionCount, quartz: safe.metadata.version })}\n`)
 }
 
-main().catch((error) => {
-  const known = error instanceof TracerError || error instanceof ContractError
-  const code = known ? error.code : "UNEXPECTED_ERROR"
-  const message = known ? error.message : "unexpected tracer failure"
-  process.stdout.write(`${JSON.stringify({ ok: false, error: { code, message } })}\n`)
-  process.exitCode = 1
-})
+export {
+  analyzeMarkdown,
+  decodeMarkdown,
+  normalizePaperMasthead,
+  parseFrontmatter,
+  projectContent,
+  publicContracts,
+  readDeploymentSiteFiles,
+  readSecretRules,
+  readToolchainMetadata,
+  runCandidatePipeline,
+  scholarlyTheme,
+  tracerQuartzConfig,
+  validateMarkdownSafety,
+  validateSemanticTemplates,
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    const known = error instanceof TracerError || error instanceof ContractError
+    const code = known ? error.code : "UNEXPECTED_ERROR"
+    const message = known ? error.message : "unexpected tracer failure"
+    process.stdout.write(`${JSON.stringify({ ok: false, error: { code, message } })}\n`)
+    process.exitCode = 1
+  })
+}

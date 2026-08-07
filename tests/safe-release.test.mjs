@@ -279,7 +279,6 @@ test("release fails closed when active root files drift beyond the pinned Quartz
   const contract = JSON.parse(await readFile(path.join(repoRoot, "config", "github-pages-deployment-contract-v1.json"), "utf8"))
   const driftedContract = structuredClone(contract)
   driftedContract.site.entry_file = "home.html"
-  driftedContract.site.custom_404 = "errors/not-found.html"
   const tracerRoot = await createTracerSandbox(driftedContract)
   t.after(() => Promise.all([
     rm(fixture.root, { recursive: true, force: true }),

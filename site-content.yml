@@ -1,0 +1,36 @@
+pages:
+  - source: "Literature/Notes/Guo et al. 2024 — Benchmarking Micro-action Recognition.md"
+    route: "/papers/guo-2024-benchmarking-micro-action-recognition/"
+    layout: paper
+
+  - source: "Literature/Notes/Jackman et al. 2021 — Flow and Clutch States in Recreational Running.md"
+    route: "/papers/jackman-2021-flow-clutch-recreational-running/"
+    layout: paper
+
+  - source: "Knowledge/Authors/Patricia C. Jackman.md"
+    route: "/knowledge/author/patricia-c-jackman/"
+    layout: support
+
+  - source: "Knowledge/Concepts/Flow.md"
+    route: "/knowledge/concept/flow/"
+    layout: support
+
+  - source: "Knowledge/Concepts/Micro-action.md"
+    route: "/knowledge/concept/micro-action/"
+    layout: support
+
+  - source: "Knowledge/Methods/Connecting Analysis.md"
+    route: "/knowledge/method/connecting-analysis/"
+    layout: support
+
+  - source: "Knowledge/Methods/Event-Focused Interview.md"
+    route: "/knowledge/method/event-focused-interview/"
+    layout: support
+
+  - source: "Knowledge/Methods/Thematic Analysis.md"
+    route: "/knowledge/method/thematic-analysis/"
+    layout: support
+
+  - source: "Knowledge/Tasks/Action Recognition.md"
+    route: "/knowledge/task/action-recognition/"
+    layout: support
