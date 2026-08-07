@@ -38,7 +38,6 @@ import { ProjectPageTemplateError, selectProjectPageTemplate } from "../lib/proj
 import {
   containsZoteroSchemeDisclosure,
   projectZoteroManagedMarkdown,
-  validateZoteroFrontmatter,
   validateZoteroManagedMarkdown,
   zoteroManagedRange,
 } from "../lib/zotero-public-projection.mjs"
