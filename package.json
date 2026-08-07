@@ -13,8 +13,6 @@
     "gh-pages:prepare": "node scripts/prepare-gh-pages-commit.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test --test-concurrency=1",
-    "test:tracer": "node --test tests/manifest-quartz-tracer.test.mjs",
-    "test:theme": "node --test --test-name-pattern=^T04 tests/manifest-quartz-tracer.test.mjs",
     "test:slim": "node --test tests/slim-build.test.mjs",
     "test:gh-pages": "node --test tests/prepare-gh-pages-commit.test.mjs tests/github-pages-workflow.test.mjs"
   },

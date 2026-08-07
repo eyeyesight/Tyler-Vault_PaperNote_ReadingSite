@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { lstat, mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
@@ -20,6 +20,41 @@ const mappedPages = parseYaml(await readFile(path.join(repoRoot, "site-content.y
 /** @type {ApprovedPage[]} */
 const approvedPages = mappedPages.map((page) => [page.source, page.route, page.layout])
 assert.equal(approvedPages.length, approvedSitePageCount)
+
+const tracerCsp = "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self' data:; frame-src 'none'; img-src 'self' data:; media-src 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'none'"
+
+/** @param {"paper"|"support"} layout @returns {MappedPage} */
+function pageForLayout(layout) {
+  const page = mappedPages.find((candidate) => candidate.layout === layout)
+  assert.ok(page, `missing ${layout} page in site-content.yml`)
+  return page
+}
+
+/** @param {{vault:string}} paths @param {string} source */
+function mappedSourcePath(paths, source) {
+  return path.join(paths.vault, ...source.split("/"))
+}
+
+/** @param {{vault:string}} paths @param {string} source @param {string|Buffer} bytes */
+async function replaceMappedSource(paths, source, bytes) {
+  await writeFile(mappedSourcePath(paths, source), bytes)
+}
+
+/** @param {string} root @returns {Promise<Array<[string,Buffer]>>} */
+async function outputTree(root) {
+  /** @type {Array<[string,Buffer]>} */
+  const files = []
+  /** @param {string} directory */
+  async function walk(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name)
+      if (entry.isDirectory()) await walk(absolute)
+      else files.push([path.relative(root, absolute).split(path.sep).join("/"), await readFile(absolute)])
+    }
+  }
+  await walk(root)
+  return files.sort(([left], [right]) => left.localeCompare(right))
+}
 
 /** @param {number} index @param {"paper"|"support"} layout */
 function noteFor(index, layout) {
@@ -90,12 +125,13 @@ async function fixture() {
   return { root, vault, work, output }
 }
 
-/** @param {{vault:string,work:string,output:string}} paths @param {"preflight"|"build"} command */
-function invoke(paths, command) {
+/** @param {{vault:string,work:string,output:string}} paths @param {"preflight"|"build"} command @param {NodeJS.ProcessEnv} [env] */
+function invoke(paths, command, env = {}) {
   return spawnSync(process.execPath, [cli, command, "--vault-root", paths.vault, "--work-root", paths.work, "--output", paths.output], {
     cwd: repoRoot,
     encoding: "utf8",
     timeout: 120_000,
+    env: { ...process.env, ...env },
   })
 }
 
@@ -321,15 +357,20 @@ test("Phase 1 preflight fails closed when a mapped source has malformed frontmat
 test("Phase 1 build renders all nine mapped routes and keeps workflow metadata private", async () => {
   const paths = await fixture()
   try {
-    const before = new Map()
-    for (const [source] of approvedPages) before.set(source, await readFile(path.join(paths.vault, ...source.split("/"))))
+    const before = await mappedSourceBytes(paths)
     const result = invoke(paths, "build")
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
     assert.equal(result.stderr, "")
     const receipt = JSON.parse(result.stdout)
-    assert.deepEqual([...receipt.routes].sort(), ["/", ...approvedPages.map(([, route]) => route)].sort())
+    /** @param {string} route */
+    const routeFile = (route) => route === "/" ? "index.html" : `${route.slice(1)}index.html`
+    const expectedRoutes = ["/", ...approvedPages.map(([, route]) => route)]
+    assert.deepEqual([...receipt.routes].sort(), expectedRoutes.sort())
     assert.equal(receipt.pages, 9)
 
+    const tree = await outputTree(paths.output)
+    const htmlPaths = tree.filter(([relative]) => relative.endsWith(".html")).map(([relative]) => relative)
+    assert.deepEqual(htmlPaths, ["404.html", ...expectedRoutes.map(routeFile)].sort())
     const publicFiles = [
       path.join(paths.output, "index.html"),
       path.join(paths.output, "graph.json"),
@@ -353,13 +394,63 @@ test("Phase 1 build renders all nine mapped routes and keeps workflow metadata p
     assert.equal(publicText.includes("zotero://select/library/items/PRIVATE123"), false)
     assert.match(publicText, /data-tracer-template="paper"/)
     assert.match(publicText, /data-tracer-template="support"/)
-    const graph = /** @type {{nodes:Array<{url:string}>}} */ (JSON.parse(await readFile(path.join(paths.output, "graph.json"), "utf8")))
-    const search = /** @type {{records:Array<{url:string}>}} */ (JSON.parse(await readFile(path.join(paths.output, "search-index.json"), "utf8")))
+
+    const graph = /** @type {{schema_version:number,nodes:Array<{public_id:string,url:string}>,edges:Array<{source:string,target:string}>}} */ (JSON.parse(await readFile(path.join(paths.output, "graph.json"), "utf8")))
+    const search = /** @type {{schema_version:number,records:Array<{public_id:string,title:string,node_class:string,url:string,authors:string[],doi:string|null,source_tags:string[],search_text:string}>}} */ (JSON.parse(await readFile(path.join(paths.output, "search-index.json"), "utf8")))
+    const contentIndex = /** @type {typeof search} */ (JSON.parse(await readFile(path.join(paths.output, "static", "contentIndex.json"), "utf8")))
+    assert.deepEqual(Object.keys(graph), ["schema_version", "nodes", "edges"])
+    assert.equal(graph.schema_version, 1)
     assert.equal(graph.nodes.length, 9)
-    assert.equal(search.records.length, 9)
+    assert.deepEqual(graph.nodes.map((node) => node.public_id), [...graph.nodes.map((node) => node.public_id)].sort())
     assert.deepEqual(new Set(graph.nodes.map((node) => node.url)), new Set(approvedPages.map(([, route]) => route)))
-    assert.deepEqual(new Set(search.records.map((record) => record.url)), new Set(approvedPages.map(([, route]) => route)))
-    for (const [source, bytes] of before) assert.deepEqual(await readFile(path.join(paths.vault, ...source.split("/"))), bytes)
+    const publicIds = new Set(graph.nodes.map((node) => node.public_id))
+    assert.ok(graph.edges.every((edge) => publicIds.has(edge.source) && publicIds.has(edge.target)))
+    assert.deepEqual(Object.keys(search), ["schema_version", "records"])
+    assert.equal(search.schema_version, 1)
+    assert.equal(search.records.length, graph.nodes.length)
+    assert.deepEqual(search.records.map((record) => record.public_id), graph.nodes.map((node) => node.public_id))
+    for (const record of search.records) {
+      assert.deepEqual(Object.keys(record), ["public_id", "title", "node_class", "url", "authors", "doi", "source_tags", "search_text"])
+      assert.equal(Object.hasOwn(record, "slug"), false)
+      assert.equal(Object.hasOwn(record, "content"), false)
+    }
+    assert.deepEqual(contentIndex, search)
+
+    /** @param {string} html @param {string} token @returns {number} */
+    const classTokenCount = (html, token) => [...html.matchAll(/\bclass="([^"]*)"/g)].filter((match) => match[1].split(/\s+/).includes(token)).length
+    const css = tree.filter(([relative]) => relative.endsWith(".css")).map(([, bytes]) => bytes.toString("utf8")).join("\n")
+    assert.match(css, /--tyler-tracer-theme\s*:\s*warm/)
+    for (const [, route, layout] of approvedPages) {
+      const html = await readFile(path.join(paths.output, ...route.slice(1).split("/"), "index.html"), "utf8")
+      assert.equal((html.match(/<meta http-equiv="Content-Security-Policy"/g) ?? []).length, 1, route)
+      assert.ok(html.includes(`content="${tracerCsp}"`), route)
+      assert.match(html, new RegExp(`<body\\b[^>]*data-tracer-template="${layout}"`))
+      assert.equal(classTokenCount(html, "explorer"), 1, `${route}: Explorer surface`)
+      assert.equal(classTokenCount(html, "public-search"), 1, `${route}: Search surface`)
+      assert.equal(classTokenCount(html, "public-graph"), 1, `${route}: Graph surface`)
+      assert.equal((html.match(/data-tracer-extension="t05-search"/g) ?? []).length, 1, `${route}: Search runtime`)
+      assert.equal((html.match(/data-tracer-extension="t05-graph"/g) ?? []).length, 1, `${route}: Graph runtime`)
+      assert.match(html, /class="backlinks" data-public-backlinks/)
+      const siteRoot = route.startsWith("/papers/") ? "../../" : "../../../"
+      assert.ok(html.includes(`const publicSiteRoot=${JSON.stringify(siteRoot)}`), route)
+      assert.doesNotMatch(html, /<(?:link|script|img|iframe|source|video|audio)\b[^>]*(?:href|src|srcset|poster)="https?:\/\//i, route)
+      const node = graph.nodes.find((candidate) => candidate.url === route)
+      assert.ok(node, route)
+      assert.match(html, new RegExp(`id="public-graph-local-${node.public_id}"`), route)
+      assert.match(html, new RegExp(`data-graph-root-id="${node.public_id}"`), route)
+    }
+    assert.equal(classTokenCount(home, "explorer"), 1)
+    assert.equal(classTokenCount(home, "public-search"), 1)
+    assert.equal(classTokenCount(home, "public-graph"), 1)
+    assert.match(home, /id="public-graph-global" data-graph-scope="global"/)
+    assert.equal((home.match(/data-public-backlinks/g) ?? []).length, 0)
+    assert.equal((home.match(/data-tracer-extension="t05-search"/g) ?? []).length, 1)
+    assert.equal((home.match(/data-tracer-extension="t05-graph"/g) ?? []).length, 1)
+    for (const [, bytes] of tree) {
+      const text = bytes.toString("utf8")
+      assert.doesNotMatch(text, /Private(?:[\\\\/]|%2F)Hidden-Neuron|PRIVATE-ZOTERO-CANARY|PHASE1_WORKFLOW_SENTINEL/i)
+    }
+    await assertMappedSourceBytesUnchanged(paths, before)
   } finally {
     await rm(paths.root, { recursive: true, force: true })
   }
@@ -432,4 +523,34 @@ test("Phase 5 Slice 1 keeps the parser and privacy error on slim-owned seams", a
       && error.name === "SlimContentError"
       && error.code === "SOURCE_UNSAFE_URL_SCHEME",
   )
+})
+
+test("Phase 5 Slice 5A keeps tracer as an import-only slim renderer/privacy seam", async () => {
+  const tracerSource = await readFile(path.join(repoRoot, "scripts", "tracer.mjs"), "utf8")
+  for (const moduleName of ["publication-contracts", "release-promotion", "safe-release", "zotero-delta"]) {
+    assert.doesNotMatch(tracerSource, new RegExp(`(?:from|import\\s*\\().*${moduleName}\\.mjs`), moduleName)
+  }
+  assert.doesNotMatch(tracerSource, /\breleaseMode\b|TYLER_RELEASE_TEST|preSealReleaseCases|postSealReleaseCases|injectReleaseRegression|injectPostSealReleaseRegression/)
+  assert.doesNotMatch(tracerSource, /runCandidatePipeline|constructReleaseReceipt|promoteRelease|command === ["']release["']/)
+
+  const tracer = await import("../scripts/tracer.mjs")
+  const tracerExports = /** @type {Record<string, unknown>} */ (tracer)
+  for (const name of [
+    "analyzeMarkdown", "decodeMarkdown", "projectContent", "publicContracts",
+    "readDeploymentSiteFiles", "readSecretRules", "readToolchainMetadata",
+    "validateMarkdownSafety", "validateSemanticTemplates",
+  ]) assert.equal(typeof tracerExports[name], "function", name)
+  assert.equal(Object.hasOwn(tracer, "parseArgs"), false)
+  assert.equal(Object.hasOwn(tracer, "main"), false)
+
+  const paths = await fixture()
+  try {
+    const result = invoke(paths, "build")
+    assert.equal(result.status, 0, `${result.stdout}\\n${result.stderr}`)
+    assert.deepEqual(JSON.parse(result.stdout).routes.sort(), [
+      "/", ...approvedPages.map(([, route]) => route),
+    ].sort())
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
 })
