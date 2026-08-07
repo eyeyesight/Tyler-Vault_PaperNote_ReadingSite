@@ -27,10 +27,12 @@ import { fileURLToPath } from "node:url"
 
 import Ajv2020Module from "ajv/dist/2020.js"
 import { fromMarkdown } from "mdast-util-from-markdown"
-import { isAlias, isMap, isScalar, isSeq, parseDocument } from "yaml"
 
 import {
-  ContractError,
+  parseFrontmatter,
+  SlimContentError,
+} from "../lib/slim-content-map.mjs"
+import {
   jcsCanonicalize,
   loadSealedCustodyByManifestId,
   loadPublicationRuntime,
@@ -539,42 +541,6 @@ function validateMarkdownSafety(markdown, body, role, analysis) {
   if (/!\[|!\[\[|<img\b/i.test(markdown)) throw new TracerError("SOURCE_IMAGE_EMBED_NOT_ALLOWED", `${role} contains an image or attachment embed`)
 }
 
-/** @param {string} markdown */
-function parseFrontmatter(markdown) {
-  const match = /^(?:---)\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(markdown)
-  if (!match) throw new TracerError("SOURCE_FRONTMATTER_REQUIRED", "every tracer node requires leading YAML frontmatter")
-  try {
-    const document = parseDocument(match[1], {
-      schema: "failsafe",
-      strict: true,
-      stringKeys: true,
-      uniqueKeys: true,
-      customTags: [],
-      merge: false,
-      resolveKnownTags: false,
-      prettyErrors: false,
-    })
-    if (document.errors.length || document.warnings.length || !isMap(document.contents)) throw new Error("invalid YAML document")
-    /** @type {Record<string,string|string[]>} */
-    const data = Object.create(null)
-    const scalarValue = (/** @type {any} */ node) => {
-      if (!isScalar(node) || node.anchor || node.tag) throw new Error("unsupported YAML scalar")
-      return String(node.value ?? "")
-    }
-    for (const pair of document.contents.items) {
-      const key = scalarValue(pair.key)
-      const value = pair.value
-      if (isAlias(value) || value?.anchor || value?.tag) throw new Error("YAML aliases, anchors, and explicit tags are unsupported")
-      if (isScalar(value)) data[key] = scalarValue(value)
-      else if (isSeq(value)) data[key] = value.items.map(scalarValue)
-      else throw new Error("frontmatter values must be scalars or scalar arrays")
-    }
-    return { data, body: markdown.slice(match[0].length) }
-  } catch {
-    throw new TracerError("SOURCE_FRONTMATTER_INVALID", "source frontmatter must be strict YAML with scalar fields or scalar arrays")
-  }
-}
-
 /** @param {string} value */
 function aliasKey(value) {
   return value.trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/\.md$/i, "").toLowerCase()
@@ -688,7 +654,7 @@ function analyzeMarkdown(markdown) {
     const zoteroManaged = zoteroManagedRange(markdown, tree)
     return { tree, links, tokens: allWikiLinkTokens(markdown), connections, markdownUrls, markdownUrlNodes, zoteroManaged }
   } catch (error) {
-    if (error instanceof TracerError || error instanceof ContractError) throw error
+    if (error instanceof TracerError || error instanceof SlimContentError) throw error
     throw new TracerError("SOURCE_MARKDOWN_INVALID", "source Markdown could not be parsed with stable MDAST offsets")
   }
 }
@@ -2330,7 +2296,8 @@ async function earlyExistingReleaseTarget(cli) {
   try {
     target = await loadSealedCustodyByManifestId(runtimeRoot, manifest.manifest_id)
   } catch (error) {
-    if (error instanceof ContractError && error.code === "TARGET_CUSTODY_ABSENT") {
+    const errorCode = error && typeof error === "object" && "code" in error ? error.code : undefined
+    if (errorCode === "TARGET_CUSTODY_ABSENT") {
       const [custodyNames, releaseNames] = await Promise.all([
         stableHistoryNames(path.join(runtimeRoot, "consumed"), "TARGET_HISTORY_INVALID"),
         stableHistoryNames(releasesRoot, "TARGET_HISTORY_INVALID"),
@@ -2718,7 +2685,8 @@ export {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((error) => {
-    const known = error instanceof TracerError || error instanceof ContractError
+    const known = error instanceof TracerError || error instanceof SlimContentError
+      || (error && typeof error === "object" && typeof error.code === "string")
     const code = known ? error.code : "UNEXPECTED_ERROR"
     const message = known ? error.message : "unexpected tracer failure"
     process.stdout.write(`${JSON.stringify({ ok: false, error: { code, message } })}\n`)

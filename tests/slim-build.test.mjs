@@ -239,3 +239,32 @@ test("Phase 1 full build applies the selected structural template to every match
     await rm(paths.root, { recursive: true, force: true })
   }
 })
+
+test("Phase 5 Slice 1 keeps the parser and privacy error on slim-owned seams", async () => {
+  const [mapSource, tracerSource, projectionSource] = await Promise.all([
+    readFile(path.join(repoRoot, "lib", "slim-content-map.mjs"), "utf8"),
+    readFile(path.join(repoRoot, "scripts", "tracer.mjs"), "utf8"),
+    readFile(path.join(repoRoot, "lib", "zotero-public-projection.mjs"), "utf8"),
+  ])
+  assert.doesNotMatch(mapSource, /from ["']\.\.\/scripts\/tracer\.mjs["']/)
+  assert.doesNotMatch(projectionSource, /from ["']\.\/publication-contracts\.mjs["']/)
+  assert.doesNotMatch(tracerSource, /\bContractError\b/)
+  assert.doesNotMatch(tracerSource, /function parseFrontmatter\s*\(/)
+  assert.match(tracerSource, /from ["']\.\.\/lib\/slim-content-map\.mjs["']/)
+
+  const [map, tracer, projection] = await Promise.all([
+    import("../lib/slim-content-map.mjs"),
+    import("../scripts/tracer.mjs"),
+    import("../lib/zotero-public-projection.mjs"),
+  ])
+  assert.equal(tracer.parseFrontmatter, map.parseFrontmatter)
+  const parsed = map.parseFrontmatter("---\ntitle: Seam\n---\n\n# Body\n")
+  assert.equal(parsed.data.title, "Seam")
+  assert.equal(parsed.body, "\n# Body\n")
+  assert.throws(
+    () => projection.validateZoteroFrontmatter({ zotero_uri: "zotero://select/library/items/PRIVATE123" }, "support"),
+    (error) => error instanceof map.SlimContentError
+      && error.name === "SlimContentError"
+      && error.code === "SOURCE_UNSAFE_URL_SCHEME",
+  )
+})
