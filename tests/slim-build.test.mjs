@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
@@ -13,6 +13,7 @@ const cli = path.join(repoRoot, "scripts", "slim-build.mjs")
 
 /** @typedef {[source:string,route:string,layout:"paper"|"support"]} ApprovedPage */
 /** @typedef {{source:string,route:string,layout:"paper"|"support"}} MappedPage */
+/** @typedef {{root:string,vault:string,work:string,output:string}} FixturePaths */
 
 /** @type {MappedPage[]} */
 const mappedPages = parseYaml(await readFile(path.join(repoRoot, "site-content.yml"), "utf8")).pages
@@ -97,6 +98,170 @@ function invoke(paths, command) {
     timeout: 120_000,
   })
 }
+
+/** @param {{vault:string}} paths @returns {Promise<Map<string, Buffer>>} */
+async function mappedSourceBytes(paths) {
+  const bytes = new Map()
+  for (const [source] of approvedPages) bytes.set(source, await readFile(path.join(paths.vault, ...source.split("/"))))
+  return bytes
+}
+
+/** @param {{vault:string}} paths @param {Map<string, Buffer>} before */
+async function assertMappedSourceBytesUnchanged(paths, before) {
+  for (const [source, bytes] of before) assert.deepEqual(await readFile(path.join(paths.vault, ...source.split("/"))), bytes, source)
+}
+
+/** @param {string} candidate */
+async function pathExists(candidate) {
+  try {
+    await lstat(candidate)
+    return true
+  } catch (error) {
+    if (filesystemErrorCode(error) === "ENOENT") return false
+    throw error
+  }
+}
+
+/** @param {unknown} error */
+function filesystemErrorCode(error) {
+  if (!error || typeof error !== "object" || !("code" in error)) return "unknown"
+  const code = /** @type {{code?:unknown}} */ (error).code
+  return typeof code === "string" ? code : "unknown"
+}
+
+/** @param {unknown} error */
+function isLinkCapabilityDenial(error) {
+  const code = filesystemErrorCode(error)
+  const denied = process.platform === "win32"
+    ? ["EACCES", "EPERM", "ENOTSUP"]
+    : ["EACCES", "EPERM", "ENOTSUP", "EOPNOTSUPP"]
+  return denied.includes(code)
+}
+
+/** @param {import("node:test").TestContext} t @param {string} target @param {string} link */
+async function createMappedDirectoryLink(t, target, link) {
+  const type = process.platform === "win32" ? "junction" : "dir"
+  try {
+    await symlink(target, link, type)
+    return true
+  } catch (error) {
+    if (isLinkCapabilityDenial(error)) {
+      t.skip(`mapped-source ${type} creation denied: ${filesystemErrorCode(error)}`)
+      return false
+    }
+    throw error
+  }
+}
+
+test("Phase 5 slim-build preflight rejects distinct Vault/work/output overlaps before mutation", async () => {
+  /** @type {Array<[string,(paths:FixturePaths)=>string,(paths:FixturePaths)=>string]>} */
+  const overlapCases = [
+    ["work nested under Vault", (paths) => path.join(paths.vault, "overlap-work"), (paths) => path.join(paths.root, "overlap-output")],
+    ["work equals output", (paths) => path.join(paths.root, "overlap-work-output"), (paths) => path.join(paths.root, "overlap-work-output")],
+    ["output nested under Vault", (paths) => paths.work, (paths) => path.join(paths.vault, "overlap-output")],
+  ]
+  for (const [name, workRoot, output] of overlapCases) {
+    const paths = await fixture()
+    try {
+      const before = await mappedSourceBytes(paths)
+      const runPaths = { ...paths, work: workRoot(paths), output: output(paths) }
+      assert.equal(await pathExists(runPaths.output), false, `${name}: output must start absent`)
+      const result = invoke(runPaths, "preflight")
+      assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+      assert.equal(result.stderr, "")
+      assert.deepEqual(JSON.parse(result.stdout).error, {
+        code: "PATH_OVERLAP_NOT_ALLOWED",
+        message: "Vault, work, and output paths must be disjoint",
+      })
+      assert.equal(await pathExists(runPaths.output), false, `${name}: output must remain absent`)
+      await assertMappedSourceBytesUnchanged(paths, before)
+    } finally {
+      await rm(paths.root, { recursive: true, force: true })
+    }
+  }
+})
+
+test("Phase 5 slim-build preflight rejects a mapped source directory link/reparse escape before output mutation", async (t) => {
+  const paths = await fixture()
+  try {
+    const before = await mappedSourceBytes(paths)
+    const mappedDirectory = path.join(paths.vault, "Literature", "Notes")
+    const outside = path.join(paths.root, "outside-mapped-notes")
+    await mkdir(outside)
+    for (const [source] of approvedPages.filter(([source]) => source.startsWith("Literature/Notes/"))) {
+      const target = path.join(outside, ...source.split("/").slice(2))
+      await mkdir(path.dirname(target), { recursive: true })
+      const sourceBytes = before.get(source)
+      assert.ok(sourceBytes, source)
+      await writeFile(target, sourceBytes)
+    }
+    await rm(mappedDirectory, { recursive: true, force: true })
+    if (!await createMappedDirectoryLink(t, outside, mappedDirectory)) return
+
+    assert.equal((await lstat(mappedDirectory)).isSymbolicLink(), true)
+    const result = invoke(paths, "preflight")
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.equal(result.stderr, "")
+    assert.deepEqual(JSON.parse(result.stdout).error, {
+      code: "SOURCE_LINK_NOT_ALLOWED",
+      message: "mapped source contains a link or reparse point",
+    })
+    assert.equal(result.stdout.includes(paths.root), false, "source-boundary errors must not disclose absolute sandbox paths")
+    assert.equal(await pathExists(paths.output), false)
+    await assertMappedSourceBytesUnchanged(paths, before)
+    assert.equal((await lstat(mappedDirectory)).isSymbolicLink(), true)
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
+test("Phase 5 slim-build build rejects mapped source invalid UTF-8 with a stable redacted error and no output", async () => {
+  const paths = await fixture()
+  try {
+    const source = path.join(paths.vault, ...approvedPages[0][0].split("/"))
+    await writeFile(source, Buffer.concat([
+      Buffer.from("---\ntitle: Invalid UTF8\ntype: literature-note\nstatus: integrated\n---\n\n# Invalid\n", "utf8"),
+      Buffer.from([0xc3, 0x28]),
+    ]))
+    const before = await mappedSourceBytes(paths)
+    const result = invoke(paths, "build")
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.equal(result.stderr, "")
+    assert.deepEqual(JSON.parse(result.stdout).error, {
+      code: "SOURCE_INVALID_UTF8",
+      message: `${approvedPages[0][0]} is not strict UTF-8`,
+    })
+    assert.equal(result.stdout.includes(paths.root), false, "source-boundary errors must not disclose absolute sandbox paths")
+    assert.equal(await pathExists(paths.output), false)
+    await assertMappedSourceBytesUnchanged(paths, before)
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
+test("Phase 5 slim-build build rejects mapped source NUL with a stable redacted error and no output", async () => {
+  const paths = await fixture()
+  try {
+    const source = path.join(paths.vault, ...approvedPages[0][0].split("/"))
+    await writeFile(source, Buffer.concat([
+      Buffer.from("---\ntitle: NUL\ntype: literature-note\nstatus: integrated\n---\n\n# NUL\n", "utf8"),
+      Buffer.from("safe\0unsafe\n", "utf8"),
+    ]))
+    const before = await mappedSourceBytes(paths)
+    const result = invoke(paths, "build")
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.equal(result.stderr, "")
+    assert.deepEqual(JSON.parse(result.stdout).error, {
+      code: "SOURCE_NUL_NOT_ALLOWED",
+      message: `${approvedPages[0][0]} contains a NUL byte`,
+    })
+    assert.equal(result.stdout.includes(paths.root), false, "source-boundary errors must not disclose absolute sandbox paths")
+    assert.equal(await pathExists(paths.output), false)
+    await assertMappedSourceBytesUnchanged(paths, before)
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
 
 test("Phase 1 preflight accepts the exact nine approved source/route/layout mappings", async () => {
   const paths = await fixture()
