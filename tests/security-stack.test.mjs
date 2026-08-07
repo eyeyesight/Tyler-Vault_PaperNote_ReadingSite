@@ -9,8 +9,6 @@ import os from "node:os"
 import path from "node:path"
 import test from "node:test"
 
-import { jcsCanonicalize } from "../lib/publication-contracts.mjs"
-
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const packageJson = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"))
 const lock = JSON.parse(await readFile(path.join(repoRoot, "package-lock.json"), "utf8"))
@@ -22,6 +20,20 @@ const quartzCommit = "507ad7f3d4601d83482f61930fccf1c77f42a072"
 const quartzTarball = `https://github.com/jackyzha0/quartz/archive/${quartzCommit}.tar.gz`
 const compatibilitySpec = "file:vendor/brace-expansion-compat"
 const sharpOverride = "0.35.3"
+
+/**
+ * Canonicalize already-parsed JSON for the CycloneDX comparison below. This
+ * test-local helper preserves array order and sorts ordinary JSON object keys;
+ * it does not reintroduce the removed publication-contract module.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function canonicalizeJson(value) {
+  if (value === null || typeof value !== "object") return /** @type {string} */ (JSON.stringify(value))
+  if (Array.isArray(value)) return `[${value.map(canonicalizeJson).join(",")}]`
+  const object = /** @type {Record<string, unknown>} */ (value)
+  return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${canonicalizeJson(object[key])}`).join(",")}}`
+}
 
 /** @param {import("node:crypto").BinaryLike} bytes */
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex")
@@ -191,7 +203,7 @@ test("T08 final lock, audit artifacts, and canonical CycloneDX evidence remain b
     delete normalized.serialNumber
     delete normalized.metadata.timestamp
     normalized.metadata.component.name = packageJson.name
-    return Buffer.from(jcsCanonicalize(normalized))
+    return Buffer.from(canonicalizeJson(normalized))
   }
   const canonicalRuns = sboms.map(canonicalizeSbom)
   assert.deepEqual(canonicalRuns[0], canonicalRuns[1])
