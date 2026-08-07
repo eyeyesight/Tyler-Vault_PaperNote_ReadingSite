@@ -2113,8 +2113,8 @@ async function validatePublicDataStructure(/** @type {Array<{relative:string,byt
   }
 }
 
-/** @param {string} candidate @param {string} run @param {Map<string,{route:string,node:{node_class:string}}>} records @param {Set<string>} suppressedTargets @param {string[]} privatePaths @param {ReadonlyArray<{relative:string,fileClass:string,sha256:string}>} baseline @param {Awaited<ReturnType<typeof readSecretRules>>} secretRules @param {ReadonlyArray<string>|null} outputAllowlist @param {{entryFile:string,custom404:string}} deploymentFiles */
-async function gateCandidate(candidate, run, records, suppressedTargets, privatePaths, baseline, secretRules, outputAllowlist, deploymentFiles, releaseMode = false) {
+/** @param {string} candidate @param {string} run @param {Map<string,{route:string,node:{node_class:string}}>} records @param {Set<string>} suppressedTargets @param {string[]} privatePaths @param {ReadonlyArray<{relative:string,fileClass:string,sha256:string}>} baseline @param {Awaited<ReturnType<typeof readSecretRules>>} secretRules @param {ReadonlyArray<string>|null} outputAllowlist @param {{entryFile:string,custom404:string}} deploymentFiles @param {boolean} [releaseMode] @param {boolean} [retainCustom404] */
+async function gateCandidate(candidate, run, records, suppressedTargets, privatePaths, baseline, secretRules, outputAllowlist, deploymentFiles, releaseMode = false, retainCustom404 = releaseMode) {
   await assertCandidateRoot(candidate, run)
   if (testHook("TYLER_TRACER_TEST_GATE_FAILURE", releaseMode) === "1") throw new TracerError("CANDIDATE_GATE_FAILED", "candidate gate test injection")
   const files = await listRegularTree(candidate, run)
@@ -2136,10 +2136,10 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
   }
   await validatePublicDataStructure(files)
   const html = files.filter((file) => file.relative.endsWith(".html")).map((file) => file.relative)
-  const expectedHtml = [...(releaseMode ? [deploymentFiles.custom404] : []), deploymentFiles.entryFile, ...[...records.values()].map((record) => quartzContentRouteFile(record.route))].sort()
+  const expectedHtml = [...(retainCustom404 ? [deploymentFiles.custom404] : []), deploymentFiles.entryFile, ...[...records.values()].map((record) => quartzContentRouteFile(record.route))].sort()
   if (JSON.stringify(html.sort()) !== JSON.stringify(expectedHtml)) throw new TracerError("CANDIDATE_ROUTE_SET_INVALID", "candidate HTML route set is not exact", { actual: html.sort(), expected: expectedHtml })
   const approvedRoutes = new Set(["/", ...[...records.values()].map((record) => record.route)])
-  const virtual = virtualHtmlPaths(records, deploymentFiles, releaseMode)
+  const virtual = virtualHtmlPaths(records, deploymentFiles, retainCustom404)
   const expectedFinal = baseline.filter((row) => !virtual.has(row.relative))
   const expectedAssets = new Set(expectedFinal.filter((row) => !row.relative.endsWith(".html")).map((row) => `/${row.relative}`))
   const contentHtml = new Set([...records.values()].map((record) => quartzContentRouteFile(record.route)))
@@ -2448,6 +2448,7 @@ async function preflight(cli) {
 /** @param {any} safe @param {boolean} releaseMode */
 async function runCandidatePipeline(safe, releaseMode) {
   const releaseCase = releaseMode ? releaseTestHook("TYLER_RELEASE_TEST_CASE") : undefined
+  const retainCustom404 = releaseMode || safe.retainCustom404 === true
   if (releaseCase === "replay-build-must-not-run") {
     throw new TracerError("TEST_INJECTION_INVALID", "exact replay entered the candidate pipeline")
   }
@@ -2538,9 +2539,9 @@ async function runCandidatePipeline(safe, releaseMode) {
     const candidateVariant = testHook("TYLER_TRACER_TEST_CANDIDATE_CASE", releaseMode)
       ?? (testHook("TYLER_TRACER_TEST_EXTRA_HTML", releaseMode) === "1" ? "extra-html" : undefined)
     if (candidateVariant) await injectCandidateRegression(candidate, run, candidateVariant)
-    await pruneVirtualHtml(candidate, run, safe.records, baseline, safe.deploymentFiles, releaseMode)
+    await pruneVirtualHtml(candidate, run, safe.records, baseline, safe.deploymentFiles, retainCustom404)
     const releaseAllowlist = releaseMode ? safe.outputAllowlist : null
-    await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, safe.privatePaths, baseline, safe.secretRules, releaseAllowlist, safe.deploymentFiles, releaseMode)
+    await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, safe.privatePaths, baseline, safe.secretRules, releaseAllowlist, safe.deploymentFiles, releaseMode, retainCustom404)
 
     for (const record of safe.records.values()) {
       const source = path.join(safe.exportRoot, ...record.node.path.split("/"))
@@ -2560,7 +2561,7 @@ async function runCandidatePipeline(safe, releaseMode) {
       }
     }
     await assertCandidateRoot(candidate, run)
-    const finalGate = await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, safe.privatePaths, baseline, safe.secretRules, releaseAllowlist, safe.deploymentFiles, releaseMode)
+    const finalGate = await gateCandidate(candidate, run, safe.records, safe.suppressedTargets, safe.privatePaths, baseline, safe.secretRules, releaseAllowlist, safe.deploymentFiles, releaseMode, retainCustom404)
     await assertCandidateRoot(candidate, run)
     if (releaseMode) {
       if (releaseCase === "zotero-non-target-artifact-tamper") {

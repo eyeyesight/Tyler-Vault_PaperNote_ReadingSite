@@ -151,6 +151,10 @@ test("Phase 1 build renders all nine mapped routes and keeps workflow metadata p
       ...approvedPages.map(([, route]) => path.join(paths.output, ...route.slice(1).split("/"), "index.html")),
     ]
     const publicText = (await Promise.all(publicFiles.map((file) => readFile(file, "utf8")))).join("\n")
+    const notFound = await readFile(path.join(paths.output, "404.html"), "utf8")
+    const home = await readFile(path.join(paths.output, "index.html"), "utf8")
+    assert.notEqual(notFound, home)
+    assert.match(notFound, /404|not found/i)
     assert.equal(publicText.includes("PHASE1_WORKFLOW_SENTINEL"), false)
     assert.equal(publicText.includes("zotero://select/library/items/PRIVATE123"), false)
     assert.match(publicText, /data-tracer-template="paper"/)

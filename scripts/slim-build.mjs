@@ -148,6 +148,7 @@ async function build(options, content) {
       secretRules,
       privatePaths: [content.vaultRoot, content.workRoot, snapshot, content.output],
       deploymentFiles,
+      retainCustom404: true,
       outputAllowlist: null,
     }, false)
     return { pages: records.size, routes: gate.routes, files: gate.files, quartz: toolchain.metadata.version }
