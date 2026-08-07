@@ -1,128 +1,50 @@
-# Pinned Quartz toolchain and local command surface
+# Pinned Quartz toolchain
 
-T01 uses Quartz as the only renderer. Synthetic Markdown under
-`fixtures/synthetic-content/` is deliberately non-research content.
+Quartz is the renderer used by the active slim build. The project wrapper owns the content map, public projection, templates/theme, privacy checks, and local gh-pages handoff; Quartz remains an implementation dependency rather than a second command surface.
 
 ## Pin and installation
 
-- Quartz `5.0.0`, upstream `v5` commit
-  `507ad7f3d4601d83482f61930fccf1c77f42a072`.
-- This commit is pinned for upstream lock completeness; it does not change
-  Quartz's `sharp: ^0.34.5` declaration and is not the Sharp security fix.
-  ADR 0003 owns the temporary exact root `sharp: 0.35.3` override and checked-in
-  brace-expansion 5.0.8 compatibility adapter.
-- `package.json` uses GitHub's tarball for that exact Git commit (avoiding an
-  SSH/git requirement) and `package-lock.json` records its integrity plus every
-  transitive npm dependency. Reproducible installs use `npm ci`.
-- The upstream default `quartz/static/icon.png` is independently pinned in
-  `config/quartz-toolchain.json` at SHA-256
-  `532d053e33c2c6bdefdd8145996cedc4be2fc32cfdac740c8488749457d131cf`.
-  Every `build` and `serve` hashes the installed bytes before materializing or
-  executing Quartz; a mismatch fails closed before Quartz/sharp or output
-  mutation.
-- The complete installed Quartz package tree is fail-closed against an exact
-  `config/quartz-toolchain.json` fingerprint for each supported runtime platform.
-  Windows x64 and Linux x64 differ only because npm installs different nested
-  optional Typst native compiler packages; those binaries remain included in,
-  rather than excluded from, each platform's full-tree fingerprint. The
-  `@quartz-community` tree is byte-identical and has one shared exact fingerprint.
-  An unlisted platform is invalid metadata and cannot materialize Quartz.
-- The authoritative installation guide says to clone/template Quartz, run
-  `npm i` initially, use `npm ci` on later clones, then run
-  `npx quartz build --serve`.
+- `package.json` pins Quartz to the GitHub tarball for commit `507ad7f3d4601d83482f61930fccf1c77f42a072` (`5.0.0`).
+- `package-lock.json` records the tarball integrity and the complete dependency graph. Use `npm ci` for a reproducible install; do not replace the lockfile with a floating Quartz install.
+- The required runtime is Node.js 22 or newer with npm 10.9.2 or newer.
+- `config/quartz-toolchain.json` records the pinned default icon SHA-256 and complete installed Quartz / Quartz Community tree fingerprints for the supported platforms. The active renderer checks those bytes before materializing or running Quartz.
+- The temporary Sharp and brace-expansion compatibility decision is documented separately in [`docs/adr/0003-temporary-pinned-stack-bridge.md`](adr/0003-temporary-pinned-stack-bridge.md). It is dependency evidence, not a site-content or deployment authority.
 
-This repository already existed and contains approved specifications and ADRs,
-so replacing its root with the Quartz template would be disruptive. The
-minimal, reversible integration installs the exact upstream Git revision as a
-locked dependency and materializes its unmodified runtime source into ignored
-`.quartz-toolchain/` only after safety preflight. Project commands hide this
-upstream layout. Trade-off: Quartz assumes it owns the repository root, so the
-small materialization adapter is a compatibility seam that must be retested on
-upgrades.
+## Active build commands
 
-## Stable commands
+Run from the repository root. The canonical source root must be supplied through `TYLER_VAULT_ROOT` or `--vault-root`; the wrapper rejects a missing root and rejects overlap between Vault, work, snapshot, and output paths.
 
-All commands require the existing canonical Vault root through
-`TYLER_VAULT_ROOT` or `--vault-root`. This is fail-closed: a missing/invalid
-root is rejected. The default source and output are the synthetic fixture and
-`.artifacts/synthetic-site`.
-
-Hermes and every other automation runner **MUST invoke the project wrapper
-directly**, so the tracked process is the process that owns the preview socket:
-
-```sh
-node scripts/site.mjs preflight --vault-root 'C:/absolute/canonical-vault'
-node scripts/site.mjs build --vault-root 'C:/absolute/canonical-vault'
-node scripts/site.mjs verify --vault-root 'C:/absolute/canonical-vault'
-node scripts/site.mjs serve --vault-root 'C:/absolute/canonical-vault' --port 8080
+```bash
+npm ci
+npm run slim:preflight -- --vault-root 'C:/absolute/canonical-vault'
+npm run slim:build -- --vault-root 'C:/absolute/canonical-vault'
 ```
 
-The equivalent `npm run preflight|build|verify|serve -- ...` aliases are
-interactive convenience only. They may be used by a person who owns the
-terminal and stops preview with Ctrl+C; they are also retained for explicit
-SIGINT/SIGTERM regression tests. Automation must not launch long-lived `serve`
-through npm's additional Windows process layer.
+`slim-build.mjs` reads the exact tracked `site-content.yml`, snapshots its nine mapped Markdown files into temporary work space, calls the pinned Quartz renderer through the active renderer helper, applies the project-owned paper/support templates and theme, writes the local generated output, and removes the temporary snapshot. It must not write to the canonical Vault.
 
-`--source` and `--output` can override defaults. Before any command mutates
-staging or output, the Vault, source, and output paths are canonicalized. Every
-pair must be disjoint: equality and either ancestor/descendant direction are
-rejected. Preflight then recursively accepts
-only regular `.md` files containing valid UTF-8 without NUL. It rejects every
-other file class/extension, symlink or reparse-point escape, PNG/JPEG/GIF/TIFF/
-WebP/PDF/ZIP magic bytes even under a `.md` name, every Markdown `![` image
-opener (including reference and Obsidian forms), and raw HTML `<img>` elements.
-This deliberately narrow T01 gate prevents source images and
-binary assets from reaching Quartz/sharp; it does not pre-implement T02
-manifest semantics. Any rejection occurs before toolchain or output mutation.
+The local exact-commit handoff is a separate wrapper:
 
-## Local preview safety
+```bash
+npm run gh-pages:prepare -- \
+  --built-site '.artifacts/slim-site' \
+  --baseline-site 'C:/absolute/gh-pages-copy' \
+  --output '.artifacts/gh-pages-preview'
+```
 
-`serve` first runs the same pinned Quartz build and output verification as
-`build`, then serves only the completed files with the project-owned Node HTTP
-server. It always binds `127.0.0.1` (never `0.0.0.0` or a non-loopback
-interface), resolves extensionless Quartz routes such as `/support-node`, and
-canonicalizes every requested file below the generated output root. The pinned
-Quartz build bootstrap statically imports its CLI handlers, so the
-`serve-handler` package/module can be imported while the child performs the
-build. However, the wrapper never passes Quartz `--serve`: its `serve-handler`
-HTTP handler is never called and no project-preview request URI can reach it.
-The project-owned static server does not use `serve-handler`.
+It requires ordinary, disjoint built/baseline/output directories, checks every mapped route plus `404.html`, rejects private or hidden public files, copies a fresh local `site/` tree, adds an empty `.nojekyll`, and reports the byte/file diff. It does not contact GitHub or mutate the baseline.
 
-The preview runs in the project wrapper process rather than a long-lived Quartz
-child. SIGINT and SIGTERM close active connections and the listening socket.
-The wrapper also watches its direct parent every 250 ms and closes itself if
-that launcher disappears. `SERVE_READY` reports the exact loopback host, port,
-and owning PID for automated read-back and cleanup checks.
+## Verification commands
 
-The Windows/Hermes automation proof used the canonical direct invocation
-`node scripts/site.mjs serve ...`: after Hermes terminated the tracked process,
-bounded read-back reported `DIRECT_PATH_CLOSED_AFTER 0.0`, with no orphan
-listener. By contrast, terminating an npm launcher can leave its descendant
-socket owner alive on this host; that observed process-layer behavior is why
-the direct-invocation rule above is mandatory rather than advisory.
+```bash
+npm run typecheck
+npm run test:slim
+npm run test:gh-pages
+node --test tests/security-stack.test.mjs
+npm test
+node --check scripts/slim-build.mjs
+node --check scripts/prepare-gh-pages-commit.mjs
+node --check scripts/tracer.mjs
+git diff --check
+```
 
-## Dependency audit boundary
-
-T08 temporarily replaces the advisory-bearing primitives with the exact,
-project-owned bridge accepted in ADR 0003: Quartz commit `507ad7f...`, root
-`sharp: 0.35.3`, and a checked-in callable/named-export adapter over exact
-`brace-expansion@5.0.8`. Quartz still declares `sharp: ^0.34.5`; the override is
-outside that range and is not upstream-supported. The Quartz commit contributes
-lock completeness, not the Sharp security fix.
-
-Current full and production-only audit read-backs are required gates, but audit
-zero is not complete safety proof: npm does not review adapter logic, runtime
-reachability, input boundaries, cross-platform native compatibility, or product
-regressions. Do not run `npm audit fix`; dependency changes require the complete
-compatibility suite and renewed fingerprints.
-
-- Sharp is genuinely invoked by Quartz's favicon plugin against only the fixed,
-  digest-pinned `quartz/static/icon.png`. The project source gate rejects
-  untrusted GIF/TIFF/VIPS and other image/binary inputs before Quartz. This
-  exclusion remains defense-in-depth and does not replace the exact patched pin.
-- Quartz's build bootstrap can statically import `serve-handler`, but the wrapper
-  never passes Quartz `--serve`; no project request or untrusted glob reaches
-  that handler. The project-owned local static server does not use it.
-- Public rehearsal and deployment remain blocked until ADR 0003's focused,
-  isolated-install, full regression, build/verify, headless browser, platform,
-  audit/SBOM, and independent-review gates all pass.
+The Pages workflow is [`../.github/workflows/deploy-pages.yml`](../.github/workflows/deploy-pages.yml). It accepts only the exact `site_commit`, checks out that commit, verifies the gh-pages ancestry and required site files, and uploads `candidate/site` without rebuilding.

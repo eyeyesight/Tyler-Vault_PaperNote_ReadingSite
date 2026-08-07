@@ -2,34 +2,62 @@
 
 ## Product
 
-A generated public reading layer for explicitly approved Tyler-Vault research notes. It combines a knowledge entrance (Explorer, search, global graph) with scholarly paper reading pages and simpler support-node pages.
+A generated public reading layer for the Tyler-Vault research notes explicitly listed in the tracked content map. It provides a home/knowledge entrance, search, public graph navigation, scholarly paper pages, and support-node pages.
 
-## Vocabulary
+## Authority and ownership
 
-- **Canonical Vault:** Tyler-Vault Markdown on Google Drive; the only editable research source.
-- **Publication manifest:** Tyler-approved, expiring, digest-bound allowlist for one publication action.
-- **Publication unit:** one integrated Literature Note plus only explicitly listed direct formal support nodes.
-- **Generated site:** HTML/CSS/JavaScript/search/graph/deployment artifacts outside Tyler-Vault.
-- **Paper page:** bibliographic masthead, One-sentence Takeaway, Research Question, body, collapsed Zotero Annotations, backlinks/local graph.
-- **Support page:** title, approved body, backlinks, local graph; never forced into the paper template.
-- **Primary renderer:** The replaceable implementation means currently used to project approved content into the generated site. It is retained only while it continuously satisfies the product, privacy, security, readability, and maintenance contract; it is not itself a product requirement.
-- **Public graph:** generated nodes and edges; an edge exists only when both endpoints are in the approved public node set.
-- **Zotero managed block:** marker-bounded annotation region eligible for automatic refresh on an already-published paper.
-- **Last-known-good site:** the currently valid deployed/generated release preserved when a later build or validation fails.
-- **Prototype fixture:** labelled non-factual layout data; never a publication unit or maturity evidence.
+- **Canonical source:** Tyler-Vault Markdown on Google Drive; it is the only editable research source and is read-only during every repository build.
+- **Content authority:** [`site-content.yml`](site-content.yml), with exactly nine `source` / `route` / `layout` entries. The map is static and explicit; no folder or frontmatter auto-discovery is part of the active path.
+- **Presentation source:** project-owned paper/support templates and theme, applied by one full build.
+- **Public output:** regenerated HTML, CSS, JavaScript, JSON, and provider support files outside Tyler-Vault.
 
-## Fixed external contracts
+## Active build and handoff
 
-- Canonical source is read-only to this repository.
-- No website artifact or runtime state is written into Tyler-Vault.
-- Eligible paper: `Literature/Notes/`, `type: literature-note`, `status: integrated`, explicitly manifest-listed.
-- New publications require explicit Tyler approval; only already-published Zotero managed-block deltas may later auto-refresh.
-- PDFs, Drafts, Queue, Logs, credentials, unrelated nodes, and unapproved graph edges are excluded.
-- User-facing controls and section headings are English; approved note body remains Traditional Chinese.
-- Theme replacement must not alter source Markdown or semantic page structure.
-- Build/validation failure must not replace last-known-good output.
-- Final cross-device delivery is a public GitHub repository plus free GitHub Pages. GitHub receives only renderer/theme code and manifest-approved generated HTML/search/graph/static assets; canonical Vault Markdown and excluded material remain on Drive.
+```text
+Canonical Vault (read-only)
+  → site-content.yml
+  → npm run slim:preflight / npm run slim:build
+  → public projection and mapped-route/privacy checks
+  → npm run gh-pages:prepare
+  → exact gh-pages commit
+  → workflow_dispatch(site_commit)
+  → GitHub Pages
+```
 
-## Evidence status
+The slim build uses a temporary public snapshot and removes it after the build. The local handoff compares a built site with a supplied gh-pages baseline, reports added/deleted/changed/unchanged files and mapped routes, and creates a fresh `site/` preview. The workflow does not build or mutate site bytes; it deploys the exact checked-out `site_commit`.
 
-The throwaway prototype passed 4/5 maturity tests. The missing test is 3–5 structurally different real integrated notes; the live Vault had only two. Production must not claim maturity until that source condition exists and all five tests pass.
+## Public surface
+
+The public routes are `/` plus the nine routes in [`site-content.yml`](site-content.yml):
+
+- `/papers/guo-2024-benchmarking-micro-action-recognition/`
+- `/papers/jackman-2021-flow-clutch-recreational-running/`
+- `/knowledge/author/patricia-c-jackman/`
+- `/knowledge/concept/flow/`
+- `/knowledge/concept/micro-action/`
+- `/knowledge/method/connecting-analysis/`
+- `/knowledge/method/event-focused-interview/`
+- `/knowledge/method/thematic-analysis/`
+- `/knowledge/task/action-recognition/`
+
+Paper pages use the public bibliographic projection and the paper template. Support pages use the support template. Search, graph, Explorer, backlinks, and content-index data are derived from the same mapped public set.
+
+## Privacy and safety
+
+Only mapped Markdown and explicitly public projected fields may enter generated output. Workflow-only frontmatter, private identifiers, Zotero-local values, PDFs, credentials, local paths, drafts, queues, logs, and unlisted graph targets stay out of the public tree. Source, temporary snapshot, work, and output roots must be disjoint. A source/build/handoff failure must not write back to the canonical Vault.
+
+## Deployment boundary
+
+Generated site bytes belong on the `gh-pages` content branch; build, presentation, tests, configuration, and workflow stay on the source branch. [`deploy-pages.yml`](.github/workflows/deploy-pages.yml) is manual-only, accepts exactly lowercase 40-hex `site_commit`, verifies that commit and the required `index.html`, `404.html`, and empty `.nojekyll`, then uploads only `candidate/site`. Provider approval and live smoke checks remain GitHub/operator actions, not a repository-owned replacement state machine.
+
+## Verification
+
+```bash
+npm run typecheck
+npm run test:slim
+npm run test:gh-pages
+node --test tests/security-stack.test.mjs
+npm test
+```
+
+See [`docs/quartz-toolchain.md`](docs/quartz-toolchain.md) for pinned installation and build facts. Do not treat synthetic fixtures as research evidence or claim production maturity from fixture-only results.

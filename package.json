@@ -8,23 +8,13 @@
     "npm": ">=10.9.2"
   },
   "scripts": {
-    "preflight": "node scripts/site.mjs preflight",
-    "build": "node scripts/site.mjs build",
-    "verify": "node scripts/site.mjs verify",
-    "serve": "node scripts/site.mjs serve",
-    "contracts:validate": "node scripts/contracts.mjs validate",
-    "tracer:preflight": "node scripts/tracer.mjs preflight",
-    "tracer:build": "node scripts/tracer.mjs build",
-    "tracer:release": "node scripts/tracer.mjs release",
+    "slim:preflight": "node scripts/slim-build.mjs preflight",
+    "slim:build": "node scripts/slim-build.mjs build",
+    "gh-pages:prepare": "node scripts/prepare-gh-pages-commit.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test --test-concurrency=1",
-    "test:tracer": "node --test tests/manifest-quartz-tracer.test.mjs",
-    "test:theme": "node --test --test-name-pattern=^T04 tests/manifest-quartz-tracer.test.mjs",
-    "test:contracts": "node --test tests/publication-contracts.test.mjs",
-    "check:contracts": "node --test tests/github-native-rebaseline-contract.test.mjs tests/github-launch-audit.test.mjs",
-    "test:guard": "node --test tests/canonical-vault-guard.test.mjs",
-    "test:serve": "node --test tests/local-serve.test.mjs",
-    "test:pages-contract": "node --test tests/github-pages-deployment-contract.test.mjs tests/verified-sealed-release.test.mjs"
+    "test:slim": "node --test tests/slim-build.test.mjs",
+    "test:gh-pages": "node --test tests/prepare-gh-pages-commit.test.mjs tests/github-pages-workflow.test.mjs"
   },
   "dependencies": {
     "@jackyzha0/quartz": "https://github.com/jackyzha0/quartz/archive/507ad7f3d4601d83482f61930fccf1c77f42a072.tar.gz",

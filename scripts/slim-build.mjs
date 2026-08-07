@@ -16,7 +16,7 @@ import {
   readDeploymentSiteFiles,
   readSecretRules,
   readToolchainMetadata,
-  runCandidatePipeline,
+  runRendererPipeline,
   validateMarkdownSafety,
   validateSemanticTemplates,
 } from "./tracer.mjs"
@@ -125,12 +125,12 @@ async function build(options, content) {
       })
     }
     validateSemanticTemplates(records)
-    const projection = projectContent({ action: { kind: "static-site-map" } }, records)
+    const projection = projectContent(records)
     const contracts = publicContracts(records, projection.outgoing, projection.searchableBodies)
     const toolchain = await readToolchainMetadata()
     const deploymentFiles = await readDeploymentSiteFiles()
     const secretRules = await readSecretRules()
-    const gate = await runCandidatePipeline({
+    const gate = await runRendererPipeline({
       exportRoot: snapshot,
       vaultRoot: content.vaultRoot,
       workRoot: content.workRoot,
@@ -147,8 +147,7 @@ async function build(options, content) {
       privatePaths: [content.vaultRoot, content.workRoot, snapshot, content.output],
       deploymentFiles,
       retainCustom404: true,
-      outputAllowlist: null,
-    }, false)
+    })
     return { pages: records.size, routes: gate.routes, files: gate.files, quartz: toolchain.metadata.version }
   } finally {
     await rm(snapshot, { recursive: true, force: true })
