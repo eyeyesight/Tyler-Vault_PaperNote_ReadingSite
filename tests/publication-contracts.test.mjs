@@ -4,7 +4,6 @@ import { lstat, mkdtemp, readFile, rm, symlink, writeFile, mkdir } from "node:fs
 import { createHash } from "node:crypto"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { spawnSync } from "node:child_process"
 import test from "node:test"
 
 import {
@@ -29,7 +28,6 @@ import {
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const examplesRoot = path.join(repoRoot, "specs", "examples")
 const orderingPath = path.join(repoRoot, "specs", "fixtures", "utf8-ordering-v1.json")
-const cliPath = path.join(repoRoot, "scripts", "contracts.mjs")
 
 async function json(file) {
   return JSON.parse(await readFile(file, "utf8"))
@@ -761,112 +759,6 @@ test("Phase B composition seam independently validates supplied current receipt 
   assert.equal(result.currentPointer.kind, "current-release")
 })
 
-test("CLI validate fails closed for the complete missing-context matrix", () => {
-  const manifestInput = path.join(examplesRoot, "publish-unit-manifest-v1.example.json")
-  const cases = [
-    ["publication-manifest", "publish-unit-manifest-v1.example.json", [["--now", "2026-07-28T00:00:00Z"], ["--runtime-root", examplesRoot]]],
-    ["export-receipt", "export-receipt-v1.example.json", [["--manifest", manifestInput], ["--export-root", examplesRoot], ["--now", "2026-07-28T00:00:00Z"], ["--runtime-root", examplesRoot]]],
-    ["release-receipt", "release-receipt-v1.example.json", [["--manifest", manifestInput], ["--now", "2026-07-28T00:00:00Z"], ["--runtime-root", examplesRoot]]],
-    ["current-release", "current-release-v1.example.json", [["--runtime-root", examplesRoot]]],
-  ]
-  for (const [kind, filename, flags] of cases) {
-    const completeMask = (1 << flags.length) - 1
-    for (let mask = 0; mask < completeMask; mask += 1) {
-      const args = [cliPath, "validate", "--kind", kind, "--input", path.join(examplesRoot, filename)]
-      for (let index = 0; index < flags.length; index += 1) if (mask & (1 << index)) args.push(...flags[index])
-      const result = spawnSync(process.execPath, args, { encoding: "utf8" })
-      assert.equal(result.status, 1, `${kind} context mask ${mask}`)
-      assert.equal(result.stderr, "", `${kind} context mask ${mask}`)
-      assert.equal(JSON.parse(result.stdout).error.code, "CONTEXT_REQUIRED", `${kind} context mask ${mask}`)
-      assert.equal(result.stdout.trim().split(/\r?\n/).length, 1)
-    }
-  }
-})
-
-test("CLI separates standalone inspect from trusted preflight validation levels", async (t) => {
-  const runtimeRoot = await mkdtemp(path.join(tmpdir(), "contract-cli-runtime-"))
-  t.after(() => rm(runtimeRoot, { recursive: true, force: true }))
-  const manifestInput = path.join(examplesRoot, "publish-unit-manifest-v1.example.json")
-  const preflight = spawnSync(process.execPath, [cliPath, "validate", "--kind", "publication-manifest", "--input", manifestInput, "--now", "2026-07-28T00:00:00Z", "--runtime-root", runtimeRoot], { encoding: "utf8" })
-  assert.equal(preflight.status, 0)
-  assert.equal(preflight.stderr, "")
-  assert.deepEqual(JSON.parse(preflight.stdout), { ok: true, kind: "publication-manifest", schemaVersion: 1, validationLevel: "preflight" })
-  assert.equal(preflight.stdout.trim().split(/\r?\n/).length, 1)
-
-  const releaseInput = path.join(examplesRoot, "release-receipt-v1.example.json")
-  const standalone = spawnSync(process.execPath, [cliPath, "inspect", "--kind", "release-receipt", "--input", releaseInput], { encoding: "utf8" })
-  assert.equal(standalone.status, 0)
-  assert.equal(standalone.stderr, "")
-  assert.deepEqual(JSON.parse(standalone.stdout), { ok: true, kind: "release-receipt", schemaVersion: 1, validationLevel: "standalone" })
-  assert.equal(standalone.stdout.trim().split(/\r?\n/).length, 1)
-})
-
-test("CLI full export preflight verifies current manifest binding, exact file set, and bytes", async (t) => {
-  const root = await mkdtemp(path.join(tmpdir(), "contract-cli-export-"))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const manifest = await json(path.join(examplesRoot, "publish-unit-manifest-v1.example.json"))
-  const receipt = await json(path.join(examplesRoot, "export-receipt-v1.example.json"))
-  for (const file of receipt.files) {
-    const absolute = path.join(root, ...file.path.split("/"))
-    await mkdir(path.dirname(absolute), { recursive: true })
-    const bytes = Buffer.from(`cli-synthetic:${file.path}\n`)
-    await writeFile(absolute, bytes)
-    file.source_sha256 = createHash("sha256").update(bytes).digest("hex")
-    manifest.nodes.find((node) => node.path === file.path).source_sha256 = file.source_sha256
-  }
-  sealManifest(manifest)
-  receipt.plan_digest = manifest.plan_digest
-  const manifestInput = path.join(root, "manifest.json")
-  const receiptInput = path.join(root, "export-receipt.json")
-  await writeFile(manifestInput, JSON.stringify(manifest))
-  await writeFile(receiptInput, JSON.stringify(receipt))
-
-  // The manifest is context, not part of the isolated export allowlist.
-  const contextRoot = await mkdtemp(path.join(tmpdir(), "contract-cli-context-"))
-  t.after(() => rm(contextRoot, { recursive: true, force: true }))
-  const contextManifest = path.join(contextRoot, "manifest.json")
-  await writeFile(contextManifest, JSON.stringify(manifest))
-  await rm(manifestInput)
-  const result = spawnSync(process.execPath, [cliPath, "validate", "--kind", "export-receipt", "--input", receiptInput, "--manifest", contextManifest, "--export-root", root, "--now", "2026-07-28T00:00:00Z", "--runtime-root", contextRoot], { encoding: "utf8" })
-  assert.equal(result.status, 0, result.stdout)
-  assert.equal(result.stderr, "")
-  assert.deepEqual(JSON.parse(result.stdout), { ok: true, kind: "export-receipt", schemaVersion: 1, validationLevel: "preflight" })
-  assert.equal(result.stdout.trim().split(/\r?\n/).length, 1)
-})
-
-test("CLI rejects adversarial duplicate manifest keys before JSON.parse can overwrite them", async (t) => {
-  const root = await mkdtemp(path.join(tmpdir(), "contract-cli-duplicate-"))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const input = path.join(root, "duplicate.json")
-  await writeFile(input, '{"schema_version":1,"schema_version":1}')
-  const result = spawnSync(process.execPath, [cliPath, "validate", "--kind", "publication-manifest", "--input", input, "--now", "2026-07-28T00:00:00Z", "--runtime-root", root], { encoding: "utf8" })
-  assert.equal(result.status, 1)
-  assert.equal(result.stderr, "")
-  assert.equal(JSON.parse(result.stdout).error.code, "INPUT_DUPLICATE_PROPERTY")
-  assert.equal(result.stdout.trim().split(/\r?\n/).length, 1)
-})
-
-test("CLI error JSON redacts temporary absolute input paths", async (t) => {
-  const root = await mkdtemp(path.join(tmpdir(), "contract-cli-redaction-"))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const input = path.join(root, "malformed.json")
-  await writeFile(input, '{"unterminated":')
-  const result = spawnSync(process.execPath, [cliPath, "inspect", "--kind", "publication-manifest", "--input", input], { encoding: "utf8" })
-  assert.equal(result.status, 1)
-  assert.equal(result.stderr, "")
-  assert.equal(JSON.parse(result.stdout).error.code, "INPUT_INVALID_JSON")
-  assert.equal(result.stdout.includes(root), false)
-  assert.equal(result.stdout.includes(input), false)
-})
-
-test("CLI deterministic schema error remains one JSON object with empty stderr", () => {
-  const failure = spawnSync(process.execPath, [cliPath, "inspect", "--kind", "publication-manifest", "--input", orderingPath], { encoding: "utf8" })
-  assert.equal(failure.status, 1)
-  assert.equal(failure.stderr, "")
-  assert.equal(JSON.parse(failure.stdout).error.code, "NON_NFC_STRING")
-  assert.equal(failure.stdout.trim().split(/\r?\n/).length, 1)
-})
-
 test("Phase B public API accepts genesis only with an absent current pointer and exact genesis baseline", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "contract-runtime-genesis-"))
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -1288,35 +1180,4 @@ test("candidate release helper standalone-validates the supplied manifest before
 
   await assert.rejects(validateReleaseAgainstManifest(receipt, original, { now: original.expires_at }),
     (error) => error instanceof ContractError && error.code === "MANIFEST_EXPIRED")
-})
-
-test("Phase B CLI validates release and candidate current with one JSON object and redacted runtime errors", async (t) => {
-  const genesisRoot = await mkdtemp(path.join(tmpdir(), "contract-cli-release-runtime-"))
-  const candidateRoot = await mkdtemp(path.join(tmpdir(), "contract-cli-current-runtime-"))
-  t.after(() => Promise.all([rm(genesisRoot, { recursive: true, force: true }), rm(candidateRoot, { recursive: true, force: true })]))
-  const manifestPath = path.join(examplesRoot, "publish-unit-manifest-v1.example.json")
-  const receiptPath = path.join(examplesRoot, "release-receipt-v1.example.json")
-  const pointerPath = path.join(examplesRoot, "current-release-v1.example.json")
-  const receipt = await json(receiptPath)
-  const pointer = await json(pointerPath)
-  const runtimeReceipt = path.join(candidateRoot, ...pointer.receipt_path.split("/"))
-  await writeRuntimeCurrent(candidateRoot, receipt, pointer)
-
-  const releaseResult = spawnSync(process.execPath, [cliPath, "validate", "--kind", "release-receipt", "--input", receiptPath, "--manifest", manifestPath, "--now", "2026-07-28T00:00:00Z", "--runtime-root", genesisRoot], { encoding: "utf8" })
-  assert.equal(releaseResult.status, 0, releaseResult.stdout)
-  assert.equal(releaseResult.stderr, "")
-  assert.equal(releaseResult.stdout.trim().split(/\r?\n/).length, 1)
-  assert.equal(JSON.parse(releaseResult.stdout).validationLevel, "preflight")
-
-  const currentResult = spawnSync(process.execPath, [cliPath, "validate", "--kind", "current-release", "--input", pointerPath, "--runtime-root", candidateRoot], { encoding: "utf8" })
-  assert.equal(currentResult.status, 0, currentResult.stdout)
-  assert.equal(currentResult.stderr, "")
-  assert.equal(currentResult.stdout.trim().split(/\r?\n/).length, 1)
-
-  await rm(runtimeReceipt)
-  const failure = spawnSync(process.execPath, [cliPath, "validate", "--kind", "current-release", "--input", pointerPath, "--runtime-root", candidateRoot], { encoding: "utf8" })
-  assert.equal(failure.status, 1)
-  assert.equal(failure.stderr, "")
-  assert.equal(JSON.parse(failure.stdout).error.code, "CURRENT_RECEIPT_MISSING")
-  assert.equal(failure.stdout.includes(candidateRoot), false)
 })

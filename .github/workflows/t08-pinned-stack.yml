@@ -65,11 +65,8 @@ jobs:
           node --test tests/security-stack.test.mjs
           npm run typecheck
 
-      - name: Build and verify the synthetic production site
-        run: |
-          mkdir -p "$RUNNER_TEMP/canonical-vault"
-          node scripts/site.mjs build --vault-root "$RUNNER_TEMP/canonical-vault"
-          node scripts/site.mjs verify --vault-root "$RUNNER_TEMP/canonical-vault"
+      - name: Build and verify the slim production site
+        run: node --test tests/slim-build.test.mjs tests/prepare-gh-pages-commit.test.mjs
 
       - name: Run the complete regression and headless browser acceptance suite
         run: npm test

@@ -19,7 +19,7 @@ import {
 } from "../lib/publication-contracts.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
-const npm = "npm"
+const tracerCli = path.join(repoRoot, "scripts", "tracer.mjs")
 const now = "2026-07-29T00:00:00Z"
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex")
 
@@ -185,7 +185,7 @@ async function replaceFixtureSource(fixture, publicId, bytes) {
 }
 
 function invokeRelease(fixture, env = {}, trustedNow = now) {
-  const args = ["run", "--silent", "tracer:release", "--",
+  const args = [tracerCli, "release",
     "--manifest", fixture.manifestPath,
     "--export-receipt", fixture.exportReceiptPath,
     "--runtime-root", fixture.paths.runtime,
@@ -197,7 +197,7 @@ function invokeRelease(fixture, env = {}, trustedNow = now) {
   ]
   const childEnv = { ...process.env, ...env }
   for (const [name, value] of Object.entries(childEnv)) if (value === undefined) delete childEnv[name]
-  return spawnSync(npm, args, { cwd: repoRoot, encoding: "utf8", timeout: 180_000, shell: process.platform === "win32", env: childEnv })
+  return spawnSync(process.execPath, args, { cwd: repoRoot, encoding: "utf8", timeout: 180_000, env: childEnv })
 }
 
 async function createTracerSandbox(contract) {

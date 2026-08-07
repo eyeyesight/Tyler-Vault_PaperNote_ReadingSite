@@ -54,7 +54,7 @@ async function writeSource(root, relative, bytes) {
 }
 
 function invokeRelease(fixture, extraEnv = {}) {
-  return spawnSync("npm", ["run", "--silent", "tracer:release", "--",
+  return spawnSync(process.execPath, [path.join(repoRoot, "scripts", "tracer.mjs"), "release",
     "--manifest", fixture.manifestPath,
     "--export-receipt", fixture.exportReceiptPath,
     "--runtime-root", fixture.paths.runtime,
@@ -63,7 +63,7 @@ function invokeRelease(fixture, extraEnv = {}) {
     "--work-root", fixture.paths.work,
     "--releases-root", fixture.paths.releases,
     "--now", now,
-  ], { cwd: repoRoot, encoding: "utf8", timeout: 180_000, shell: process.platform === "win32", env: { ...process.env, ...extraEnv } })
+  ], { cwd: repoRoot, encoding: "utf8", timeout: 180_000, env: { ...process.env, ...extraEnv } })
 }
 
 async function writeAction(fixture, manifest) {

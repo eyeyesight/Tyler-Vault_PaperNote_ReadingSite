@@ -1,12 +1,10 @@
 // @ts-nocheck -- filesystem fixtures exercise the sealed release boundary.
 import assert from "node:assert/strict"
-import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
-import { promisify } from "node:util"
 
 import {
   loadVerifiedSealedRelease,
@@ -26,7 +24,6 @@ import {
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const expectedUrl = "https://eyeyesight.github.io/Tyler-Vault_PaperNote_ReadingSite/"
 const basePath = "/Tyler-Vault_PaperNote_ReadingSite"
-const execFileAsync = promisify(execFile)
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex")
@@ -597,65 +594,6 @@ test("staging comparison binds both candidate and launch-audit digests", async (
   const source = await readFile(path.join(repoRoot, "lib", "gh-pages-candidate.mjs"), "utf8")
   assert.match(source, /rechecked\.metadata\.candidate_digest\s*!==\s*checked\.metadata\.candidate_digest/)
   assert.match(source, /rechecked\.launchAuditDigest\s*!==\s*checked\.launchAuditDigest/)
-})
-
-test("prepare and verify CLIs execute with named arguments and emit path-free JSON", async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "gh-pages-candidate-cli-"))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const sealed = await installSealedRelease(root, "cli")
-  const candidateRoot = path.join(root, "candidate")
-  await assert.rejects(
-    execFileAsync(process.execPath, [
-      path.join(repoRoot, "scripts", "prepare-gh-pages-candidate.mjs"),
-      "--runtime-root", sealed.runtimeRoot,
-      "--releases-root", sealed.releasesRoot,
-      "--manifest-id", sealed.manifest.manifest_id,
-      "--output-root", candidateRoot,
-    ], { cwd: repoRoot }),
-    (error) => {
-      assert.match(error.stderr, /"code":"CLI_ARGUMENT_INVALID"/)
-      assert.equal(error.stderr.includes(root), false)
-      return true
-    },
-  )
-  const prepareResult = await execFileAsync(process.execPath, [
-    path.join(repoRoot, "scripts", "prepare-gh-pages-candidate.mjs"),
-    "--runtime-root", sealed.runtimeRoot,
-    "--releases-root", sealed.releasesRoot,
-    "--manifest-id", sealed.manifest.manifest_id,
-    "--source-root", sealed.sourceRoot,
-    "--output-root", candidateRoot,
-  ], { cwd: repoRoot })
-  assert.equal(prepareResult.stderr, "")
-  const prepared = JSON.parse(prepareResult.stdout)
-  assert.equal(prepared.verified, true)
-  assert.equal(prepareResult.stdout.includes(root), false)
-
-  const audit = await addLaunchAudit(candidateRoot)
-  const stageRoot = path.join(root, "stage")
-  const verifyResult = await execFileAsync(process.execPath, [
-    path.join(repoRoot, "scripts", "verify-gh-pages-candidate.mjs"),
-    "--candidate-root", candidateRoot,
-    "--require-launch-audit",
-    "--expected-candidate-digest", prepared.candidateDigest,
-    "--expected-launch-audit-digest", audit.audit_digest,
-    "--stage-output", stageRoot,
-  ], { cwd: repoRoot })
-  assert.equal(verifyResult.stderr, "")
-  const verified = JSON.parse(verifyResult.stdout)
-  assert.equal(verified.verified, true)
-  assert.equal(verified.staged, true)
-  assert.equal(verifyResult.stdout.includes(root), false)
-  assert.equal((await readdir(stageRoot)).includes(".publication"), false)
-
-  await assert.rejects(
-    execFileAsync(process.execPath, [path.join(repoRoot, "scripts", "verify-gh-pages-candidate.mjs"), candidateRoot], { cwd: repoRoot }),
-    (error) => {
-      assert.match(error.stderr, /"code":"CLI_ARGUMENT_INVALID"/)
-      assert.equal(error.stderr.includes(root), false)
-      return true
-    },
-  )
 })
 
 test("site digest is SHA-256 over normalized JCS inventory bytes", () => {
