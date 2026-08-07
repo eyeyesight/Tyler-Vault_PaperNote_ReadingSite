@@ -77,6 +77,7 @@ const toolchainMetadataPath = path.join(repoRoot, "config", "quartz-toolchain.js
 const outputAllowlistPath = path.join(repoRoot, "config", "public-output-allowlist-v1.json")
 const secretRulesPath = path.join(repoRoot, "config", "public-secret-rules.toml")
 const scholarlyThemePath = path.join(repoRoot, "styles", "tracer-scholarly.scss")
+const projectSiteBasePath = "/Tyler-Vault_PaperNote_ReadingSite/"
 const quartzContentIndexFile = "index.html"
 const sharedRequiredFlags = ["manifest", "exportReceipt", "runtimeRoot", "exportRoot", "vaultRoot", "workRoot", "now"]
 const testCapability = "t03-regression-v1"
@@ -1299,6 +1300,56 @@ async function normalizeBreadcrumbRoutes(candidate, run, records, outgoing, depl
   }
 }
 
+const projectSiteAttribute = /(\b(?:href|src|content)\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi
+const custom404ContentIndexFetch = /(fetch\(\s*)(["'])\/static\/contentIndex\.json\2(\s*\))/g
+
+/** @param {string} html @param {(value:string) => string} rewrite */
+function rewriteProjectSiteAttributes(html, rewrite) {
+  projectSiteAttribute.lastIndex = 0
+  return html.replace(projectSiteAttribute, (whole, prefix, doubleQuoted, singleQuoted, unquoted) => {
+    const value = doubleQuoted ?? singleQuoted ?? unquoted
+    const rewritten = rewrite(value)
+    if (rewritten === value) return whole
+    if (doubleQuoted !== undefined) return `${prefix}"${rewritten}"`
+    if (singleQuoted !== undefined) return `${prefix}'${rewritten}'`
+    return `${prefix}${rewritten}`
+  })
+}
+
+/** @param {string} value */
+function projectSiteReference(value) {
+  if (!value.startsWith("/") || value.startsWith("//")) return value
+  if (value === projectSiteBasePath.slice(0, -1) || value.startsWith(projectSiteBasePath)) return value === projectSiteBasePath.slice(0, -1) ? projectSiteBasePath : value
+  return `${projectSiteBasePath}${value.slice(1)}`
+}
+
+/** @param {string} html */
+function normalizeCustom404References(html) {
+  const normalized = rewriteProjectSiteAttributes(html, projectSiteReference)
+    .replace(custom404ContentIndexFetch, `$1$2${projectSiteBasePath}static/contentIndex.json$2$3`)
+  projectSiteAttribute.lastIndex = 0
+  for (const match of normalized.matchAll(projectSiteAttribute)) {
+    const value = match[2] ?? match[3] ?? match[4]
+    if (value.startsWith("/") && !value.startsWith("//") && !value.startsWith(projectSiteBasePath)) {
+      throw new TracerError("CUSTOM_404_BASE_PATH_INVALID", "generated custom 404 contains an escaping root-absolute URL-bearing attribute")
+    }
+  }
+  if (/fetch\(\s*["']\/(?!Tyler-Vault_PaperNote_ReadingSite\/)/.test(normalized)) {
+    throw new TracerError("CUSTOM_404_BASE_PATH_INVALID", "generated custom 404 contains an escaping root-absolute content-index fetch")
+  }
+  return normalized
+}
+
+/** @param {string} candidate @param {string} run @param {{custom404:string}} deploymentFiles */
+async function normalizeCustom404BasePath(candidate, run, deploymentFiles) {
+  await assertCandidateRoot(candidate, run)
+  const custom404 = (await listRegularTree(candidate, run)).find((file) => file.relative === deploymentFiles.custom404)
+  if (!custom404) throw new TracerError("CUSTOM_404_BASE_PATH_INVALID", "generated custom 404 is missing")
+  const html = custom404.bytes.toString("utf8")
+  const normalized = normalizeCustom404References(html)
+  if (normalized !== html) await writeFile(custom404.absolute, normalized)
+}
+
 /** Replace Quartz's broad content index with the exact public search contract;
  * fetchData remains the shared runtime seam used by project-owned navigation. */
 async function writePublicDataAssets(/** @type {string} */ candidate, /** @type {string} */ run, /** @type {{graph:any,search:any}} */ contracts) {
@@ -2139,9 +2190,11 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
   const expectedHtml = [...(retainCustom404 ? [deploymentFiles.custom404] : []), deploymentFiles.entryFile, ...[...records.values()].map((record) => quartzContentRouteFile(record.route))].sort()
   if (JSON.stringify(html.sort()) !== JSON.stringify(expectedHtml)) throw new TracerError("CANDIDATE_ROUTE_SET_INVALID", "candidate HTML route set is not exact", { actual: html.sort(), expected: expectedHtml })
   const approvedRoutes = new Set(["/", ...[...records.values()].map((record) => record.route)])
+  const custom404Routes = new Set([...approvedRoutes].map((route) => `${projectSiteBasePath}${route.slice(1)}`))
   const virtual = virtualHtmlPaths(records, deploymentFiles, retainCustom404)
   const expectedFinal = baseline.filter((row) => !virtual.has(row.relative))
   const expectedAssets = new Set(expectedFinal.filter((row) => !row.relative.endsWith(".html")).map((row) => `/${row.relative}`))
+  const custom404Assets = new Set([...expectedAssets].map((asset) => `${projectSiteBasePath}${asset.slice(1)}`))
   const contentHtml = new Set([...records.values()].map((record) => quartzContentRouteFile(record.route)))
   for (const file of files) {
     if (file.relative.endsWith(".html")) {
@@ -2155,7 +2208,8 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
         }
       }
       const route = generatedHtmlRoute(file.relative, deploymentFiles)
-      validateCandidateHtml(pageHtml, route, approvedRoutes, expectedAssets)
+      const custom404 = file.relative === deploymentFiles.custom404
+      validateCandidateHtml(pageHtml, route, custom404 ? custom404Routes : approvedRoutes, custom404 ? custom404Assets : expectedAssets)
     } else if (file.relative.endsWith(".css")) validateCandidateCss(file.bytes.toString("utf8"), `/${file.relative}`, approvedRoutes, expectedAssets)
   }
   const actualManifest = files.map((file) => ({ relative: file.relative, fileClass: "regular-file", sha256: sha256(file.bytes) }))
@@ -2522,6 +2576,7 @@ async function runCandidatePipeline(safe, releaseMode) {
     const quartzHtmlCase = testHook("TYLER_TRACER_TEST_QUARTZ_HTML_CASE", releaseMode)
     if (quartzHtmlCase) await injectQuartzHtmlRegression(candidate, run, quartzHtmlCase)
     await normalizeBreadcrumbRoutes(candidate, run, safe.records, safe.outgoing, safe.deploymentFiles)
+    await normalizeCustom404BasePath(candidate, run, safe.deploymentFiles)
     await repairTocAccessibility(candidate, run)
     await installNetworkCsp(candidate, run)
     await writePublicDataAssets(candidate, run, safe.contracts)

@@ -1,26 +1,18 @@
 // @ts-nocheck -- public CLI fixtures intentionally use dynamic temporary roots.
 import assert from "node:assert/strict"
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 import test from "node:test"
 
+import { approvedSitePageCount } from "../lib/slim-content-map.mjs"
+import { readMappedRoutes } from "../scripts/prepare-gh-pages-commit.mjs"
+
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const cli = path.join(repoRoot, "scripts", "prepare-gh-pages-commit.mjs")
-
-const mappedRoutes = [
-  "/",
-  "/papers/guo-2024-benchmarking-micro-action-recognition/",
-  "/papers/jackman-2021-flow-clutch-recreational-running/",
-  "/knowledge/author/patricia-c-jackman/",
-  "/knowledge/concept/flow/",
-  "/knowledge/concept/micro-action/",
-  "/knowledge/method/connecting-analysis/",
-  "/knowledge/method/event-focused-interview/",
-  "/knowledge/method/thematic-analysis/",
-  "/knowledge/task/action-recognition/",
-]
+const mappedRoutes = (await readMappedRoutes()).map(({ route }) => route)
+assert.equal(mappedRoutes.length, approvedSitePageCount + 1)
 
 function routeFile(route) {
   return route === "/" ? "index.html" : `${route.slice(1)}index.html`
@@ -75,6 +67,15 @@ async function fixture() {
   await put(baseline, "changed.txt", Buffer.from("baseline\n"))
   await put(built, "only-built.txt", Buffer.from("added\n"))
   await put(baseline, "only-baseline.txt", Buffer.from("deleted\n"))
+  for (const [relative, bytes] of [
+    ["safe/site.css", Buffer.from("body { color: black; }\n")],
+    ["safe/site.js", Buffer.from("window.safeAsset = true\n")],
+    ["safe/data.json", Buffer.from('{"safe":true}\n')],
+    ["safe/icon.png", Buffer.from([0, 1, 2, 3])],
+  ]) {
+    await put(built, relative, bytes)
+    await put(baseline, relative, bytes)
+  }
   await put(baseline, ".nojekyll", Buffer.alloc(0))
   return { root, built, baseline, output }
 }
@@ -125,6 +126,10 @@ test("local handoff copies the generated site, adds empty .nojekyll, and reports
           "knowledge/task/action-recognition/index.html",
           "papers/guo-2024-benchmarking-micro-action-recognition/index.html",
           "papers/jackman-2021-flow-clutch-recreational-running/index.html",
+          "safe/data.json",
+          "safe/icon.png",
+          "safe/site.css",
+          "safe/site.js",
         ],
       },
     })
@@ -180,4 +185,73 @@ test("local handoff rejects overlapping roots without creating a preview", async
   } finally {
     await rm(paths.root, { recursive: true, force: true })
   }
+})
+
+test("local handoff rejects link ancestors for built, baseline, and output before any write", async () => {
+  const paths = await fixture()
+  const targetBefore = await snapshot(paths.root)
+  const linkedParent = await mkdtemp(path.join(os.tmpdir(), "tyrs-handoff-link-parent-"))
+  const linkedRoot = path.join(linkedParent, "linked-root")
+  await symlink(paths.root, linkedRoot, process.platform === "win32" ? "junction" : "dir")
+  try {
+    for (const [role, invocation] of [
+      ["built", { built: path.join(linkedRoot, "built"), baseline: paths.baseline, output: paths.output }],
+      ["baseline", { built: paths.built, baseline: path.join(linkedRoot, "baseline"), output: path.join(paths.root, "preview-baseline") }],
+      ["output", { built: paths.built, baseline: paths.baseline, output: path.join(linkedRoot, "preview-output") }],
+    ]) {
+      const result = invoke(invocation)
+      assert.equal(result.status, 1, `${role}: ${result.stdout}\n${result.stderr}`)
+      assert.equal(result.stderr, "")
+      const failure = JSON.parse(result.stdout).error
+      assert.equal(failure.code, `HANDOFF_${role.toUpperCase()}_ROOT_INVALID`, role)
+      assert.equal(await exists(invocation.output), false, `${role}: output must remain absent`)
+    }
+    assert.deepEqual(await snapshot(paths.root), targetBefore)
+  } finally {
+    await rm(linkedParent, { recursive: true, force: true })
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
+test("local handoff rejects private Markdown and extra HTML before finalizing output", async () => {
+  const paths = await fixture()
+  try {
+    await put(paths.built, "private.md", Buffer.from("private\n"))
+    await put(paths.built, "extra.html", Buffer.from("<html>extra</html>\n"))
+    const result = invoke(paths)
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.equal(result.stderr, "")
+    assert.deepEqual(JSON.parse(result.stdout).error, {
+      code: "HANDOFF_OUTPUT_CLASS_INVALID",
+      message: "generated site contains a disallowed public file",
+    })
+    assert.equal(await exists(paths.output), false)
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
+test("local handoff rejects PDFs, publication paths, and hidden metadata except empty root .nojekyll", async () => {
+  for (const relative of ["private.markdown", "private.pdf", ".publication/receipt.json", ".DS_Store", "nested/.hidden.json", "nested/.nojekyll"]) {
+    const paths = await fixture()
+    try {
+      await put(paths.built, relative, Buffer.from("disallowed\n"))
+      const result = invoke(paths)
+      assert.equal(result.status, 1, `${relative}: ${result.stdout}\n${result.stderr}`)
+      assert.equal(result.stderr, "")
+      assert.deepEqual(JSON.parse(result.stdout).error, {
+        code: "HANDOFF_OUTPUT_CLASS_INVALID",
+        message: "generated site contains a disallowed public file",
+      }, relative)
+      assert.equal(await exists(paths.output), false, `${relative}: output must remain absent`)
+    } finally {
+      await rm(paths.root, { recursive: true, force: true })
+    }
+  }
+})
+
+test("local handoff binds mapped route parsing to the approved site page-count seam", async () => {
+  const source = await readFile(cli, "utf8")
+  assert.match(source, /approvedSitePageCount/)
+  assert.equal((await readMappedRoutes()).length, approvedSitePageCount + 1)
 })

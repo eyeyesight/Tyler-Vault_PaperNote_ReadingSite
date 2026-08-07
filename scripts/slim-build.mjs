@@ -27,7 +27,7 @@ const defaultWorkRoot = path.join(repoRoot, ".artifacts", "slim-work")
 const defaultOutput = path.join(repoRoot, ".artifacts", "slim-site")
 const projectOwnedTheme = path.join(repoRoot, "styles", "tracer-scholarly.scss")
 
-/** @typedef {{command:"preflight"|"build",map:string,vaultRoot:string,workRoot:string,output:string}} SlimOptions */
+/** @typedef {{command:"preflight"|"build",vaultRoot:string,workRoot:string,output:string}} SlimOptions */
 
 class SlimBuildError extends Error {
   /** @param {string} code @param {string} message */
@@ -43,13 +43,12 @@ function parseArgs(argv) {
   if (!command || !["preflight", "build"].includes(command)) throw new SlimBuildError("USAGE", "expected preflight or build")
   const options = /** @type {SlimOptions} */ ({
     command: /** @type {"preflight"|"build"} */ (command),
-    map: defaultMap,
     vaultRoot: process.env.TYLER_VAULT_ROOT ?? "",
     workRoot: defaultWorkRoot,
     output: defaultOutput,
   })
-  /** @type {Map<string,"map"|"vaultRoot"|"workRoot"|"output">} */
-  const flags = new Map([["--content-map", "map"], ["--vault-root", "vaultRoot"], ["--work-root", "workRoot"], ["--output", "output"]])
+  /** @type {Map<string,"vaultRoot"|"workRoot"|"output">} */
+  const flags = new Map([["--vault-root", "vaultRoot"], ["--work-root", "workRoot"], ["--output", "output"]])
   const seen = new Set()
   for (let index = 0; index < rest.length; index += 2) {
     const flag = rest[index]
@@ -59,8 +58,7 @@ function parseArgs(argv) {
     if (!property) throw new SlimBuildError("USAGE", `unknown flag ${flag}`)
     if (seen.has(property)) throw new SlimBuildError("USAGE", `duplicate flag ${flag}`)
     seen.add(property)
-    if (property === "map") options.map = value
-    else if (property === "vaultRoot") options.vaultRoot = value
+    if (property === "vaultRoot") options.vaultRoot = value
     else if (property === "workRoot") options.workRoot = value
     else options.output = value
   }
@@ -70,7 +68,7 @@ function parseArgs(argv) {
 
 /** @param {SlimOptions} options */
 async function preflight(options) {
-  return await loadSiteContent(options.map, options)
+  return await loadSiteContent(defaultMap, options)
 }
 
 /** @param {SlimOptions} options @param {Awaited<ReturnType<typeof preflight>>} content */

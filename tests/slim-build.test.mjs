@@ -4,24 +4,21 @@ import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
 import test from "node:test"
+import { parse as parseYaml } from "yaml"
+
+import { approvedSitePageCount } from "../lib/slim-content-map.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const cli = path.join(repoRoot, "scripts", "slim-build.mjs")
 
 /** @typedef {[source:string,route:string,layout:"paper"|"support"]} ApprovedPage */
+/** @typedef {{source:string,route:string,layout:"paper"|"support"}} MappedPage */
 
+/** @type {MappedPage[]} */
+const mappedPages = parseYaml(await readFile(path.join(repoRoot, "site-content.yml"), "utf8")).pages
 /** @type {ApprovedPage[]} */
-const approvedPages = [
-  ["Literature/Notes/Guo et al. 2024 — Benchmarking Micro-action Recognition.md", "/papers/guo-2024-benchmarking-micro-action-recognition/", "paper"],
-  ["Literature/Notes/Jackman et al. 2021 — Flow and Clutch States in Recreational Running.md", "/papers/jackman-2021-flow-clutch-recreational-running/", "paper"],
-  ["Knowledge/Authors/Patricia C. Jackman.md", "/knowledge/author/patricia-c-jackman/", "support"],
-  ["Knowledge/Concepts/Flow.md", "/knowledge/concept/flow/", "support"],
-  ["Knowledge/Concepts/Micro-action.md", "/knowledge/concept/micro-action/", "support"],
-  ["Knowledge/Methods/Connecting Analysis.md", "/knowledge/method/connecting-analysis/", "support"],
-  ["Knowledge/Methods/Event-Focused Interview.md", "/knowledge/method/event-focused-interview/", "support"],
-  ["Knowledge/Methods/Thematic Analysis.md", "/knowledge/method/thematic-analysis/", "support"],
-  ["Knowledge/Tasks/Action Recognition.md", "/knowledge/task/action-recognition/", "support"],
-]
+const approvedPages = mappedPages.map((page) => [page.source, page.route, page.layout])
+assert.equal(approvedPages.length, approvedSitePageCount)
 
 /** @param {number} index @param {"paper"|"support"} layout */
 function noteFor(index, layout) {
@@ -116,6 +113,31 @@ test("Phase 1 preflight accepts the exact nine approved source/route/layout mapp
   }
 })
 
+test("Phase 1 CLI rejects retired --content-map with USAGE before reading source roots", async () => {
+  const paths = await fixture()
+  const before = new Map()
+  for (const [source] of approvedPages) before.set(source, await readFile(path.join(paths.vault, ...source.split("/"))))
+  try {
+    const result = spawnSync(process.execPath, [
+      cli,
+      "preflight",
+      "--content-map", path.join(paths.root, "private-map.yml"),
+      "--vault-root", path.join(paths.root, "missing-vault"),
+      "--work-root", paths.work,
+      "--output", paths.output,
+    ], { cwd: repoRoot, encoding: "utf8", timeout: 30_000 })
+    assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+    assert.equal(result.stderr, "")
+    assert.deepEqual(JSON.parse(result.stdout).error, {
+      code: "USAGE",
+      message: "unknown flag --content-map",
+    })
+    for (const [source, bytes] of before) assert.deepEqual(await readFile(path.join(paths.vault, ...source.split("/"))), bytes)
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
 test("Phase 1 preflight fails closed when a mapped source has malformed frontmatter", async () => {
   const paths = await fixture()
   try {
@@ -153,8 +175,15 @@ test("Phase 1 build renders all nine mapped routes and keeps workflow metadata p
     const publicText = (await Promise.all(publicFiles.map((file) => readFile(file, "utf8")))).join("\n")
     const notFound = await readFile(path.join(paths.output, "404.html"), "utf8")
     const home = await readFile(path.join(paths.output, "index.html"), "utf8")
+    const projectBasePath = "/Tyler-Vault_PaperNote_ReadingSite/"
+    const rootAbsoluteReferences = [...notFound.matchAll(/\b(?:href|src|content)=["'](\/(?!\/)[^"']*)["']/gi)].map((match) => match[1])
     assert.notEqual(notFound, home)
     assert.match(notFound, /404|not found/i)
+    assert.ok(rootAbsoluteReferences.length > 0, "custom 404 should retain root-relative asset/navigation references")
+    assert.ok(rootAbsoluteReferences.every((reference) => reference.startsWith(projectBasePath)), rootAbsoluteReferences.join("\n"))
+    assert.match(notFound, /fetch\(["']\/Tyler-Vault_PaperNote_ReadingSite\/static\/contentIndex\.json["']\)/)
+    assert.doesNotMatch(notFound, /fetch\(["']\/(?!Tyler-Vault_PaperNote_ReadingSite\/)/)
+    assert.equal(home.includes(projectBasePath), false, "project base-path normalization must be scoped to custom 404")
     assert.equal(publicText.includes("PHASE1_WORKFLOW_SENTINEL"), false)
     assert.equal(publicText.includes("zotero://select/library/items/PRIVATE123"), false)
     assert.match(publicText, /data-tracer-template="paper"/)

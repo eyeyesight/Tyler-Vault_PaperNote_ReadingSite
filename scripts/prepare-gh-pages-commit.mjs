@@ -5,6 +5,9 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { parse as parseYaml } from "yaml"
 
+import { assertNoLinkAncestors, pathsOverlap } from "../lib/filesystem-safety.mjs"
+import { approvedSitePageCount } from "../lib/slim-content-map.mjs"
+
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const contentMapPath = path.join(repoRoot, "site-content.yml")
 
@@ -61,6 +64,9 @@ async function readMappedRoutes() {
   if (!document || typeof document !== "object" || !Array.isArray(document.pages)) {
     throw new HandoffError("HANDOFF_CONTENT_MAP_INVALID", "site-content.yml pages are invalid")
   }
+  if (document.pages.length !== approvedSitePageCount) {
+    throw new HandoffError("HANDOFF_CONTENT_MAP_INVALID", "site-content.yml must contain the approved page count")
+  }
   const routes = ["/", ...document.pages.map((page) => {
     if (!page || typeof page !== "object") throw new HandoffError("HANDOFF_CONTENT_MAP_INVALID", "site-content.yml pages are invalid")
     return page.route
@@ -79,6 +85,9 @@ async function readMappedRoutes() {
 
 async function existingDirectory(absolute, code) {
   try {
+    await assertNoLinkAncestors(absolute, {
+      errorFactory: () => new HandoffError(code, "handoff root must not contain a link ancestor"),
+    })
     const metadata = await lstat(absolute)
     if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw new Error("not an ordinary directory")
     return { absolute, canonical: await realpath(absolute) }
@@ -89,23 +98,38 @@ async function existingDirectory(absolute, code) {
 
 async function freshOutput(absolute) {
   try {
+    await assertNoLinkAncestors(absolute, {
+      allowMissing: true,
+      errorFactory: () => new HandoffError("HANDOFF_OUTPUT_ROOT_INVALID", "handoff output root must not contain a link ancestor"),
+    })
     await lstat(absolute)
     throw new HandoffError("HANDOFF_OUTPUT_EXISTS", "handoff output root must be fresh")
   } catch (error) {
     if (error instanceof HandoffError) throw error
     if (error?.code !== "ENOENT") throw new HandoffError("HANDOFF_OUTPUT_INVALID", "handoff output root is unavailable")
   }
-  const parent = await existingDirectory(path.dirname(absolute), "HANDOFF_OUTPUT_PARENT_INVALID")
+  const parent = await existingDirectory(path.dirname(absolute), "HANDOFF_OUTPUT_ROOT_INVALID")
   return { absolute, canonical: path.join(parent.canonical, path.basename(absolute)) }
 }
 
-function contains(left, right) {
-  const relative = path.relative(left, right)
-  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
-}
-
-function overlaps(left, right) {
-  return contains(left, right) || contains(right, left)
+function validateOutputClass(files, proof) {
+  const expectedHtml = [...proof.map(({ file }) => file), "404.html"].sort(utf8Order)
+  const actualHtml = [...files.keys()].filter((relative) => /\.html$/i.test(relative)).sort(utf8Order)
+  if (JSON.stringify(actualHtml) !== JSON.stringify(expectedHtml)) {
+    throw new HandoffError("HANDOFF_OUTPUT_CLASS_INVALID", "generated site contains a disallowed public file")
+  }
+  for (const [relative, bytes] of files) {
+    const segments = relative.split("/")
+    if (relative === ".nojekyll") {
+      if (bytes.length !== 0) throw new HandoffError("HANDOFF_NOJEKYLL_INVALID", "generated site contains a non-empty .nojekyll")
+      continue
+    }
+    if (/\.(?:md|markdown|pdf)$/i.test(relative)
+      || segments.includes(".publication")
+      || segments.some((segment) => segment.startsWith("."))) {
+      throw new HandoffError("HANDOFF_OUTPUT_CLASS_INVALID", "generated site contains a disallowed public file")
+    }
+  }
 }
 
 async function collectRegularFiles(root, invalidCode) {
@@ -169,8 +193,8 @@ async function prepare(options) {
   const built = await existingDirectory(path.resolve(options.builtSite), "HANDOFF_BUILT_ROOT_INVALID")
   const baseline = await existingDirectory(path.resolve(options.baselineSite), "HANDOFF_BASELINE_ROOT_INVALID")
   const output = await freshOutput(path.resolve(options.output))
-  if (overlaps(built.canonical, baseline.canonical) || overlaps(built.canonical, output.canonical)
-    || overlaps(baseline.canonical, output.canonical)) {
+  if (pathsOverlap(built.canonical, baseline.canonical) || pathsOverlap(built.canonical, output.canonical)
+    || pathsOverlap(baseline.canonical, output.canonical)) {
     throw new HandoffError("HANDOFF_PATH_OVERLAP", "handoff roots must be disjoint")
   }
 
@@ -191,6 +215,7 @@ async function prepare(options) {
   if (builtFiles.has(".nojekyll") && builtFiles.get(".nojekyll").length !== 0) {
     throw new HandoffError("HANDOFF_NOJEKYLL_INVALID", "generated site contains a non-empty .nojekyll")
   }
+  validateOutputClass(builtFiles, proof)
 
   let created = false
   try {
