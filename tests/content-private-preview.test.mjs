@@ -14,6 +14,15 @@ import {
   routeForSource,
   sha256,
 } from "../lib/content-private-preview.mjs"
+import * as contentPreview from "../lib/content-private-preview.mjs"
+
+test("site presentation exposes a one-argument production seam", async () => {
+  assert.equal(typeof contentPreview.prepareSitePrivatePreview, "function")
+  assert.equal(contentPreview.prepareSitePrivatePreview.length, 1)
+  const result = await contentPreview.prepareSitePrivatePreview(/** @type {any} */ (null))
+  assert.equal(result.error_code, "VAULT_ROOT_REQUIRED")
+  assert.equal(JSON.stringify(result).includes("sitePresentation"), false)
+})
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const cli = path.join(repoRoot, "scripts", "slim-build.mjs")
@@ -78,7 +87,7 @@ test("publish CLI starts a real temporary Git/Vault fixture without an operation
       "--main-ref", "refs/heads/main",
       "--gh-pages-ref", "refs/heads/gh-pages",
       "--work-root", path.join(root, "cli-work"),
-    ], { cwd: repoRoot, encoding: "utf8", timeout: 180_000 })
+    ], { cwd: repoRoot, encoding: "utf8", timeout: 600_000 })
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
     assert.equal(result.stderr, "")
     const receipt = JSON.parse(result.stdout)
@@ -266,6 +275,61 @@ async function makeFixture(root, mapPath, vault, buildBaseline) {
   return { ...fixture, mainSha, rendererSha, ghPagesSha }
 }
 
+/** Build a complete main/live renderer pair so presentation compares two materializable commits.
+ * @param {string} root @param {string} mapPath @param {string} vault @param {boolean} [mutateMain]
+ */
+async function makePresentationFixture(root, mapPath, vault, mutateMain = true) {
+  const fixture = {
+    root,
+    vault,
+    repo: path.join(root, "presentation-refs"),
+    baseline: path.join(root, "presentation-baseline"),
+    mainMap: path.join(root, "presentation-main-site-content.yml"),
+  }
+  await mkdir(fixture.repo, { recursive: true })
+  await writeFile(fixture.mainMap, await readFile(mapPath))
+  const baselineWork = path.join(root, "presentation-baseline-work")
+  const baselineResult = spawnSync(process.execPath, [
+    cli,
+    "build",
+    "--content-map", fixture.mainMap,
+    "--vault-root", fixture.vault,
+    "--work-root", baselineWork,
+    "--output", fixture.baseline,
+  ], { cwd: repoRoot, encoding: "utf8", timeout: 180_000 })
+  assert.equal(baselineResult.status, 0, `${baselineResult.stdout}\n${baselineResult.stderr}`)
+  await put(fixture.baseline, ".nojekyll", Buffer.alloc(0))
+  git(fixture.repo, ["init", "-b", "main"])
+  git(fixture.repo, ["config", "user.email", "fixture@example.invalid"])
+  git(fixture.repo, ["config", "user.name", "T13 Presentation Fixture"])
+  for (const relative of git(repoRoot, ["ls-files"]).split(/\r?\n/u).filter(Boolean)) {
+    const sourcePath = path.join(repoRoot, ...relative.split("/"))
+    const destination = path.join(fixture.repo, ...relative.split("/"))
+    await mkdir(path.dirname(destination), { recursive: true })
+    await cp(sourcePath, destination)
+  }
+  await put(fixture.repo, "site-content.yml", await readFile(fixture.mainMap))
+  git(fixture.repo, ["add", "-A"])
+  git(fixture.repo, ["commit", "-m", "fixture renderer baseline"])
+  const rendererSha = git(fixture.repo, ["rev-parse", "HEAD"])
+  git(fixture.repo, ["checkout", "-b", "live-renderer"])
+  git(fixture.repo, ["checkout", "main"])
+  if (mutateMain) {
+    const stylePath = path.join(fixture.repo, "styles", "tracer-scholarly.scss")
+    await writeFile(stylePath, `${await readFile(stylePath, "utf8")}\nbody { outline: 1px solid rgb(17, 34, 51); }\n`)
+    git(fixture.repo, ["add", "styles/tracer-scholarly.scss"])
+    git(fixture.repo, ["commit", "-m", "fixture output-affecting presentation change"])
+  }
+  const mainSha = git(fixture.repo, ["rev-parse", "refs/heads/main"])
+  git(fixture.repo, ["checkout", "--orphan", "gh-pages"])
+  git(fixture.repo, ["rm", "-rf", "."])
+  await cp(fixture.baseline, path.join(fixture.repo, "site"), { recursive: true })
+  git(fixture.repo, ["add", "site"])
+  git(fixture.repo, ["commit", "-m", `fixture presentation gh-pages\n\nRenderer-Main-SHA: ${rendererSha}`])
+  const ghPagesSha = git(fixture.repo, ["rev-parse", "HEAD"])
+  return { ...fixture, mainSha, rendererSha, ghPagesSha }
+}
+
 /** @param {{root:string,vault:string,repo:string,baseline:string,mainMap:string,mainSha:string,rendererSha:string,ghPagesSha:string}} refs @param {string} spec */
 async function replaceRendererBraceExpansionSpecifier(refs, spec) {
   git(refs.repo, ["checkout", "live-renderer"])
@@ -432,6 +496,364 @@ test("content lane creates one complete private preview from Vault plus temporar
     assert.equal(removal.next_action, "request_manual_review")
     assert.equal(removal.candidate_identity, null)
     assert.equal(await exists(path.join(root, "removal-work", removal.operation_id)), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("site exact live verification returns no_change and cleans its session", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-exact-unchanged-"))
+  const vault = path.join(root, "vault")
+  const map = path.join(root, "map.yml")
+  const workRoot = path.join(root, "site-work")
+  await mkdir(vault, { recursive: true })
+  await writeFile(map, await readFile(path.join(repoRoot, "site-content.yml")))
+  await populateVault({ root, vault }, false)
+  const refs = await makeFixture(root, map, vault, true)
+  try {
+    const result = await contentPreview.verifyExactLiveContentForSite({
+      vaultRoot: vault,
+      gitRoot: refs.repo,
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      workRoot,
+    })
+    assert.equal(result.version, 1)
+    assert.equal(result.lane, "site")
+    assert.equal(result.status, "no_change")
+    assert.equal(result.error_code, null)
+    assert.equal(result.candidate_identity, null)
+    assert.equal(result.next_action, "none")
+    assert.deepEqual(result.checks.filter(({ name }) => name === "exact_live_content_equality"), [
+      { name: "exact_live_content_equality", outcome: "pass" },
+    ])
+    assert.equal(await exists(path.join(workRoot, result.operation_id)), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("site exact live verification reuses an explicit operation id only after successful cleanup", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-exact-reuse-"))
+  const vault = path.join(root, "vault")
+  const map = path.join(root, "map.yml")
+  const workRoot = path.join(root, "site-work")
+  const operationId = "content-0123456789abcdefabcd"
+  await mkdir(vault, { recursive: true })
+  await writeFile(map, await readFile(path.join(repoRoot, "site-content.yml")))
+  await populateVault({ root, vault }, false)
+  const refs = await makeFixture(root, map, vault, true)
+  const options = {
+    vaultRoot: vault,
+    gitRoot: refs.repo,
+    mainRef: "refs/heads/main",
+    ghPagesRef: "refs/heads/gh-pages",
+    workRoot,
+    operationId,
+  }
+  try {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await contentPreview.verifyExactLiveContentForSite(options)
+      assert.equal(result.operation_id, operationId)
+      assert.equal(result.lane, "site")
+      assert.equal(result.status, "no_change")
+      assert.equal(result.error_code, null)
+      assert.equal(result.candidate_identity, null)
+      assert.equal(await exists(path.join(workRoot, operationId)), false)
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("site exact live verification reports mapped Vault content changes without a candidate", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-exact-mapped-change-"))
+  const vault = path.join(root, "vault")
+  const map = path.join(root, "map.yml")
+  const workRoot = path.join(root, "site-work")
+  await mkdir(vault, { recursive: true })
+  const mapBytes = await readFile(path.join(repoRoot, "site-content.yml"))
+  await writeFile(map, mapBytes)
+  await populateVault({ root, vault }, false)
+  const refs = await makeFixture(root, map, vault, true)
+  const mappedPaper = mappedPages.find((/** @type {{layout:string}} */ page) => page.layout === "paper")
+  assert.ok(mappedPaper)
+  await put(vault, mappedPaper.source, note("Changed Mapped Paper", "paper", "- [[Knowledge/Concepts/Flow|Flow]]"))
+  try {
+    const result = await contentPreview.verifyExactLiveContentForSite({
+      vaultRoot: vault,
+      gitRoot: refs.repo,
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      workRoot,
+    })
+    assert.equal(result.version, 1)
+    assert.equal(result.lane, "site")
+    assert.equal(result.status, "needs_attention")
+    assert.equal(result.error_code, "PENDING_CONTENT_CHANGES")
+    assert.equal(result.candidate_identity, null)
+    assert.match(result.summary, /content lane/u)
+    assert.equal(result.next_action, "run_content_lane_first")
+    assert.deepEqual(result.mapping_identity.additions, [])
+    assert.deepEqual(await readFile(map), mapBytes)
+    assert.deepEqual(result.checks.filter(({ name }) => name === "exact_live_content_equality"), [
+      { name: "exact_live_content_equality", outcome: "fail" },
+    ])
+    assert.equal(await exists(path.join(workRoot, result.operation_id)), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("site exact verification reports a proposal and leaves the public content candidate isolated", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-exact-proposal-"))
+  const vault = path.join(root, "vault")
+  const map = path.join(root, "map.yml")
+  const siteWorkRoot = path.join(root, "site-work")
+  const contentWorkRoot = path.join(root, "content-work")
+  await mkdir(vault, { recursive: true })
+  const mapBytes = await readFile(path.join(repoRoot, "site-content.yml"))
+  await writeFile(map, mapBytes)
+  await populateVault({ root, vault }, true)
+  const refs = await makeFixture(root, map, vault, true)
+  try {
+    const siteResult = await contentPreview.verifyExactLiveContentForSite({
+      vaultRoot: vault,
+      gitRoot: refs.repo,
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      workRoot: siteWorkRoot,
+    })
+    assert.equal(siteResult.version, 1)
+    assert.equal(siteResult.lane, "site")
+    assert.equal(siteResult.status, "needs_attention")
+    assert.equal(siteResult.error_code, "PENDING_CONTENT_CHANGES")
+    assert.equal(siteResult.candidate_identity, null)
+    assert.equal(siteResult.mapping_identity.additions.length, 2)
+    assert.deepEqual(await readFile(map), mapBytes)
+    assert.equal(await exists(path.join(siteWorkRoot, siteResult.operation_id)), false)
+
+    const contentResult = await prepareContentPrivatePreview({
+      vaultRoot: vault,
+      gitRoot: refs.repo,
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      workRoot: contentWorkRoot,
+    })
+    assert.equal(contentResult.lane, "content")
+    assert.equal(contentResult.status, "ready_for_review")
+    assert.equal(contentResult.next_action, "approve_content")
+    assert.ok(contentResult.candidate_identity)
+    assert.equal(await exists(path.join(contentWorkRoot, contentResult.operation_id)), true)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("site exact verification keeps route removal as manual review", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-route-removal-"))
+  const vault = path.join(root, "vault")
+  const map = path.join(root, "map.yml")
+  const workRoot = path.join(root, "site-work")
+  await mkdir(vault, { recursive: true })
+  await writeFile(map, await readFile(path.join(repoRoot, "site-content.yml")))
+  await populateVault({ root, vault }, false)
+  const refs = await makeFixture(root, map, vault, false)
+  for (const relative of [
+    "site/papers/legacy-route/index.html",
+    "site/knowledge/concept/zeta/index.html",
+  ]) await put(refs.repo, relative, Buffer.from("<html>legacy</html>\n"))
+  git(refs.repo, ["add", "site"])
+  git(refs.repo, ["commit", "-m", `fixture gh-pages site route removals\n\nRenderer-Main-SHA: ${refs.rendererSha}`])
+  try {
+    const result = await contentPreview.verifyExactLiveContentForSite({
+      vaultRoot: vault,
+      gitRoot: refs.repo,
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      workRoot,
+    })
+    assert.equal(result.lane, "site")
+    assert.equal(result.status, "needs_attention")
+    assert.equal(result.error_code, "ROUTE_REMOVAL")
+    assert.deepEqual(result.removed_routes, [
+      { route: "/knowledge/concept/zeta/", title: "zeta", kind: "concept" },
+      { route: "/papers/legacy-route/", title: "legacy route", kind: "paper" },
+    ])
+    assert.equal(result.candidate_identity, null)
+    assert.equal(await exists(path.join(workRoot, result.operation_id)), false)
+    assert.equal(JSON.stringify(result).includes(root), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("site presentation materializes current main once, runs QA, and persists bounded screenshots", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-presentation-ready-"))
+  const vault = path.join(root, "vault")
+  const map = path.join(root, "map.yml")
+  const workRoot = path.join(root, "site-work")
+  await mkdir(vault, { recursive: true })
+  await writeFile(map, await readFile(path.join(repoRoot, "site-content.yml")))
+  await populateVault({ root, vault }, false)
+  const refs = await makePresentationFixture(root, map, vault, true)
+  const paper = mappedPages.find((/** @type {{layout:string}} */ page) => page.layout === "paper")
+  const knowledge = mappedPages.find((/** @type {{layout:string}} */ page) => page.layout === "support")
+  assert.ok(paper)
+  assert.ok(knowledge)
+  const paperRoute = paper.route
+  const knowledgeRoute = knowledge.route
+  let qaCalls = 0
+  try {
+    const result = await contentPreview.prepareSitePrivatePreviewForTest({
+      vaultRoot: vault,
+      gitRoot: refs.repo,
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      workRoot,
+    }, {
+      afterLiveEquality: async (/** @type {Readonly<Record<string,string>>} */ context) => {
+        assert.equal(Object.isFrozen(context), true)
+        assert.equal("mapPath" in context, false)
+        assert.equal("content" in context, false)
+        await put(vault, paper.source, note("After live equality mutation", paper.layout, "- [[Knowledge/Concepts/Flow|Flow]]"))
+        git(refs.repo, ["checkout", "main"])
+        await writeFile(path.join(refs.repo, "styles", "tracer-scholarly.scss"), "DIRTY_WORKTREE_PRESENTATION_SENTINEL\n")
+      },
+      qa: async (/** @type {any} */ qaOptions) => {
+        qaCalls += 1
+        assert.equal(qaOptions.basePath, "/Tyler-Vault_PaperNote_ReadingSite/")
+        assert.deepEqual(qaOptions.sourceDiff.changedFiles, ["styles/tracer-scholarly.scss"])
+        assert.equal(qaOptions.mappedRoutes.some((/** @type {{route:string}} */ entry) => entry.route === paperRoute), true)
+        assert.equal(qaOptions.mappedRoutes.some((/** @type {{route:string}} */ entry) => entry.route === knowledgeRoute), true)
+        const html = await readFile(path.join(qaOptions.siteRoot, "index.html"), "utf8")
+        assert.equal(html.includes("DIRTY_WORKTREE_PRESENTATION_SENTINEL"), false)
+        return {
+          status: "pass",
+          screenshots: [
+            { route: knowledgeRoute, bytes: Buffer.from("knowledge-png") },
+            { route: paperRoute, bytes: Buffer.from("paper-png") },
+          ],
+        }
+      },
+    })
+    assert.equal(qaCalls, 1)
+    assert.equal(result.status, "ready_for_review")
+    assert.equal(result.next_action, "approve_site")
+    assert.equal(result.error_code, null)
+    assert.ok(result.candidate_identity)
+    assert.equal(result.candidate_identity.source_main_sha, refs.mainSha)
+    assert.equal(result.candidate_identity.base_gh_pages_sha, refs.ghPagesSha)
+    assert.equal(result.candidate_identity.live_renderer_sha, refs.rendererSha)
+    assert.equal(result.candidate_identity.main_renderer_tree_sha256.length, 64)
+    assert.equal(result.candidate_identity.map_sha256.length, 64)
+    assert.equal(result.candidate_identity.site_sha256.length, 64)
+    assert.equal(Object.prototype.hasOwnProperty.call(result.candidate_identity, "screenshots"), false)
+    assert.deepEqual(result.preview.screenshots.map((/** @type {{route:string,handle:string,bytes:number}} */ entry) => ({ route: entry.route, handle: entry.handle, bytes: entry.bytes })), [
+      { route: knowledgeRoute, handle: "screenshots/shot-0000.png", bytes: "knowledge-png".length },
+      { route: paperRoute, handle: "screenshots/shot-0001.png", bytes: "paper-png".length },
+    ])
+    assert.equal(JSON.stringify(result).includes(root), false)
+    assert.equal(JSON.stringify(result).includes("Buffer"), false)
+    const session = path.join(workRoot, result.operation_id)
+    assert.equal(await exists(session), true)
+    assert.equal(await readFile(path.join(session, result.preview.screenshots[0].handle), "utf8"), "knowledge-png")
+    assert.equal(await readFile(path.join(session, result.preview.screenshots[1].handle), "utf8"), "paper-png")
+    const mainHtml = await readFile(path.join(session, "main-handoff", "site", paper.route.slice(1), "index.html"), "utf8")
+    assert.doesNotMatch(mainHtml, /After live equality mutation/u)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("site presentation exposes a stable QA failure and removes its session", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-presentation-qa-failure-"))
+  const vault = path.join(root, "vault")
+  const map = path.join(root, "map.yml")
+  const workRoot = path.join(root, "site-work")
+  await mkdir(vault, { recursive: true })
+  await writeFile(map, await readFile(path.join(repoRoot, "site-content.yml")))
+  await populateVault({ root, vault }, false)
+  const refs = await makePresentationFixture(root, map, vault, true)
+  try {
+    const result = await contentPreview.prepareSitePrivatePreviewForTest({
+      vaultRoot: vault,
+      gitRoot: refs.repo,
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      workRoot,
+    }, {
+      qa: async () => ({ status: "fail", error_code: "QA_SERVER_CLOSE_FAILED", screenshots: [] }),
+    })
+    assert.equal(result.status, "needs_attention")
+    assert.equal(result.error_code, "QA_SERVER_CLOSE_FAILED")
+    assert.equal(result.candidate_identity, null)
+    assert.equal(result.checks.some((/** @type {{name:string,outcome:string}} */ entry) => entry.name === "headless_qa" && entry.outcome === "fail"), true)
+    assert.equal(await exists(path.join(workRoot, result.operation_id)), false)
+    assert.equal(JSON.stringify(result).includes(root), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("site presentation returns no_change without a second renderer install when main equals live", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-presentation-no-change-"))
+  const vault = path.join(root, "vault")
+  const map = path.join(root, "map.yml")
+  const workRoot = path.join(root, "site-work")
+  await mkdir(vault, { recursive: true })
+  await writeFile(map, await readFile(path.join(repoRoot, "site-content.yml")))
+  await populateVault({ root, vault }, false)
+  const refs = await makePresentationFixture(root, map, vault, false)
+  let qaCalls = 0
+  try {
+    const result = await contentPreview.prepareSitePrivatePreviewForTest({
+      vaultRoot: vault,
+      gitRoot: refs.repo,
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      workRoot,
+    }, { qa: async () => { qaCalls += 1; throw new Error("QA must not run") } })
+    assert.equal(refs.mainSha, refs.rendererSha)
+    assert.equal(result.status, "no_change")
+    assert.equal(result.error_code, null)
+    assert.equal(result.candidate_identity, null)
+    assert.equal(qaCalls, 0)
+    assert.equal(await exists(path.join(workRoot, result.operation_id)), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("site presentation stops for pending content before current-main materialization or QA", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-presentation-pending-content-"))
+  const vault = path.join(root, "vault")
+  const map = path.join(root, "map.yml")
+  const workRoot = path.join(root, "site-work")
+  await mkdir(vault, { recursive: true })
+  await writeFile(map, await readFile(path.join(repoRoot, "site-content.yml")))
+  await populateVault({ root, vault }, false)
+  const refs = await makePresentationFixture(root, map, vault, false)
+  const paper = mappedPages.find((/** @type {{layout:string}} */ page) => page.layout === "paper")
+  assert.ok(paper)
+  await put(vault, paper.source, note("Pending content change", paper.layout, "- [[Knowledge/Concepts/Flow|Flow]]"))
+  let qaCalls = 0
+  try {
+    const result = await contentPreview.prepareSitePrivatePreviewForTest({
+      vaultRoot: vault,
+      gitRoot: refs.repo,
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      workRoot,
+    }, { qa: async () => { qaCalls += 1; throw new Error("QA must not run") } })
+    assert.equal(result.lane, "site")
+    assert.equal(result.status, "needs_attention")
+    assert.equal(result.error_code, "PENDING_CONTENT_CHANGES")
+    assert.equal(result.candidate_identity, null)
+    assert.equal(result.next_action, "run_content_lane_first")
+    assert.equal(qaCalls, 0)
+    assert.equal(await exists(path.join(workRoot, result.operation_id)), false)
+    assert.equal(JSON.stringify(result).includes(root), false)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -715,6 +1137,46 @@ test("cleanup failure is visible through an internal controller seam without exp
         throw new Error(path.join(root, "must-not-appear"))
       },
     })
+    assert.equal(result.status, "needs_attention")
+    assert.equal(result.error_code, "CLEANUP_FAILED")
+    assert.equal(result.candidate_identity, null)
+    assert.deepEqual(result.checks, [{ name: "cleanup", outcome: "fail" }])
+    assert.equal(result.next_action, "request_manual_cleanup")
+    assert.equal(cleanupAttempts > 0, true)
+    assert.equal(JSON.stringify(result).includes(root), false)
+    assert.equal(await exists(path.join(workRoot, result.operation_id)), true)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("site verification cleanup failure is visible and never returns a candidate", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-cleanup-failure-"))
+  const vault = path.join(root, "vault")
+  const map = path.join(root, "map.yml")
+  const workRoot = path.join(root, "work")
+  await mkdir(vault, { recursive: true })
+  await writeFile(map, await readFile(path.join(repoRoot, "site-content.yml")))
+  await populateVault({ root, vault }, false)
+  await rm(path.join(vault, "Literature", "Notes"), { recursive: true, force: true })
+  const refs = await makeFixture(root, map, vault, false)
+  let cleanupAttempts = 0
+  try {
+    const result = await prepareContentPrivatePreviewForTest({
+      vaultRoot: vault,
+      gitRoot: refs.repo,
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      workRoot,
+    }, {
+      siteVerification: true,
+      removeOwnedDirectory: async () => {
+        cleanupAttempts += 1
+        throw new Error(path.join(root, "must-not-appear"))
+      },
+    })
+    assert.equal(result.version, 1)
+    assert.equal(result.lane, "site")
     assert.equal(result.status, "needs_attention")
     assert.equal(result.error_code, "CLEANUP_FAILED")
     assert.equal(result.candidate_identity, null)
