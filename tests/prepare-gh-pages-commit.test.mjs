@@ -6,13 +6,12 @@ import path from "node:path"
 import { spawnSync } from "node:child_process"
 import test from "node:test"
 
-import { approvedSitePageCount } from "../lib/slim-content-map.mjs"
-import { readMappedRoutes } from "../scripts/prepare-gh-pages-commit.mjs"
+import { prepare, readMappedRoutes } from "../scripts/prepare-gh-pages-commit.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const cli = path.join(repoRoot, "scripts", "prepare-gh-pages-commit.mjs")
 const mappedRoutes = (await readMappedRoutes()).map(({ route }) => route)
-assert.equal(mappedRoutes.length, approvedSitePageCount + 1)
+assert.ok(mappedRoutes.length > 1)
 
 function routeFile(route) {
   return route === "/" ? "index.html" : `${route.slice(1)}index.html`
@@ -89,7 +88,67 @@ function invoke(paths) {
   ], { cwd: repoRoot, encoding: "utf8", timeout: 30_000 })
 }
 
+/** @param {{built:string,baseline:string,output:string}} paths @param {string} contentMap */
+function invokeWithMap(paths, contentMap) {
+  return spawnSync(process.execPath, [
+    cli,
+    "--built-site", paths.built,
+    "--baseline-site", paths.baseline,
+    "--output", paths.output,
+    "--content-map", contentMap,
+  ], { cwd: repoRoot, encoding: "utf8", timeout: 30_000 })
+}
+
 const expectedProof = mappedRoutes.map((route) => ({ route, file: routeFile(route) }))
+
+test("local handoff consumes injected immutable map bytes without rereading a mutable path", async () => {
+  const paths = await fixture()
+  const poisonedMap = path.join(paths.root, "poisoned-map.yml")
+  const frozenMapBytes = await readFile(path.join(repoRoot, "site-content.yml"))
+  await writeFile(poisonedMap, "pages:\n  - source: ../poison.md\n")
+  try {
+    const result = await prepare({
+      builtSite: paths.built,
+      baselineSite: paths.baseline,
+      output: paths.output,
+      contentMap: poisonedMap,
+      contentMapBytes: frozenMapBytes,
+    })
+    assert.equal(result.ok, true)
+    assert.deepEqual(result.routeProof, { count: expectedProof.length, routes: expectedProof, missing: [] })
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
+test("local handoff uses strict shared map structure without requiring Vault sources", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-handoff-map-schema-"))
+  const map = path.join(root, "map.yml")
+  const cases = [
+    ["malformed source", `version: 1\npages:\n  - source: ../escape.md\n    route: /knowledge/concept/flow/\n    layout: support`],
+    ["unsupported layout", `version: 1\npages:\n  - source: Missing.md\n    route: /knowledge/concept/flow/\n    layout: unknown`],
+    ["unsupported version", `version: 2\npages:\n  - source: Missing.md\n    route: /knowledge/concept/flow/\n    layout: support`],
+    ["extra page field", `version: 1\npages:\n  - source: Missing.md\n    route: /knowledge/concept/flow/\n    layout: support\n    extra: rejected`],
+    ["missing page field", `version: 1\npages:\n  - source: Missing.md\n    route: /knowledge/concept/flow/`],
+  ]
+  const paths = await fixture()
+  try {
+    for (const [name, bytes] of cases) {
+      await writeFile(map, bytes)
+      const result = invokeWithMap(paths, map)
+      assert.equal(result.status, 1, `${name}: ${result.stdout}\n${result.stderr}`)
+      assert.equal(result.stderr, "", name)
+      assert.deepEqual(JSON.parse(result.stdout).error, {
+        code: "HANDOFF_CONTENT_MAP_INVALID",
+        message: "site-content.yml contains an invalid content-map structure",
+      }, name)
+      assert.equal(await exists(paths.output), false, name)
+    }
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 test("local handoff copies the generated site, adds empty .nojekyll, and reports mapped route plus byte diffs", async () => {
   const paths = await fixture()
@@ -250,8 +309,8 @@ test("local handoff rejects PDFs, publication paths, and hidden metadata except 
   }
 })
 
-test("local handoff binds mapped route parsing to the approved site page-count seam", async () => {
+test("local handoff does not bind mapped route parsing to a fixed page count", async () => {
   const source = await readFile(cli, "utf8")
-  assert.match(source, /approvedSitePageCount/)
-  assert.equal((await readMappedRoutes()).length, approvedSitePageCount + 1)
+  assert.doesNotMatch(source, /approvedSitePageCount/)
+  assert.equal((await readMappedRoutes()).length, mappedRoutes.length)
 })

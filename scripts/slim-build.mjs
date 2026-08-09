@@ -1,25 +1,10 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto"
 import path from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { copyFile, lstat, mkdir, readFile, rm } from "node:fs/promises"
 
 import { loadSiteContent, SiteContentError } from "../lib/slim-content-map.mjs"
-import { publicMetadata } from "../lib/slim-public-metadata.mjs"
-import { selectProjectPageTemplate } from "../lib/project-page-template.mjs"
-import {
-  analyzeMarkdown,
-  decodeMarkdown,
-  parseFrontmatter,
-  projectContent,
-  publicContracts,
-  readDeploymentSiteFiles,
-  readSecretRules,
-  readToolchainMetadata,
-  runRendererPipeline,
-  validateMarkdownSafety,
-  validateSemanticTemplates,
-} from "./tracer.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const defaultMap = path.join(repoRoot, "site-content.yml")
@@ -27,7 +12,7 @@ const defaultWorkRoot = path.join(repoRoot, ".artifacts", "slim-work")
 const defaultOutput = path.join(repoRoot, ".artifacts", "slim-site")
 const projectOwnedTheme = path.join(repoRoot, "styles", "tracer-scholarly.scss")
 
-/** @typedef {{command:"preflight"|"build",vaultRoot:string,workRoot:string,output:string}} SlimOptions */
+/** @typedef {{command:"preflight"|"build",vaultRoot:string,workRoot:string,output:string,contentMap:string,rendererRoot?:string}} SlimOptions */
 
 class SlimBuildError extends Error {
   /** @param {string} code @param {string} message */
@@ -46,9 +31,15 @@ function parseArgs(argv) {
     vaultRoot: process.env.TYLER_VAULT_ROOT ?? "",
     workRoot: defaultWorkRoot,
     output: defaultOutput,
+    contentMap: defaultMap,
   })
-  /** @type {Map<string,"vaultRoot"|"workRoot"|"output">} */
-  const flags = new Map([["--vault-root", "vaultRoot"], ["--work-root", "workRoot"], ["--output", "output"]])
+  /** @type {Map<string,"vaultRoot"|"workRoot"|"output"|"contentMap">} */
+  const flags = new Map([
+    ["--vault-root", "vaultRoot"],
+    ["--work-root", "workRoot"],
+    ["--output", "output"],
+    ["--content-map", "contentMap"],
+  ])
   const seen = new Set()
   for (let index = 0; index < rest.length; index += 2) {
     const flag = rest[index]
@@ -60,7 +51,8 @@ function parseArgs(argv) {
     seen.add(property)
     if (property === "vaultRoot") options.vaultRoot = value
     else if (property === "workRoot") options.workRoot = value
-    else options.output = value
+    else if (property === "output") options.output = value
+    else options.contentMap = value
   }
   if (!options.vaultRoot) throw new SlimBuildError("VAULT_ROOT_REQUIRED", "--vault-root or TYLER_VAULT_ROOT is required")
   return options
@@ -68,11 +60,45 @@ function parseArgs(argv) {
 
 /** @param {SlimOptions} options */
 async function preflight(options) {
-  return await loadSiteContent(defaultMap, options)
+  return await loadSiteContent(options.contentMap, options)
 }
 
 /** @param {SlimOptions} options @param {Awaited<ReturnType<typeof preflight>>} content */
 async function build(options, content) {
+  if (options.rendererRoot) {
+    const liveBuildPath = path.join(path.resolve(options.rendererRoot), "scripts", "slim-build.mjs")
+    const liveBuild = await import(pathToFileURL(liveBuildPath).href)
+    if (typeof liveBuild.build !== "function") throw new SlimBuildError("RENDERER_SOURCE_INVALID", "materialized live renderer does not expose its build seam")
+    const built = await liveBuild.build({ ...options, rendererRoot: undefined }, content)
+    return { ...built, map_sha256: content.mapSha256 }
+  }
+  return await buildWithLocalRenderer(options, content)
+}
+
+/** The local renderer is lazy so content/map admission cannot load pending
+ * presentation, tracer, toolchain, deployment, or style modules.
+ * @param {SlimOptions} options
+ * @param {Awaited<ReturnType<typeof preflight>>} content
+ */
+async function buildWithLocalRenderer(options, content) {
+  const [{ publicMetadata }, { selectProjectPageTemplate }, tracer] = await Promise.all([
+    import("../lib/slim-public-metadata.mjs"),
+    import("../lib/project-page-template.mjs"),
+    import("./tracer.mjs"),
+  ])
+  const {
+    analyzeMarkdown,
+    decodeMarkdown,
+    parseFrontmatter,
+    projectContent,
+    publicContracts,
+    readDeploymentSiteFiles,
+    readSecretRules,
+    readToolchainMetadata,
+    runRendererPipeline,
+    validateMarkdownSafety,
+    validateSemanticTemplates,
+  } = tracer
   await readFile(projectOwnedTheme, "utf8")
   const snapshot = content.snapshotRoot
   await rm(snapshot, { recursive: true, force: true })
@@ -148,7 +174,13 @@ async function build(options, content) {
       deploymentFiles,
       retainCustom404: true,
     })
-    return { pages: records.size, routes: gate.routes, files: gate.files, quartz: toolchain.metadata.version }
+    return {
+      pages: records.size,
+      routes: gate.routes,
+      files: gate.files,
+      quartz: toolchain.metadata.version,
+      map_sha256: content.mapSha256,
+    }
   } finally {
     await rm(snapshot, { recursive: true, force: true })
   }
@@ -167,7 +199,14 @@ async function main() {
     const layout = /** @type {"paper"|"support"} */ (page.layout)
     layouts[layout] += 1
   }
-  process.stdout.write(`${JSON.stringify({ ok: true, command: "preflight", pages: content.pages.length, routes: content.pages.map((page) => page.route), layouts })}\n`)
+  process.stdout.write(`${JSON.stringify({
+    ok: true,
+    command: "preflight",
+    pages: content.pages.length,
+    routes: content.pages.map((page) => page.route),
+    layouts,
+    map_sha256: content.mapSha256,
+  })}\n`)
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -180,4 +219,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   })
 }
 
-export { build, parseArgs, preflight, selectProjectPageTemplate }
+export { build, parseArgs, preflight }

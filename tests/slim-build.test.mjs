@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
 import { lstat, mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -6,7 +7,7 @@ import { spawnSync } from "node:child_process"
 import test from "node:test"
 import { parse as parseYaml } from "yaml"
 
-import { approvedSitePageCount } from "../lib/slim-content-map.mjs"
+import { loadSiteContent } from "../lib/slim-content-map.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const cli = path.join(repoRoot, "scripts", "slim-build.mjs")
@@ -19,7 +20,7 @@ const cli = path.join(repoRoot, "scripts", "slim-build.mjs")
 const mappedPages = parseYaml(await readFile(path.join(repoRoot, "site-content.yml"), "utf8")).pages
 /** @type {ApprovedPage[]} */
 const approvedPages = mappedPages.map((page) => [page.source, page.route, page.layout])
-assert.equal(approvedPages.length, approvedSitePageCount)
+assert.ok(approvedPages.length > 0)
 
 const tracerCsp = "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self' data:; frame-src 'none'; img-src 'self' data:; media-src 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'none'"
 
@@ -132,6 +133,22 @@ function invoke(paths, command, env = {}) {
     encoding: "utf8",
     timeout: 120_000,
     env: { ...process.env, ...env },
+  })
+}
+
+/** @param {{vault:string,work:string,output:string}} paths @param {"preflight"|"build"} command @param {string} contentMap */
+function invokeWithMap(paths, command, contentMap) {
+  return spawnSync(process.execPath, [
+    cli,
+    command,
+    "--content-map", contentMap,
+    "--vault-root", paths.vault,
+    "--work-root", paths.work,
+    "--output", paths.output,
+  ], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    timeout: 120_000,
   })
 }
 
@@ -299,7 +316,7 @@ test("Phase 5 slim-build build rejects mapped source NUL with a stable redacted 
   }
 })
 
-test("Phase 1 preflight accepts the exact nine approved source/route/layout mappings", async () => {
+test("Phase 1 preflight accepts the current approved source/route/layout mappings", async () => {
   const paths = await fixture()
   try {
     const result = invoke(paths, "preflight")
@@ -307,14 +324,14 @@ test("Phase 1 preflight accepts the exact nine approved source/route/layout mapp
     assert.equal(result.stderr, "")
     const receipt = JSON.parse(result.stdout)
     assert.deepEqual(receipt.routes, approvedPages.map(([, route]) => route))
-    assert.equal(receipt.pages, 9)
+    assert.equal(receipt.pages, approvedPages.length)
     assert.deepEqual(receipt.layouts, { paper: 2, support: 7 })
   } finally {
     await rm(paths.root, { recursive: true, force: true })
   }
 })
 
-test("Phase 1 CLI rejects retired --content-map with USAGE before reading source roots", async () => {
+test("Phase 1 CLI accepts --content-map but fails closed for an invalid Vault root", async () => {
   const paths = await fixture()
   const before = new Map()
   for (const [source] of approvedPages) before.set(source, await readFile(path.join(paths.vault, ...source.split("/"))))
@@ -330,8 +347,8 @@ test("Phase 1 CLI rejects retired --content-map with USAGE before reading source
     assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
     assert.equal(result.stderr, "")
     assert.deepEqual(JSON.parse(result.stdout).error, {
-      code: "USAGE",
-      message: "unknown flag --content-map",
+      code: "VAULT_ROOT_INVALID",
+      message: "canonical Vault root must be an ordinary directory",
     })
     for (const [source, bytes] of before) assert.deepEqual(await readFile(path.join(paths.vault, ...source.split("/"))), bytes)
   } finally {
@@ -354,6 +371,64 @@ test("Phase 1 preflight fails closed when a mapped source has malformed frontmat
   }
 })
 
+test("Phase 5 map preflight reads injected map bytes exactly once and hashes those exact bytes", async () => {
+  const paths = await fixture()
+  const mapBytes = await readFile(path.join(repoRoot, "site-content.yml"))
+  const mutatedMapBytes = Buffer.from(mapBytes.toString("utf8").replace("/knowledge/concept/flow/", "/knowledge/concept/mutated/")
+    .replace("/papers/guo-2024-benchmarking-micro-action-recognition/", "/papers/mutated/"))
+  let reads = 0
+  try {
+    const content = await loadSiteContent(path.join(paths.root, "missing-map.yml"), {
+      vaultRoot: paths.vault,
+      workRoot: paths.work,
+      output: paths.output,
+    }, {
+      mapReader: async () => {
+        reads += 1
+        return reads === 1 ? Buffer.from(mapBytes) : mutatedMapBytes
+      },
+    })
+    assert.equal(reads, 1)
+    assert.equal(content.mapSha256, createHash("sha256").update(mapBytes).digest("hex"))
+    assert.deepEqual(content.pages.map(({ source, route, layout }) => [source, route, layout]), approvedPages)
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
+test("Phase 5 slim-build rejects malformed content-map structure before Vault admission", async () => {
+  const page = approvedPages[0]
+  const sameLayoutPage = approvedPages.find((candidate) => candidate[2] === page[2] && candidate[0] !== page[0])
+  assert.ok(sameLayoutPage)
+  const foldedSource = page[0].replace(/[A-Za-z]/, (character) => character === character.toUpperCase() ? character.toLowerCase() : character.toUpperCase())
+  const duplicateRoute = page[2] === "paper" ? "/papers/duplicate-route/" : "/knowledge/concept/duplicate-route/"
+  const cases = [
+    ["malformed source", `pages:\n  - source: ../escape.md\n    route: "${page[1]}"\n    layout: ${page[2]}`, "SOURCE_PATH_INVALID"],
+    ["unsupported layout", `pages:\n  - source: "${page[0]}"\n    route: "${page[1]}"\n    layout: unknown`, "LAYOUT_INVALID"],
+    ["unsupported version field", `version: 1\npages:\n  - source: "${page[0]}"\n    route: "${page[1]}"\n    layout: ${page[2]}`, "CONTENT_MAP_INVALID"],
+    ["extra page field", `pages:\n  - source: "${page[0]}"\n    route: "${page[1]}"\n    layout: ${page[2]}\n    extra: rejected`, "CONTENT_MAP_INVALID"],
+    ["missing page field", `pages:\n  - source: "${page[0]}"\n    route: "${page[1]}"`, "CONTENT_MAP_INVALID"],
+    ["extra top-level field", `metadata: rejected\npages:\n  - source: "${page[0]}"\n    route: "${page[1]}"\n    layout: ${page[2]}`, "CONTENT_MAP_INVALID"],
+    ["duplicate source", `pages:\n  - source: "${page[0]}"\n    route: "${page[1]}"\n    layout: ${page[2]}\n  - source: "${page[0]}"\n    route: "${duplicateRoute}"\n    layout: ${page[2]}`, "SOURCE_DUPLICATE"],
+    ["source case collision", `pages:\n  - source: "${page[0]}"\n    route: "${page[1]}"\n    layout: ${page[2]}\n  - source: "${foldedSource}"\n    route: "${duplicateRoute}"\n    layout: ${page[2]}`, "SOURCE_DUPLICATE"],
+    ["duplicate route", `pages:\n  - source: "${page[0]}"\n    route: "${page[1]}"\n    layout: ${page[2]}\n  - source: "${sameLayoutPage[0]}"\n    route: "${page[1]}"\n    layout: ${page[2]}`, "ROUTE_DUPLICATE"],
+  ]
+  const paths = await fixture()
+  const map = path.join(paths.root, "malformed-map.yml")
+  try {
+    for (const [name, bytes, code] of cases) {
+      await writeFile(map, bytes)
+      const result = invokeWithMap(paths, "preflight", map)
+      assert.equal(result.status, 1, `${name}: ${result.stdout}\n${result.stderr}`)
+      assert.equal(result.stderr, "", name)
+      assert.equal(JSON.parse(result.stdout).error.code, code, name)
+      assert.equal(await pathExists(paths.output), false, name)
+    }
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
 test("Phase 1 build renders all nine mapped routes and keeps workflow metadata private", async () => {
   const paths = await fixture()
   try {
@@ -366,7 +441,7 @@ test("Phase 1 build renders all nine mapped routes and keeps workflow metadata p
     const routeFile = (route) => route === "/" ? "index.html" : `${route.slice(1)}index.html`
     const expectedRoutes = ["/", ...approvedPages.map(([, route]) => route)]
     assert.deepEqual([...receipt.routes].sort(), expectedRoutes.sort())
-    assert.equal(receipt.pages, 9)
+    assert.equal(receipt.pages, approvedPages.length)
 
     const tree = await outputTree(paths.output)
     const htmlPaths = tree.filter(([relative]) => relative.endsWith(".html")).map(([relative]) => relative)
@@ -400,7 +475,7 @@ test("Phase 1 build renders all nine mapped routes and keeps workflow metadata p
     const contentIndex = /** @type {typeof search} */ (JSON.parse(await readFile(path.join(paths.output, "static", "contentIndex.json"), "utf8")))
     assert.deepEqual(Object.keys(graph), ["schema_version", "nodes", "edges"])
     assert.equal(graph.schema_version, 1)
-    assert.equal(graph.nodes.length, 9)
+    assert.equal(graph.nodes.length, approvedPages.length)
     assert.deepEqual(graph.nodes.map((node) => node.public_id), [...graph.nodes.map((node) => node.public_id)].sort())
     assert.deepEqual(new Set(graph.nodes.map((node) => node.url)), new Set(approvedPages.map(([, route]) => route)))
     const publicIds = new Set(graph.nodes.map((node) => node.public_id))
@@ -457,7 +532,7 @@ test("Phase 1 build renders all nine mapped routes and keeps workflow metadata p
 })
 
 test("Phase 1 paper and support select real structural project-owned templates", async () => {
-  const { selectProjectPageTemplate } = await import("../scripts/slim-build.mjs")
+  const { selectProjectPageTemplate } = await import("../lib/project-page-template.mjs")
   const navigation = {
     backlinksMarkup: '<div class="backlinks" data-public-backlinks><h2 id="backlinks">Backlinks</h2></div>',
     graphMarkup: '<section class="public-graph" data-template-structure="graph"></section>',
@@ -479,7 +554,7 @@ test("Phase 1 paper and support select real structural project-owned templates",
 test("Phase 1 full build applies the selected structural template to every matching mapped route", async () => {
   const paths = await fixture()
   try {
-    const { selectProjectPageTemplate } = await import("../scripts/slim-build.mjs")
+    const { selectProjectPageTemplate } = await import("../lib/project-page-template.mjs")
     const result = invoke(paths, "build")
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
     for (const [, route, layout] of approvedPages) {
