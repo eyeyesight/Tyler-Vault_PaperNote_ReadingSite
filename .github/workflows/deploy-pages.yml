@@ -1,4 +1,5 @@
 name: Deploy GitHub Pages exact site commit
+run-name: Deploy GitHub Pages ${{ inputs.site_commit }} (${{ inputs.publication_mode }})
 
 on:
   workflow_dispatch:
@@ -7,6 +8,14 @@ on:
         description: Exact lowercase 40-hex commit from refs/heads/gh-pages
         required: true
         type: string
+      publication_mode:
+        description: Select routine publication or rollback mode
+        required: true
+        type: choice
+        options:
+          - routine
+          - rollback
+        default: routine
 
 permissions:
   contents: read
@@ -35,11 +44,16 @@ jobs:
 
       - name: Validate site_commit
         env:
+          PUBLICATION_MODE: ${{ inputs.publication_mode }}
           SITE_COMMIT: ${{ inputs.site_commit }}
         run: |
           set -euo pipefail
           if [[ ! "$SITE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
             printf '%s\n' 'site_commit must be exactly 40 lowercase hexadecimal characters' >&2
+            exit 1
+          fi
+          if [[ "$PUBLICATION_MODE" != "routine" && "$PUBLICATION_MODE" != "rollback" ]]; then
+            printf '%s\n' 'publication_mode must be routine or rollback' >&2
             exit 1
           fi
 
@@ -55,14 +69,22 @@ jobs:
       - name: Verify exact gh-pages site
         working-directory: candidate
         env:
+          PUBLICATION_MODE: ${{ inputs.publication_mode }}
           SITE_COMMIT: ${{ inputs.site_commit }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$SITE_COMMIT"
-          # The exact SHA must be the current gh-pages commit or one of its ancestors.
           git fetch --no-tags --prune --unshallow origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages
           git rev-parse --verify "$SITE_COMMIT^{commit}" >/dev/null
-          git merge-base --is-ancestor "$SITE_COMMIT" refs/remotes/origin/gh-pages
+          git rev-parse --verify refs/remotes/origin/gh-pages^{commit} >/dev/null
+          if [[ "$PUBLICATION_MODE" == "routine" ]]; then
+            test "$(git rev-parse refs/remotes/origin/gh-pages)" = "$SITE_COMMIT"
+          elif [[ "$PUBLICATION_MODE" == "rollback" ]]; then
+            git merge-base --is-ancestor "$SITE_COMMIT" refs/remotes/origin/gh-pages
+          else
+            printf '%s\n' 'publication_mode must be routine or rollback' >&2
+            exit 1
+          fi
           test -d site
           test -f site/index.html
           test -f site/404.html

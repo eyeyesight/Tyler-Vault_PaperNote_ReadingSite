@@ -7,7 +7,9 @@ A generated public reading layer for the Tyler-Vault research notes explicitly l
 ## Authority and ownership
 
 - **Canonical source:** Tyler-Vault Markdown on Google Drive; it is the only editable research source and is read-only during every repository build.
-- **Content authority:** [`site-content.yml`](site-content.yml), with exactly nine `source` / `route` / `layout` entries. The map is static and explicit; no folder or frontmatter auto-discovery is part of the active path.
+- **Content authority:** [`site-content.yml`](site-content.yml) is the only inclusion and route authority. Its current nine `source` / `route` / `layout` entries are the verified baseline, not a permanent cardinality. Routine publication may form one bounded private proposal for eligible new pages, but the build never consumes discovery directly or uses a second registry.
+- **Map-before-build contract:** Freeze one exact immutable map snapshot before preflight/build; preflight, build, preview, the mapping-only change, and approval use those exact bytes. Existing mappings/routes are immutable; a removal or rewrite stops for manual review. Proposal generation is deterministic, bounded, one-hop where applicable, uses no LLM, and keeps the Vault read-only.
+- **T13 ownership:** Remaining fixed-nine code/test hits in `lib/slim-content-map.mjs`, `scripts/prepare-gh-pages-commit.mjs`, `tests/slim-build.test.mjs`, and `tests/prepare-gh-pages-commit.test.mjs` are intentionally T03-owned (T13-03); T13-01 changes these governance documents only.
 - **Presentation source:** project-owned paper/support templates and theme, applied by one full build.
 - **Public output:** regenerated HTML, CSS, JavaScript, JSON, and provider support files outside Tyler-Vault.
 
@@ -28,7 +30,7 @@ The slim build uses a temporary public snapshot and removes it after the build. 
 
 ## Public surface
 
-The public routes are `/` plus the nine routes in [`site-content.yml`](site-content.yml):
+The current baseline public routes are `/` plus the routes in [`site-content.yml`](site-content.yml). The map currently contains nine content entries; that count is not a permanent cardinality:
 
 - `/papers/guo-2024-benchmarking-micro-action-recognition/`
 - `/papers/jackman-2021-flow-clutch-recreational-running/`

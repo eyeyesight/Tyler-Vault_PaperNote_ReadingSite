@@ -8,7 +8,7 @@ The only supported product path is:
 
 ```text
 read-only Tyler-Vault Markdown
-  → site-content.yml (the tracked nine-entry source/route/layout map)
+  → site-content.yml (the tracked source/route/layout map; currently nine baseline entries)
   → scripts/slim-build.mjs
   → local public-output and privacy checks
   → scripts/prepare-gh-pages-commit.mjs
@@ -16,13 +16,15 @@ read-only Tyler-Vault Markdown
   → .github/workflows/deploy-pages.yml (site_commit)
 ```
 
-`site-content.yml` is the inclusion boundary. It contains two paper pages and seven support pages. The build does not discover folders or infer routes from titles. It snapshots only mapped Markdown, projects the public metadata needed by the site, and never writes into the Vault.
+`site-content.yml` is the only inclusion and route authority. Its current two paper and seven support mappings (nine entries) are the baseline, not a permanent cardinality. Routine publication may prepare one bounded private proposal for eligible new pages and their permitted one-hop support links; existing mappings/routes are never rewritten or removed, and a removal stops for manual review. Freeze the proposal as the exact immutable map snapshot before preflight/build; preflight, build, preview, the mapping-only change, and approval all use those exact bytes. The build never consumes discovery directly, proposal generation is deterministic and uses no LLM, and the Vault is always read-only. It snapshots only mapped Markdown and projects the public metadata needed by the site.
+
+T13-01 migrates this governance prose only. Remaining fixed-nine code/test hits in `lib/slim-content-map.mjs`, `scripts/prepare-gh-pages-commit.mjs`, `tests/slim-build.test.mjs`, and `tests/prepare-gh-pages-commit.test.mjs` are owned by T03 (T13-03) and are not changed here.
 
 The local handoff prints the mapped-route proof and the file diff against a supplied gh-pages baseline. It creates a fresh local `site/` preview; it does not push, deploy, or create a second publication state. The Pages workflow is manual-only, accepts exactly `site_commit`, verifies that exact commit and the required site files, and uploads `candidate/site` without rebuilding.
 
 ## Public routes and privacy
 
-The home route is `/`. The nine mapped content routes are:
+The home route is `/`. The current baseline content routes are the entries listed in `site-content.yml` (nine entries today):
 
 - `/papers/guo-2024-benchmarking-micro-action-recognition/`
 - `/papers/jackman-2021-flow-clutch-recreational-running/`

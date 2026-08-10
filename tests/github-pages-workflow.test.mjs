@@ -42,18 +42,29 @@ function runText(step) {
   return step.run
 }
 
-test("Pages workflow is manual-only and accepts only the exact site_commit input", () => {
+test("Pages workflow is manual-only and accepts exact site_commit and publication_mode inputs", () => {
   assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"])
-  assert.deepEqual(Object.keys(workflow.on.workflow_dispatch.inputs), ["site_commit"])
+  assert.deepEqual(Object.keys(workflow.on.workflow_dispatch.inputs), ["site_commit", "publication_mode"])
   assert.deepEqual(workflow.on.workflow_dispatch.inputs.site_commit, {
     description: "Exact lowercase 40-hex commit from refs/heads/gh-pages",
     required: true,
     type: "string",
   })
+  assert.deepEqual(workflow.on.workflow_dispatch.inputs.publication_mode, {
+    default: "routine",
+    description: "Select routine publication or rollback mode",
+    options: ["routine", "rollback"],
+    required: true,
+    type: "choice",
+  })
   assert.doesNotMatch(workflowText, /candidate_digest|launch_audit_digest|launch audit/i)
   for (const forbiddenTrigger of ["push", "pull_request", "pull_request_target", "repository_dispatch", "schedule"]) {
     assert.doesNotMatch(workflowText, new RegExp(`^\\s{0,4}${forbiddenTrigger}:`, "m"), `forbidden trigger: ${forbiddenTrigger}`)
   }
+})
+
+test("Pages run-name retains the full exact site commit and publication mode", () => {
+  assert.equal(workflow["run-name"], "Deploy GitHub Pages ${{ inputs.site_commit }} (${{ inputs.publication_mode }})")
 })
 
 test("Every action is an official immutable commit pin with a version comment", () => {
@@ -69,7 +80,7 @@ test("Every action is an official immutable commit pin with a version comment", 
   }
 })
 
-test("Main-only dispatch and exact site_commit validation run before candidate checkout", () => {
+test("Main-only dispatch and exact input validation run before candidate checkout", () => {
   const steps = validateSteps()
   const gate = stepNamed("Enforce main-only dispatch")
   assert.deepEqual(gate.env, {
@@ -83,16 +94,20 @@ test("Main-only dispatch and exact site_commit validation run before candidate c
   assert.equal(workflow.jobs.deploy.if, "github.ref == 'refs/heads/main' && github.event.repository.default_branch == 'main'")
 
   const inputStep = stepNamed("Validate site_commit")
-  assert.deepEqual(inputStep.env, { SITE_COMMIT: "${{ inputs.site_commit }}" })
+  assert.deepEqual(inputStep.env, {
+    PUBLICATION_MODE: "${{ inputs.publication_mode }}",
+    SITE_COMMIT: "${{ inputs.site_commit }}",
+  })
   const inputRun = runText(inputStep)
   assert.match(inputRun, /\[\[\s*!\s*"\$SITE_COMMIT"\s*=~\s*\^\[0-9a-f\]\{40\}\$\s*\]\]/)
+  assert.match(inputRun, /\[\[\s*"\$PUBLICATION_MODE"\s*!=\s*"routine"\s*&&\s*"\$PUBLICATION_MODE"\s*!=\s*"rollback"\s*\]\]/)
   assert.doesNotMatch(inputRun, /\$\{\{\s*inputs\./)
   const inputIndex = steps.indexOf(inputStep)
   const checkoutIndex = steps.findIndex((step) => typeof step.uses === "string" && step.uses.startsWith("actions/checkout@"))
   assert(inputIndex < checkoutIndex)
 })
 
-test("Candidate checkout uses the exact SHA credential-free and proves gh-pages ancestry", () => {
+test("Candidate checkout uses the exact SHA credential-free and selects routine or rollback authority", () => {
   const checkoutSteps = validateSteps().filter((step) => typeof step.uses === "string" && step.uses.startsWith("actions/checkout@"))
   assert.equal(checkoutSteps.length, 1)
   assert.deepEqual(checkoutSteps[0].with, {
@@ -105,12 +120,28 @@ test("Candidate checkout uses the exact SHA credential-free and proves gh-pages 
 
   const verify = stepNamed("Verify exact gh-pages site")
   assert.equal(verify["working-directory"], "candidate")
-  assert.deepEqual(verify.env, { SITE_COMMIT: "${{ inputs.site_commit }}" })
+  assert.deepEqual(verify.env, {
+    PUBLICATION_MODE: "${{ inputs.publication_mode }}",
+    SITE_COMMIT: "${{ inputs.site_commit }}",
+  })
   const verifyRun = runText(verify)
   assert.match(verifyRun, /test\s+"\$\(git rev-parse HEAD\)"\s*=\s*"\$SITE_COMMIT"/)
-  assert.match(verifyRun, /git fetch --no-tags --prune --unshallow origin \+refs\/heads\/gh-pages:refs\/remotes\/origin\/gh-pages/)
+  const fetchCommand = "git fetch --no-tags --prune --unshallow origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages"
+  assert.match(verifyRun, new RegExp(fetchCommand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+  assert.match(verifyRun, /git rev-parse --verify refs\/remotes\/origin\/gh-pages\^\{commit\}/)
   assert.match(verifyRun, /git rev-parse --verify "\$SITE_COMMIT\^\{commit\}"/)
+  assert.match(verifyRun, /if\s+\[\[\s*"\$PUBLICATION_MODE"\s*==\s*"routine"\s*\]\];\s*then/)
+  assert.match(verifyRun, /test\s+"\$\(git rev-parse refs\/remotes\/origin\/gh-pages\)"\s*=\s*"\$SITE_COMMIT"/)
+  assert.match(verifyRun, /elif\s+\[\[\s*"\$PUBLICATION_MODE"\s*==\s*"rollback"\s*\]\];\s*then/)
   assert.match(verifyRun, /git merge-base --is-ancestor "\$SITE_COMMIT" refs\/remotes\/origin\/gh-pages/)
+  const fetchIndex = verifyRun.indexOf(fetchCommand)
+  const authorityIndex = verifyRun.indexOf('if [[ "$PUBLICATION_MODE" == "routine" ]]')
+  assert(fetchIndex >= 0 && authorityIndex > fetchIndex, "gh-pages must be fetched before authority selection")
+})
+
+test("Routine and rollback authority selection rejects every other mode", () => {
+  const verifyRun = runText(stepNamed("Verify exact gh-pages site"))
+  assert.match(verifyRun, /else\s*\n\s*printf '%s\\n' 'publication_mode must be routine or rollback' >&2\s*\n\s*exit 1/)
 })
 
 test("Validation requires index, real 404, and empty .nojekyll without mutating candidate bytes", () => {

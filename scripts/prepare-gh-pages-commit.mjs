@@ -3,10 +3,9 @@
 import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { parse as parseYaml } from "yaml"
 
 import { assertNoLinkAncestors, pathsOverlap } from "../lib/filesystem-safety.mjs"
-import { approvedSitePageCount } from "../lib/slim-content-map.mjs"
+import { parseContentMapBytes } from "../lib/slim-content-map.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const contentMapPath = path.join(repoRoot, "site-content.yml")
@@ -20,18 +19,20 @@ class HandoffError extends Error {
 }
 
 function parseArgs(argv) {
-  const values = { builtSite: "", baselineSite: "", output: "" }
+  const values = { builtSite: "", baselineSite: "", output: "", contentMap: contentMapPath }
   const flags = new Map([
     ["--built-site", "builtSite"],
     ["--baseline-site", "baselineSite"],
     ["--output", "output"],
+    ["--content-map", "contentMap"],
   ])
-  if (argv.length !== 6) throw new HandoffError("HANDOFF_USAGE", "expected built, baseline, and output roots")
+  if (argv.length % 2 !== 0 || argv.length < 6) throw new HandoffError("HANDOFF_USAGE", "expected built, baseline, and output roots")
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index]
     const value = argv[index + 1]
     const property = flags.get(flag)
-    if (!property || !value || value.startsWith("--") || values[property]) throw new HandoffError("HANDOFF_USAGE", "expected each handoff root exactly once")
+    if (!property || !value || value.startsWith("--") || (property !== "contentMap" && values[property])
+      || (property === "contentMap" && argv.slice(0, index).includes(flag))) throw new HandoffError("HANDOFF_USAGE", "expected each handoff root exactly once")
     values[property] = value
   }
   if (Object.values(values).some((value) => !value)) throw new HandoffError("HANDOFF_USAGE", "expected built, baseline, and output roots")
@@ -43,44 +44,28 @@ function utf8Order(left, right) {
 }
 
 function routeFile(route) {
-  if (typeof route !== "string" || route.normalize("NFC") !== route || route === "" || !route.startsWith("/") || !route.endsWith("/")
-    || route.includes("\\") || route.includes("//") || route.includes("?") || route.includes("#")
-    || route.split("/").some((segment) => segment === "." || segment === "..")) {
-    throw new HandoffError("HANDOFF_CONTENT_MAP_INVALID", "site-content.yml contains an invalid mapped route")
-  }
   if (route === "/") return "index.html"
-  const relative = route.slice(1, -1)
-  if (!relative) throw new HandoffError("HANDOFF_CONTENT_MAP_INVALID", "site-content.yml contains an invalid mapped route")
-  return `${relative}/index.html`
+  return `${route.slice(1, -1)}/index.html`
 }
 
-async function readMappedRoutes() {
-  let document
+/** @param {string} [mapPath] @param {Buffer|Uint8Array} [immutableBytes] */
+async function readMappedRoutes(mapPath = contentMapPath, immutableBytes) {
+  let bytes
   try {
-    document = parseYaml(await readFile(contentMapPath, "utf8"))
+    bytes = immutableBytes === undefined ? await readFile(mapPath) : Buffer.from(immutableBytes)
   } catch {
     throw new HandoffError("HANDOFF_CONTENT_MAP_INVALID", "site-content.yml could not be read")
   }
-  if (!document || typeof document !== "object" || !Array.isArray(document.pages)) {
-    throw new HandoffError("HANDOFF_CONTENT_MAP_INVALID", "site-content.yml pages are invalid")
+  let parsed
+  try {
+    parsed = parseContentMapBytes(bytes)
+  } catch {
+    throw new HandoffError("HANDOFF_CONTENT_MAP_INVALID", "site-content.yml contains an invalid content-map structure")
   }
-  if (document.pages.length !== approvedSitePageCount) {
-    throw new HandoffError("HANDOFF_CONTENT_MAP_INVALID", "site-content.yml must contain the approved page count")
-  }
-  const routes = ["/", ...document.pages.map((page) => {
-    if (!page || typeof page !== "object") throw new HandoffError("HANDOFF_CONTENT_MAP_INVALID", "site-content.yml pages are invalid")
-    return page.route
-  })]
-  const seen = new Set()
-  const folded = new Set()
-  const proof = routes.map((route) => {
-    const file = routeFile(route)
-    if (seen.has(route) || folded.has(route.toLowerCase())) throw new HandoffError("HANDOFF_CONTENT_MAP_INVALID", "site-content.yml routes are not unique")
-    seen.add(route)
-    folded.add(route.toLowerCase())
-    return { route, file }
-  })
-  return proof
+  return [
+    { route: "/", file: "index.html" },
+    ...parsed.pages.map(({ route }) => ({ route, file: routeFile(route) })),
+  ]
 }
 
 async function existingDirectory(absolute, code) {
@@ -199,7 +184,7 @@ async function prepare(options) {
   }
 
   const [proof, builtFiles, baselineFiles] = await Promise.all([
-    readMappedRoutes(),
+    readMappedRoutes(options.contentMap ?? contentMapPath, options.contentMapBytes),
     collectRegularFiles(built.absolute, "HANDOFF_BUILT_ROOT_INVALID"),
     collectRegularFiles(baseline.absolute, "HANDOFF_BASELINE_ROOT_INVALID"),
   ])

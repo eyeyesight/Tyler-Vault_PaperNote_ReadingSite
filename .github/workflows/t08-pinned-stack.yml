@@ -21,7 +21,28 @@ jobs:
       - name: Check out exact pull-request bytes
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
+      - name: Verify exact pull-request head checkout
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            if [[ ! "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              printf '%s\n' 'pull-request head SHA must be exactly 40 lowercase hexadecimal characters' >&2
+              exit 1
+            fi
+            test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            test -z "$PR_HEAD_SHA"
+            test -n "$(git rev-parse HEAD)"
+          else
+            printf '%s\n' 'unsupported event for T08 pinned-stack workflow' >&2
+            exit 1
+          fi
 
       - name: Install exact Node toolchain
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
