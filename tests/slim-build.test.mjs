@@ -600,6 +600,27 @@ test("Phase 5 Slice 1 keeps the parser and privacy error on slim-owned seams", a
   )
 })
 
+test("T13-07 Windows renderer scratch stays below the native Sharp path limit", { skip: process.platform !== "win32" }, async () => {
+  const paths = await fixture()
+  try {
+    await rm(paths.work, { recursive: true, force: true })
+    const legacySuffix = path.join(`tracer-${process.pid}-${"0".repeat(16)}-XXXXXX`, "toolchain", "quartz", "static", "icon.png")
+    const targetWorkLength = 262 - 1 - legacySuffix.length
+    const workPrefix = path.join(paths.root, "long-")
+    assert.ok(workPrefix.length < targetWorkLength)
+    paths.work = `${workPrefix}${"w".repeat(targetWorkLength - workPrefix.length)}`
+    await mkdir(paths.work)
+
+    assert.equal(path.join(paths.work, legacySuffix).length, 262)
+    assert.ok(path.join(paths.work, "q-XXXXXX", "toolchain", "quartz", "static", "icon.png").length < 260)
+
+    const result = invoke(paths, "build")
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
 test("Phase 5 Slice 5A keeps tracer as an import-only slim renderer/privacy seam", async () => {
   const tracerSource = await readFile(path.join(repoRoot, "scripts", "tracer.mjs"), "utf8")
   for (const moduleName of ["publication-contracts", "release-promotion", "safe-release", "zotero-delta"]) {

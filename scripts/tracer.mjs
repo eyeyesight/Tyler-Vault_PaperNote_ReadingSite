@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createHash, randomBytes } from "node:crypto"
+import { createHash } from "node:crypto"
 import { spawn } from "node:child_process"
 import {
   constants,
@@ -1887,7 +1887,7 @@ async function runRendererPipeline(safe) {
     if (drift === "enable-token") defaultConfig = defaultConfig.replace(`${source}\n    enabled: true`, `${source}\n    enabled: yes`)
   } else if (configCase !== undefined) throw new TracerError("TEST_INJECTION_INVALID", "config regression injection is not a fixed supported variant")
   const quartzConfig = tracerQuartzConfig(defaultConfig)
-  const run = await mkdtemp(path.join(safe.workRoot, `tracer-${process.pid}-${randomBytes(8).toString("hex")}-`))
+  const run = await mkdtemp(path.join(safe.workRoot, "q-"))
   try {
     const raw = path.join(run, "raw")
     const content = path.join(run, "content")
