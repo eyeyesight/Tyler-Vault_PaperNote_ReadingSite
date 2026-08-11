@@ -1,3 +1,4 @@
+// @ts-nocheck -- this focused test injects minimal capability-shaped fakes.
 import assert from "node:assert/strict"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import os from "node:os"
