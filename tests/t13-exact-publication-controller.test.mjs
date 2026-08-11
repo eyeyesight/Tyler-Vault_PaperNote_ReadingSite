@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
 import test from "node:test"
 
 import {
@@ -67,21 +68,71 @@ function candidateFor(operationId = operation.operation_id, body = "<html><body>
   const files = [{ path: "index.html", bytes: body, mode: "100644" }]
   const routes = ["/"]
   const siteSha = hashSiteTree(files)
-  const projection = {
-    operation_id: operationId,
-    site_sha256: siteSha,
-    route_inventory_sha256: hashRouteInventory(routes),
-    file_inventory_sha256: hashFileInventory(files),
-  }
   return {
     files,
     routes,
     site_sha256: siteSha,
-    route_inventory_sha256: projection.route_inventory_sha256,
-    file_inventory_sha256: projection.file_inventory_sha256,
-    public_projection: projection,
-    public_projection_sha256: hashPublicProjection(projection),
+    route_inventory_sha256: hashRouteInventory(routes),
+    file_inventory_sha256: hashFileInventory(files),
   }
+}
+
+/**
+ * @param {UnknownRecord} input
+ */
+function assertNoProjection(input) {
+  assert.equal(Object.hasOwn(input, "public_projection"), false)
+  assert.equal(Object.hasOwn(input, "public_projection_bytes"), false)
+  assert.equal(Object.hasOwn(input, "public_projection_sha256"), false)
+}
+
+/**
+ * @param {UnknownRecord} input
+ * @param {string} publicProjectionSha256
+ */
+function assertExactDispatchInput(input, publicProjectionSha256) {
+  assert.deepEqual(Object.keys(input).sort(), [
+    "expected_gh_pages_sha",
+    "operation_id",
+    "public_projection_sha256",
+    "route_inventory_sha256",
+    "site_commit",
+    "site_sha256",
+    "source_main_sha",
+    "workflow_sha",
+  ])
+  assert.equal(input.public_projection_sha256, publicProjectionSha256)
+  assert.equal(Object.hasOwn(input, "vault_export_sha256"), false)
+  assert.equal(Object.hasOwn(input, "policy_version"), false)
+  assert.equal(Object.hasOwn(input, "file_inventory_sha256"), false)
+  assert.equal(Object.hasOwn(input, "private_path"), false)
+}
+
+/**
+ * @param {Candidate} candidate
+ * @param {string} siteCommit
+ * @returns {UnknownRecord}
+ */
+function publicProjectionFor(candidate, siteCommit) {
+  return {
+    schema_version: 1,
+    operation_id: operation.operation_id,
+    state_code: "published",
+    source_main_sha: operation.frozen_input.source_main_sha,
+    site_commit: siteCommit,
+    site_sha256: candidate.site_sha256,
+    route_inventory_sha256: candidate.route_inventory_sha256,
+    workflow_sha: operation.frozen_input.workflow_sha,
+  }
+}
+
+/**
+ * @param {Candidate} candidate
+ * @param {string} siteCommit
+ * @returns {string}
+ */
+function publicProjectionDigestFor(candidate, siteCommit) {
+  return hashPublicProjection(publicProjectionFor(candidate, siteCommit))
 }
 
 /**
@@ -117,8 +168,12 @@ function makeHarness({ candidate = candidateFor(), current = "old", pushBehavior
         policy_version: operation.frozen_input.policy_version,
       }
     },
-    buildCandidate: async () => {
+    buildCandidate: async (/** @type {UnknownRecord} */ input) => {
       calls.push("build")
+      assertNoProjection(input)
+      if (!Object.hasOwn(candidate, "public_projection")
+        && !Object.hasOwn(candidate, "public_projection_bytes")
+        && !Object.hasOwn(candidate, "public_projection_sha256")) assertNoProjection(candidate)
       return candidate
     },
     readRemoteAuthority: async () => {
@@ -136,14 +191,16 @@ function makeHarness({ candidate = candidateFor(), current = "old", pushBehavior
     createCandidateCommit: async (/** @type {UnknownRecord} */ input) => {
       calls.push("commit")
       assert.equal(input.expected_gh_pages_sha, operation.frozen_input.expected_gh_pages_sha)
+      assertNoProjection(input)
       return { site_commit: "5".repeat(40), parent_sha: operation.frozen_input.expected_gh_pages_sha }
     },
     readCandidateCommit: async (/** @type {UnknownRecord} */ input) => {
       calls.push("candidate-readback")
       return { commit_sha: "5".repeat(40), site_sha256: input.site_sha256 }
     },
-    pushGhPages: async () => {
+    pushGhPages: async (/** @type {UnknownRecord} */ input) => {
       calls.push("push")
+      assertNoProjection(input)
       state.gh_pages_sha = "5".repeat(40)
       state.site_sha256 = candidate.site_sha256
       state.route_inventory_sha256 = candidate.route_inventory_sha256
@@ -157,7 +214,7 @@ function makeHarness({ candidate = candidateFor(), current = "old", pushBehavior
       listCalls += 1
       assert.equal(input.operation_id, operation.operation_id)
       assert.equal(input.site_commit, "5".repeat(40))
-      assert.equal(Object.hasOwn(input, "publication_mode"), false)
+      assertExactDispatchInput(input, publicProjectionDigestFor(candidate, "5".repeat(40)))
       if (runExists || (dispatchBehavior === "lost-response" && listCalls >= 2)) {
         runExists = true
         return [{ id: 77, operation_id: operation.operation_id, site_commit: "5".repeat(40) }]
@@ -167,6 +224,7 @@ function makeHarness({ candidate = candidateFor(), current = "old", pushBehavior
     dispatchDeployment: async (/** @type {UnknownRecord} */ input) => {
       calls.push("dispatch")
       assert.equal(input.workflow_sha, operation.frozen_input.workflow_sha)
+      assertExactDispatchInput(input, publicProjectionDigestFor(candidate, "5".repeat(40)))
       if (dispatchBehavior === "lost-response") {
         runExists = true
         throw new Error("response lost")
@@ -234,7 +292,29 @@ test("published path binds accepted inputs, exact candidate, CAS push, dispatch,
   })
   assert.ok(result.convergence)
   assert.equal(result.convergence.exact, true)
-  assert.equal(result.public_projection_sha256, candidate.public_projection_sha256)
+  const expectedProjection = publicProjectionFor(candidate, "5".repeat(40))
+  assert.deepEqual(Object.keys(expectedProjection).sort(), [
+    "operation_id",
+    "route_inventory_sha256",
+    "schema_version",
+    "site_commit",
+    "site_sha256",
+    "source_main_sha",
+    "state_code",
+    "workflow_sha",
+  ])
+  const canonicalProjectionBytes = Buffer.from(JSON.stringify({
+    operation_id: expectedProjection.operation_id,
+    route_inventory_sha256: expectedProjection.route_inventory_sha256,
+    schema_version: expectedProjection.schema_version,
+    site_commit: expectedProjection.site_commit,
+    site_sha256: expectedProjection.site_sha256,
+    source_main_sha: expectedProjection.source_main_sha,
+    state_code: expectedProjection.state_code,
+    workflow_sha: expectedProjection.workflow_sha,
+  }), "utf8")
+  const expectedProjectionSha256 = createHash("sha256").update(canonicalProjectionBytes).digest("hex")
+  assert.equal(result.public_projection_sha256, expectedProjectionSha256)
   assert.deepEqual(harness.calls, ["accepted", "build", "remote", "live", "commit", "candidate-readback", "push", "remote", "list", "dispatch", "list", "run-readback", "pages-readback", "remote"])
 })
 
@@ -302,4 +382,22 @@ test("candidate privacy gate rejects private output before any public effect", a
   assert.equal(result.error.code, "PRIVACY_FAILED")
   assert.equal(harness.calls.includes("remote"), false)
   assert.equal(harness.calls.includes("push"), false)
+})
+
+test("candidate public projection is rejected before candidate commit", async () => {
+  const candidates = [
+    /** @type {Candidate} */ ({ ...candidateFor(), public_projection: { operation_id: operation.operation_id } }),
+    /** @type {Candidate} */ ({ ...candidateFor(), public_projection_sha256: "0".repeat(64) }),
+    /** @type {Candidate} */ ({ ...candidateFor(), public_projection: undefined }),
+    /** @type {Candidate} */ ({ ...candidateFor(), public_projection_sha256: undefined }),
+  ]
+  for (const [index, candidate] of candidates.entries()) {
+    const harness = makeHarness({ candidate })
+    const result = await runExactPublication(operation, {}, harness.dependencies)
+    assert.equal(result.status, "needs_attention", `candidate ${index}: ${Object.keys(candidate).join(",")}`)
+    assert.ok(result.error)
+    assert.equal(result.error.code, "PRIVACY_FAILED")
+    assert.equal(harness.calls.includes("commit"), false)
+    assert.equal(harness.calls.includes("push"), false)
+  }
 })
