@@ -345,6 +345,45 @@ test("production adapter candidate authority comes only from the claimed session
   assert.equal(createCalls, 0)
 })
 
+test("production QA passes one mapped-route authority instead of contradictory route options", async () => {
+  const workRoot = "C:/owned/runtime/workspaces"
+  const approved = {
+    ...operation(),
+    claimed_session: { work_root: workRoot },
+    proposed_site_content_bytes: Buffer.from([
+      "pages:",
+      "  - source: Literature/Notes/Example.md",
+      "    route: /papers/example-paper/",
+      "    layout: paper",
+      "  - source: Knowledge/Concepts/Example.md",
+      "    route: /knowledge/concept/example-concept/",
+      "    layout: support",
+      "",
+    ].join("\n"), "utf8"),
+  }
+  const routeAuthority = [
+    "/",
+    "/papers/example-paper/",
+    "/knowledge/concept/example-concept/",
+  ]
+  let qaOptions
+  const result = await runPublicationCommand({ operation: {}, settings: {} }, {
+    parseOperation: async () => approved,
+    createAdapter: async () => ({ localGit: {}, provider: {} }),
+    publish: async () => publicationResult(),
+    runHeadlessSiteQa: async (options) => {
+      qaOptions = options
+      return qaPass()
+    },
+    lkg: { readCurrent: async () => null, record: async (record) => record },
+    rollback: async () => assert.fail("rollback must not run"),
+  })
+
+  assert.equal(result.status, "published")
+  assert.equal(Object.hasOwn(qaOptions, "routes"), false)
+  assert.deepEqual(qaOptions.mappedRoutes, routeAuthority)
+})
+
 test("publish CLI accepts one bounded JSON object and emits exactly one result line", async () => {
   const request = JSON.stringify({ operation: operation(), settings: {} })
   assert.deepEqual(parsePublicationRequest(request), { operation: operation(), settings: {} })

@@ -352,13 +352,13 @@ async function defaultRuntime(request, dependencies) {
   const lkg = dependencies.lkg ?? (typeof lkgRoot === "string" && lkgRoot.length > 0 ? createImmutableLkgStore(lkgRoot) : null)
   if (!lkg) throw cliError("LKG_ROOT_INVALID")
   const publish = dependencies.publish ?? (async (approvedOperation) => await routinePublicationHandoff(approvedOperation, adapter))
+  const runQa = dependencies.runHeadlessSiteQa ?? runHeadlessSiteQa
   const qa = dependencies.qa ?? (async (input) => {
     const routes = mapRoutes(input.operation)
     const options = isPlainObject(input.options) ? input.options : {}
-    return await runHeadlessSiteQa({
+    return await runQa({
       ...options,
       siteRoot: input.siteRoot,
-      routes,
       mappedRoutes: routes,
     })
   })
