@@ -1994,6 +1994,52 @@ async function makeGitFixture() {
   return { root, remote, gitRoot, operationRoot, candidatePath, initialMap, mainSha, ghPagesSha }
 }
 
+test("remote authority fetches an exact remote-only main commit without moving the worktree", async () => {
+  const fixture = await makeGitFixture()
+  const peer = path.join(fixture.root, "peer")
+  try {
+    git(["clone", "--branch", "main", fixture.remote, peer])
+    git(["-C", peer, "config", "user.name", "T13 remote fixture"])
+    git(["-C", peer, "config", "user.email", "remote@example.invalid"])
+    const mergedMap = Buffer.from([
+      "pages:",
+      "  - source: Existing.md",
+      "    route: /papers/existing/",
+      "    layout: paper",
+      "  - source: Merged.md",
+      "    route: /papers/merged/",
+      "    layout: paper",
+      "",
+    ].join("\n"), "utf8")
+    await writeFile(path.join(peer, "site-content.yml"), mergedMap)
+    git(["-C", peer, "add", "site-content.yml"])
+    git(["-C", peer, "commit", "-m", "remote-only mapping merge"])
+    git(["-C", peer, "push", "origin", "HEAD:main"])
+    const remoteOnlySha = String(git(["-C", peer, "rev-parse", "HEAD"])).trim()
+    const missing = spawnSync("git", ["-C", fixture.gitRoot, "cat-file", "-e", `${remoteOnlySha}^{commit}`], { windowsHide: true })
+    assert.notEqual(missing.status, 0, "fixture source unexpectedly already has the remote-only object")
+
+    const localGit = createRoutinePublicationLocalGitCapabilities({
+      gitRoot: fixture.gitRoot,
+      gitExecutable: GIT_EXECUTABLE,
+      remote: "origin",
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      operationRoot: fixture.operationRoot,
+    })
+    const beforeHead = String(git(["-C", fixture.gitRoot, "rev-parse", "HEAD"])).trim()
+    const beforeStatus = String(git(["-C", fixture.gitRoot, "status", "--porcelain"])).trim()
+    const authority = await localGit.readRemoteAuthority({})
+    assert.equal(authority.main_sha, remoteOnlySha)
+    assert.equal(authority.gh_pages_sha, fixture.ghPagesSha)
+    assert.deepEqual(authority.map_bytes, mergedMap)
+    assert.equal(String(git(["-C", fixture.gitRoot, "rev-parse", "HEAD"])).trim(), beforeHead)
+    assert.equal(String(git(["-C", fixture.gitRoot, "status", "--porcelain"])).trim(), beforeStatus)
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true })
+  }
+})
+
 test("local-Git capabilities use isolated plumbing for exact refs, commits, tree bytes, and ordinary push", async () => {
   const fixture = await makeGitFixture()
   try {
