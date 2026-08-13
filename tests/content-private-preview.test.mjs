@@ -654,7 +654,7 @@ test("site exact verification reports a proposal and leaves the public content c
   const mapBytes = await readFile(path.join(repoRoot, "site-content.yml"))
   await writeFile(map, mapBytes)
   await populateVault({ root, vault }, true)
-  const refs = await makeFixture(root, map, vault, true)
+  const refs = await makePresentationFixture(root, map, vault, false)
   try {
     const siteResult = await contentPreview.verifyExactLiveContentForSite({
       vaultRoot: vault,
@@ -684,6 +684,44 @@ test("site exact verification reports a proposal and leaves the public content c
     assert.equal(contentResult.next_action, "approve_content")
     assert.ok(contentResult.candidate_identity)
     assert.equal(await exists(path.join(contentWorkRoot, contentResult.operation_id)), true)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("content candidate uses current main renderer while retaining deployed renderer provenance", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-content-main-renderer-"))
+  const vault = path.join(root, "vault")
+  const map = path.join(root, "map.yml")
+  const workRoot = path.join(root, "content-work")
+  await mkdir(vault, { recursive: true })
+  await writeFile(map, await readFile(path.join(repoRoot, "site-content.yml")))
+  await populateVault({ root, vault }, true)
+  let refs = await makePresentationFixture(root, map, vault, true)
+  assert.notEqual(refs.mainSha, refs.rendererSha)
+  git(refs.repo, ["checkout", "live-renderer"])
+  const legacyTracer = path.join(refs.repo, "scripts", "tracer.mjs")
+  await writeFile(legacyTracer, `${await readFile(legacyTracer, "utf8")}\nthrow new Error("legacy renderer cannot build this candidate")\n`)
+  git(refs.repo, ["add", "scripts/tracer.mjs"])
+  git(refs.repo, ["commit", "-m", "fixture incompatible deployed renderer"])
+  const legacyRendererSha = git(refs.repo, ["rev-parse", "HEAD"])
+  git(refs.repo, ["checkout", "gh-pages"])
+  git(refs.repo, ["commit", "--amend", "-m", `fixture presentation gh-pages\n\nRenderer-Main-SHA: ${legacyRendererSha}`])
+  refs = { ...refs, rendererSha: legacyRendererSha, ghPagesSha: git(refs.repo, ["rev-parse", "HEAD"]) }
+  try {
+    const result = await prepareContentPrivatePreview({
+      vaultRoot: vault,
+      gitRoot: refs.repo,
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      workRoot,
+    })
+    assert.equal(result.lane, "content")
+    assert.equal(result.status, "ready_for_review")
+    assert.equal(result.candidate_identity.source_main_sha, refs.mainSha)
+    assert.equal(result.candidate_identity.live_renderer_sha, refs.rendererSha)
+    assert.equal(result.candidate_identity.renderer_tree_sha256.length, 64)
+    assert.equal(await exists(path.join(workRoot, result.operation_id, "handoff", "site", "index.html")), true)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
