@@ -196,7 +196,7 @@ test("GitHub provider capabilities are an authenticated plain object with exact 
       assert.equal(descriptor?.set, undefined, name)
     }
     assert.equal(requests.length, 1)
-    assert.deepEqual(requests[0].argv.slice(1), ["api", "--repo", "owner/repository", "/user", "--jq", ".login"])
+    assert.deepEqual(requests[0].argv.slice(1), ["api", "/user", "--jq", ".login"])
     assert.equal(requests[0].shell, false)
     assert.deepEqual(requests[0].env, { GH_CONFIG_DIR: ghConfigDir })
   } finally {
@@ -207,7 +207,7 @@ test("GitHub provider capabilities are an authenticated plain object with exact 
 test("bounded provider transport constructs the final safe environment once and reaches auth plus a provider read", async () => {
   const headSha = "c".repeat(40)
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     if (endpoint.startsWith("/repos/owner/repository/actions/workflows/t08-pinned-stack.yml/runs?")) return {
       status: 0,
@@ -261,7 +261,7 @@ test("bounded provider status failures map 401 and rate limit to stable errors w
   ]) {
     const headSha = "d".repeat(40)
     const harness = await makeProviderHarness(async (request) => {
-      const endpoint = request.argv[4]
+      const endpoint = request.argv[2]
       if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
       if (endpoint.startsWith("/repos/owner/repository/actions/workflows/t08-pinned-stack.yml/runs?")) return {
         status,
@@ -337,7 +337,7 @@ test("provider actor mismatch is auth_failed with a stable public error", async 
       }, {
         commandTransport: {
           async run(request) {
-            assert.equal(request.argv[4], "/user")
+            assert.equal(request.argv[2], "/user")
             return { status: 0, stdout: Buffer.from("other\n"), stderr: Buffer.alloc(0) }
           },
         },
@@ -360,7 +360,7 @@ test("deployment dispatch preserves controller-known remote_drift and performs n
   const actualHeadSha = "b".repeat(40)
   const siteCommit = "c".repeat(40)
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     if (endpoint === "/repos/owner/repository/git/ref/heads/main") return {
       status: 0,
@@ -384,7 +384,7 @@ test("deployment dispatch preserves controller-known remote_drift and performs n
         return true
       },
     )
-    const endpoints = harness.commandRequests.map((request) => request.argv[4])
+    const endpoints = harness.commandRequests.map((request) => request.argv[2])
     assert.deepEqual(endpoints, ["/user", "/repos/owner/repository/git/ref/heads/main"])
   } finally {
     await rm(harness.root, { recursive: true, force: true })
@@ -395,7 +395,7 @@ test("deployment run invalid input maps to workflow_failed rather than dispatch_
   const headSha = "e".repeat(40)
   const siteCommit = "f".repeat(40)
   const harness = await makeProviderHarness(async (request) => {
-    assert.equal(request.argv[4], "/user")
+    assert.equal(request.argv[2], "/user")
     return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
   })
   try {
@@ -432,10 +432,10 @@ test("createMappingPr sends one exact POST mutation body and returns the provide
     map_bytes: mapBytes,
   }
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     assert.equal(endpoint, "/repos/owner/repository/pulls")
-    assert.deepEqual(request.argv.slice(4), [
+    assert.deepEqual(request.argv.slice(2), [
       "/repos/owner/repository/pulls",
       "--method",
       "POST",
@@ -452,7 +452,7 @@ test("createMappingPr sends one exact POST mutation body and returns the provide
   })
   try {
     assert.deepEqual(await harness.provider.createMappingPr(input), { pr_id: "417" })
-    assert.equal(harness.commandRequests.filter(({ argv }) => argv[4] === "/repos/owner/repository/pulls").length, 1)
+    assert.equal(harness.commandRequests.filter(({ argv }) => argv[2] === "/repos/owner/repository/pulls").length, 1)
   } finally {
     await rm(harness.root, { recursive: true, force: true })
   }
@@ -470,7 +470,7 @@ test("createMappingPr timeout or nonzero failure is stable pr_failed with no ret
       map_bytes: mapBytes,
     }
     const harness = await makeProviderHarness(async (request) => {
-      const endpoint = request.argv[4]
+      const endpoint = request.argv[2]
       if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
       assert.equal(endpoint, "/repos/owner/repository/pulls")
       if (mode === "timeout") throw new Error("command timeout Bearer secret-token C:\\provider\\stderr")
@@ -483,7 +483,7 @@ test("createMappingPr timeout or nonzero failure is stable pr_failed with no ret
         assert.doesNotMatch(String(error), /secret-token|provider\\\\stderr/u)
         return true
       })
-      assert.equal(harness.commandRequests.filter(({ argv }) => argv[4] === "/repos/owner/repository/pulls").length, 1)
+      assert.equal(harness.commandRequests.filter(({ argv }) => argv[2] === "/repos/owner/repository/pulls").length, 1)
     } finally {
       await rm(harness.root, { recursive: true, force: true })
     }
@@ -502,7 +502,7 @@ test("mapping PR projection reads the exact open PR, file set, and map blob byte
     pr_id: "101",
   }
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     if (endpoint === "/repos/owner/repository/pulls/101") return {
       status: 0,
@@ -539,7 +539,7 @@ test("mapping PR projection reads the exact open PR, file set, and map blob byte
       state: "open",
       merged: false,
     })
-    assert.deepEqual(harness.commandRequests.map(({ argv }) => argv[4]), [
+    assert.deepEqual(harness.commandRequests.map(({ argv }) => argv[2]), [
       "/user",
       "/repos/owner/repository/pulls/101",
       "/repos/owner/repository/pulls/101/files?per_page=100&page=1",
@@ -562,7 +562,7 @@ test("mapping PR projection rejects duplicate file names and byte drift before r
     pr_id: "102",
   }
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     if (endpoint === "/repos/owner/repository/pulls/102") return {
       status: 0,
@@ -598,7 +598,7 @@ test("listMatchingMappingPrs fails closed on malformed candidate summaries", asy
     map_bytes: mapBytes,
   }
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     assert.match(endpoint, /^\/repos\/owner\/repository\/pulls\?/u)
     return {
@@ -634,7 +634,7 @@ test("mapping PR projection reads every page and proves the exact file and map b
     map_bytes: mapBytes,
   }
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     if (endpoint.startsWith("/repos/owner/repository/pulls?")) {
       const page = Number(new URL(`https://fake.invalid${endpoint}`).searchParams.get("page"))
@@ -698,7 +698,7 @@ test("mapping PR projection reads every page and proves the exact file and map b
       merged: false,
     }])
     const pages = harness.commandRequests
-      .map((request) => request.argv[4])
+      .map((request) => request.argv[2])
       .filter((endpoint) => endpoint.startsWith("/repos/owner/repository/pulls?"))
       .map((endpoint) => new URL(`https://fake.invalid${endpoint}`).searchParams.get("page"))
     assert.deepEqual(pages, ["1", "2"])
@@ -711,7 +711,7 @@ test("mapping PR projection reads every page and proves the exact file and map b
 test("pinned CI fails closed when a paginated workflow response contains malformed data", async () => {
   const headSha = "c".repeat(40)
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     if (endpoint.startsWith("/repos/owner/repository/actions/workflows/t08-pinned-stack.yml/runs?")) return {
       status: 0,
@@ -744,7 +744,7 @@ test("pinned CI fails closed when a paginated workflow response contains malform
 test("pinned CI reads one exact workflow run and required successful job projection", async () => {
   const headSha = "9".repeat(40)
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     if (endpoint === `/repos/owner/repository/actions/workflows/t08-pinned-stack.yml/runs?head_sha=${headSha}&per_page=100&page=1`) return {
       status: 0,
@@ -770,7 +770,7 @@ test("pinned CI reads one exact workflow run and required successful job project
       status: "completed",
       conclusion: "success",
     })
-    assert.deepEqual(harness.commandRequests.map(({ argv }) => argv[4]), [
+    assert.deepEqual(harness.commandRequests.map(({ argv }) => argv[2]), [
       "/user",
       `/repos/owner/repository/actions/workflows/t08-pinned-stack.yml/runs?head_sha=${headSha}&per_page=100&page=1`,
       "/repos/owner/repository/actions/runs/run-ci-1/jobs?per_page=100&page=1",
@@ -786,7 +786,7 @@ test("merged mapping PR projections prove PR number, base, head, and merge SHA w
   const input = { pr_id: "101", expected_head_sha: expectedHeadSha }
   let merged = false
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     assert.equal(endpoint, "/repos/owner/repository/pulls/101")
     return {
@@ -834,7 +834,7 @@ test("merged mapping PR projections fail closed on malformed or mismatched base/
   ]
   for (const [index, variant] of variants.entries()) {
     const harness = await makeProviderHarness(async (request) => {
-      const endpoint = request.argv[4]
+      const endpoint = request.argv[2]
       if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
       assert.equal(endpoint, `/repos/owner/repository/pulls/${input.pr_id}`)
       return { status: 0, stdout: Buffer.from(JSON.stringify({ number: Number(input.pr_id), ...variant })), stderr: Buffer.alloc(0) }
@@ -855,10 +855,10 @@ test("squashMergeMappingPr sends one exact squash PUT and returns the verified m
   const expectedHeadSha = "f".repeat(40)
   const mergeSha = "1".repeat(40)
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     assert.equal(endpoint, "/repos/owner/repository/pulls/101/merge")
-    assert.deepEqual(request.argv.slice(4), [
+    assert.deepEqual(request.argv.slice(2), [
       "/repos/owner/repository/pulls/101/merge",
       "--method",
       "PUT",
@@ -870,7 +870,7 @@ test("squashMergeMappingPr sends one exact squash PUT and returns the verified m
   })
   try {
     assert.deepEqual(await harness.provider.squashMergeMappingPr({ pr_id: "101", expected_head_sha: expectedHeadSha }), { merge_sha: mergeSha })
-    assert.equal(harness.commandRequests.filter(({ argv }) => argv[4] === "/repos/owner/repository/pulls/101/merge").length, 1)
+    assert.equal(harness.commandRequests.filter(({ argv }) => argv[2] === "/repos/owner/repository/pulls/101/merge").length, 1)
   } finally {
     await rm(harness.root, { recursive: true, force: true })
   }
@@ -878,7 +878,7 @@ test("squashMergeMappingPr sends one exact squash PUT and returns the verified m
 
 test("squashMergeMappingPr mutation failure is stable merge_failed with no retry", async () => {
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     assert.equal(endpoint, "/repos/owner/repository/pulls/101/merge")
     return { status: 17, stdout: Buffer.alloc(0), stderr: Buffer.from("merge failed Bearer secret-token C:\\provider\\merge.err", "utf8") }
@@ -890,7 +890,7 @@ test("squashMergeMappingPr mutation failure is stable merge_failed with no retry
       assert.doesNotMatch(String(error), /secret-token|provider\\\\merge\.err/u)
       return true
     })
-    assert.equal(harness.commandRequests.filter(({ argv }) => argv[4] === "/repos/owner/repository/pulls/101/merge").length, 1)
+    assert.equal(harness.commandRequests.filter(({ argv }) => argv[2] === "/repos/owner/repository/pulls/101/merge").length, 1)
   } finally {
     await rm(harness.root, { recursive: true, force: true })
   }
@@ -908,7 +908,7 @@ test("listMatchingDeploymentRuns paginates and returns unique exact workflow/ref
     display_title: "Other deployment",
   }))
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     if (endpoint === `/repos/owner/repository/actions/workflows/deploy-pages.yml/runs?branch=main&head_sha=${headSha}&per_page=100&page=1`) return {
       status: 0,
@@ -935,7 +935,7 @@ test("listMatchingDeploymentRuns paginates and returns unique exact workflow/ref
       run_name: runName,
       workflow: "deploy-pages.yml",
     }), [{ id: "run-target" }])
-    assert.deepEqual(harness.commandRequests.map(({ argv }) => argv[4]), [
+    assert.deepEqual(harness.commandRequests.map(({ argv }) => argv[2]), [
       "/user",
       `/repos/owner/repository/actions/workflows/deploy-pages.yml/runs?branch=main&head_sha=${headSha}&per_page=100&page=1`,
       `/repos/owner/repository/actions/workflows/deploy-pages.yml/runs?branch=main&head_sha=${headSha}&per_page=100&page=2`,
@@ -958,7 +958,7 @@ test("listMatchingDeploymentRuns fails closed on malformed entries and duplicate
   ]
   for (const [index, payload] of variants.entries()) {
     const harness = await makeProviderHarness(async (request) => {
-      const endpoint = request.argv[4]
+      const endpoint = request.argv[2]
       if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
       assert.equal(endpoint, `/repos/owner/repository/actions/workflows/deploy-pages.yml/runs?branch=main&head_sha=${headSha}&per_page=100&page=1`, `variant ${index}`)
       return { status: 0, stdout: Buffer.from(JSON.stringify({ total_count: payload.length, workflow_runs: payload })), stderr: Buffer.alloc(0) }
@@ -979,7 +979,7 @@ test("dispatchDeployment reads the exact main ref before one exact POST body", a
   const expectedHeadSha = "7".repeat(40)
   const siteCommit = "8".repeat(40)
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     if (endpoint === "/repos/owner/repository/git/ref/heads/main") return {
       status: 0,
@@ -987,7 +987,7 @@ test("dispatchDeployment reads the exact main ref before one exact POST body", a
       stderr: Buffer.alloc(0),
     }
     assert.equal(endpoint, "/repos/owner/repository/actions/workflows/deploy-pages.yml/dispatches")
-    assert.deepEqual(request.argv.slice(4), [
+    assert.deepEqual(request.argv.slice(2), [
       "/repos/owner/repository/actions/workflows/deploy-pages.yml/dispatches",
       "--method",
       "POST",
@@ -1008,7 +1008,7 @@ test("dispatchDeployment reads the exact main ref before one exact POST body", a
       run_name: `Deploy GitHub Pages ${siteCommit} (routine)`,
       workflow: "deploy-pages.yml",
     }), { accepted: true })
-    assert.equal(harness.commandRequests.filter(({ argv }) => argv[4] === "/repos/owner/repository/actions/workflows/deploy-pages.yml/dispatches").length, 1)
+    assert.equal(harness.commandRequests.filter(({ argv }) => argv[2] === "/repos/owner/repository/actions/workflows/deploy-pages.yml/dispatches").length, 1)
   } finally {
     await rm(harness.root, { recursive: true, force: true })
   }
@@ -1018,7 +1018,7 @@ test("dispatchDeployment mutation failure is stable dispatch_uncertain with no r
   const expectedHeadSha = "9".repeat(40)
   const siteCommit = "a".repeat(40)
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     if (endpoint === "/repos/owner/repository/git/ref/heads/main") return {
       status: 0,
@@ -1041,7 +1041,7 @@ test("dispatchDeployment mutation failure is stable dispatch_uncertain with no r
       assert.doesNotMatch(String(error), /secret-token|provider\\\\dispatch\.err/u)
       return true
     })
-    assert.equal(harness.commandRequests.filter(({ argv }) => argv[4] === "/repos/owner/repository/actions/workflows/deploy-pages.yml/dispatches").length, 1)
+    assert.equal(harness.commandRequests.filter(({ argv }) => argv[2] === "/repos/owner/repository/actions/workflows/deploy-pages.yml/dispatches").length, 1)
   } finally {
     await rm(harness.root, { recursive: true, force: true })
   }
@@ -1053,7 +1053,7 @@ test("readDeploymentRun returns the exact successful workflow-run projection", a
   const input = { id: "run-1", site_commit: siteCommit, publication_mode: "routine", workflow: "deploy-pages.yml", ref: "main", head_sha: headSha }
   const runName = `Deploy GitHub Pages ${siteCommit} (routine)`
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     assert.equal(endpoint, "/repos/owner/repository/actions/runs/run-1")
     return {
@@ -1099,7 +1099,7 @@ test("readDeploymentRun rejects wrong head, path, title, or terminal status as w
   ]
   for (const [index, override] of variants.entries()) {
     const harness = await makeProviderHarness(async (request) => {
-      const endpoint = request.argv[4]
+      const endpoint = request.argv[2]
       if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
       assert.equal(endpoint, "/repos/owner/repository/actions/runs/run-2", `variant ${index}`)
       return {
@@ -1136,7 +1136,7 @@ test("readPagesDeployment correlates the real Pages deployment shape from the au
   const projectUrl = "https://owner.github.io/repository/"
   const runName = `Deploy GitHub Pages ${siteCommit} (routine)`
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     if (endpoint === `/repos/owner/repository/actions/runs/${runId}`) return {
       status: 0,
@@ -1194,7 +1194,7 @@ test("readPagesDeployment correlates the real Pages deployment shape from the au
       status: "success",
       url: projectUrl,
     })
-    assert.deepEqual(harness.commandRequests.map(({ argv }) => argv[4]), [
+    assert.deepEqual(harness.commandRequests.map(({ argv }) => argv[2]), [
       "/user",
       `/repos/owner/repository/actions/runs/${runId}`,
       `/repos/owner/repository/deployments?sha=${headSha}&environment=github-pages&per_page=100&page=1`,
@@ -1222,7 +1222,7 @@ test("readPagesDeployment fails closed when the authoritative run or Pages recor
   ]
   for (const [index, override] of variants.entries()) {
     const harness = await makeProviderHarness(async (request) => {
-      const endpoint = request.argv[4]
+      const endpoint = request.argv[2]
       if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
       assert.equal(endpoint, `/repos/owner/repository/actions/runs/${runId}`, `variant ${index}`)
       return {
@@ -1270,7 +1270,7 @@ test("readPagesDeployment rejects duplicate or malformed deployment/status corre
   ]
   for (const [index, deployments] of deploymentVariants.entries()) {
     const harness = await makeProviderHarness(async (request) => {
-      const endpoint = request.argv[4]
+      const endpoint = request.argv[2]
       if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
       if (endpoint === `/repos/owner/repository/actions/runs/${runId}`) return {
         status: 0,
@@ -1300,7 +1300,7 @@ test("readPagesDeployment rejects two deployments correlated to the same exact w
   const projectUrl = "https://owner.github.io/repository/"
   const runName = `Deploy GitHub Pages ${siteCommit} (routine)`
   const harness = await makeProviderHarness(async (request) => {
-    const endpoint = request.argv[4]
+    const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     if (endpoint === `/repos/owner/repository/actions/runs/${runId}`) return {
       status: 0,
@@ -1355,7 +1355,7 @@ test("readPagesDeployment rejects duplicate successful statuses and strict log U
   ]
   for (const [index, logUrl] of badLogUrls.entries()) {
     const harness = await makeProviderHarness(async (request) => {
-      const endpoint = request.argv[4]
+      const endpoint = request.argv[2]
       if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
       if (endpoint === `/repos/owner/repository/actions/runs/${runId}`) return {
         status: 0,
@@ -1514,7 +1514,7 @@ test("provider dependencies construct the bounded HTTP default without invoking 
       } },
     })
     assert.equal(typeof provider.anonymousSmoke, "function")
-    assert.deepEqual(commandRequests.map(({ argv }) => argv[4]), ["/user"])
+    assert.deepEqual(commandRequests.map(({ argv }) => argv[2]), ["/user"])
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -1543,7 +1543,7 @@ test("anonymousSmoke preserves homepage, route, asset, and custom-404 order with
     actor: "actor",
   }, {
     commandTransport: { async run(request) {
-      assert.equal(request.argv[4], "/user")
+      assert.equal(request.argv[2], "/user")
       return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
     } },
     httpTransport: { async get(request) {
