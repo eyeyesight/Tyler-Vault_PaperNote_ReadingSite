@@ -217,11 +217,17 @@ function mapRoutes(operation) {
   }
 }
 
-function adapterConfig(settings) {
+function adapterConfig(settings, operation) {
   if (!isPlainObject(settings)) throw cliError("PRODUCTION_CONFIG_INVALID")
   const source = isPlainObject(settings.adapter_config) ? settings.adapter_config : settings
   if (!isPlainObject(source)) throw cliError("PRODUCTION_CONFIG_INVALID")
-  return source
+  if (Object.hasOwn(source, "candidateRoot")) throw cliError("PRODUCTION_CONFIG_INVALID")
+  const claimedSession = operation?.claimed_session
+  if (!isPlainObject(claimedSession)
+    || JSON.stringify(Object.keys(claimedSession).sort()) !== JSON.stringify(["work_root"])
+    || typeof claimedSession.work_root !== "string"
+    || claimedSession.work_root.length === 0) throw cliError("OPERATION_TRANSPORT_INVALID")
+  return { ...source, candidateRoot: claimedSession.work_root }
 }
 
 function exactSha(value, label) {
@@ -337,7 +343,7 @@ async function defaultRuntime(request, dependencies) {
     ? await dependencies.parseOperation(request.operation)
     : decodeOperationTransport(request.operation)
   const createAdapter = dependencies.createAdapter ?? createRoutinePublicationAdapter
-  const adapter = await createAdapter(adapterConfig(request.settings), {
+  const adapter = await createAdapter(adapterConfig(request.settings, operation), {
     ...(dependencies.commandTransport === undefined ? {} : { commandTransport: dependencies.commandTransport }),
     ...(dependencies.httpTransport === undefined ? {} : { httpTransport: dependencies.httpTransport }),
   })

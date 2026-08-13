@@ -15,6 +15,7 @@ import {
   decodeOperationTransport,
   main,
   parsePublicationRequest,
+  runPublicationCommand,
 } from "../scripts/vault-papernote-publish.mjs"
 
 const SITE_COMMIT = "a".repeat(40)
@@ -309,6 +310,39 @@ test("CLI operation transport restores canonical base64 map bytes", () => {
   assert.equal(Object.hasOwn(decoded, "proposed_site_content_base64"), false)
   assert.throws(() => decodeOperationTransport({ ...transport, extra: true }), /OPERATION_TRANSPORT_INVALID/)
   assert.throws(() => decodeOperationTransport({ ...transport, proposed_site_content_base64: "YQ=" }), /OPERATION_TRANSPORT_INVALID/)
+})
+
+test("production adapter candidate authority comes only from the claimed session work root", async () => {
+  const workRoot = "C:/owned/runtime/workspaces/operation"
+  const approved = { ...operation(), claimed_session: { work_root: workRoot } }
+  let adapterConfig
+  const dependencies = {
+    parseOperation: async () => approved,
+    createAdapter: async (config) => {
+      adapterConfig = config
+      return { localGit: {}, provider: {} }
+    },
+    publish: async () => publicationResult(),
+    qa: async () => qaPass(),
+    lkg: { readCurrent: async () => null, record: async (record) => record },
+    rollback: async () => assert.fail("rollback must not run"),
+  }
+  const result = await runPublicationCommand({ operation: {}, settings: { adapter_config: { repository: "owner/repository" } } }, dependencies)
+  assert.equal(result.status, "published")
+  assert.deepEqual(adapterConfig, { repository: "owner/repository", candidateRoot: workRoot })
+
+  let createCalls = 0
+  await assert.rejects(
+    runPublicationCommand({
+      operation: {},
+      settings: { adapter_config: { repository: "owner/repository", candidateRoot: "C:/caller-controlled" } },
+    }, {
+      ...dependencies,
+      createAdapter: async () => { createCalls += 1; return { localGit: {}, provider: {} } },
+    }),
+    /PRODUCTION_CONFIG_INVALID/,
+  )
+  assert.equal(createCalls, 0)
 })
 
 test("publish CLI accepts one bounded JSON object and emits exactly one result line", async () => {

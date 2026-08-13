@@ -1945,8 +1945,10 @@ async function makeGitFixture() {
   const remote = path.join(root, "remote.git")
   const gitRoot = path.join(root, "source")
   const operationRoot = path.join(root, "operation")
-  const candidatePath = path.join(operationRoot, "content-0123456789abcdef0123", "handoff", "site")
+  const candidateRoot = path.join(root, "candidates")
+  const candidatePath = path.join(candidateRoot, "content-0123456789abcdef0123", "handoff", "site")
   await mkdir(operationRoot)
+  await mkdir(candidateRoot)
   git(["init", "--bare", remote])
   git(["init", gitRoot])
   git(["-C", gitRoot, "config", "user.name", "T13 adapter fixture"])
@@ -1991,8 +1993,32 @@ async function makeGitFixture() {
     await mkdir(path.dirname(absolute), { recursive: true })
     await writeFile(absolute, bytes)
   }
-  return { root, remote, gitRoot, operationRoot, candidatePath, initialMap, mainSha, ghPagesSha }
+  return { root, remote, gitRoot, operationRoot, candidateRoot, candidatePath, initialMap, mainSha, ghPagesSha }
 }
+
+test("gh-pages candidate authority is separate from the isolated Git scratch root", async () => {
+  const fixture = await makeGitFixture()
+  try {
+    const localGit = createRoutinePublicationLocalGitCapabilities({
+      gitRoot: fixture.gitRoot,
+      gitExecutable: GIT_EXECUTABLE,
+      remote: "origin",
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      operationRoot: fixture.operationRoot,
+      candidateRoot: fixture.candidateRoot,
+    })
+    const candidate = await localGit.createGhPagesCandidate({
+      base_sha: fixture.ghPagesSha,
+      candidate_path: fixture.candidatePath,
+      renderer_main_sha: fixture.mainSha,
+    })
+    assert.equal(String(git(["-C", fixture.gitRoot, "rev-parse", `${candidate.candidate_sha}^`])).trim(), fixture.ghPagesSha)
+    assert.deepEqual((await readdir(fixture.operationRoot)).filter((name) => name.startsWith(".t13-git-")), [])
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true })
+  }
+})
 
 test("remote authority fetches an exact remote-only main commit without moving the worktree", async () => {
   const fixture = await makeGitFixture()
@@ -2026,6 +2052,7 @@ test("remote authority fetches an exact remote-only main commit without moving t
       mainRef: "refs/heads/main",
       ghPagesRef: "refs/heads/gh-pages",
       operationRoot: fixture.operationRoot,
+      candidateRoot: fixture.candidateRoot,
     })
     const beforeHead = String(git(["-C", fixture.gitRoot, "rev-parse", "HEAD"])).trim()
     const beforeStatus = String(git(["-C", fixture.gitRoot, "status", "--porcelain"])).trim()
@@ -2050,6 +2077,7 @@ test("local-Git capabilities use isolated plumbing for exact refs, commits, tree
       mainRef: "refs/heads/main",
       ghPagesRef: "refs/heads/gh-pages",
       operationRoot: fixture.operationRoot,
+      candidateRoot: fixture.candidateRoot,
     })
     const beforeHead = String(git(["-C", fixture.gitRoot, "rev-parse", "HEAD"])).trim()
     const beforeStatus = String(git(["-C", fixture.gitRoot, "status", "--porcelain"])).trim()
