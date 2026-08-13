@@ -19,15 +19,17 @@
     "record": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["public_id", "title", "node_class", "url", "authors", "doi", "source_tags", "search_text"],
+      "required": ["public_id", "title", "node_class", "url", "authors", "year", "doi", "source_tags", "definition", "search_text"],
       "properties": {
         "public_id": { "$ref": "#/$defs/publicId" },
         "title": { "type": "string", "minLength": 1 },
         "node_class": { "$ref": "#/$defs/nodeClass" },
         "url": { "$ref": "#/$defs/publicUrl" },
         "authors": { "type": "array", "items": { "type": "string" } },
+        "year": { "type": ["string", "null"] },
         "doi": { "type": ["string", "null"] },
         "source_tags": { "type": "array", "items": { "type": "string" } },
+        "definition": { "type": ["string", "null"] },
         "search_text": { "type": "string" }
       }
     }

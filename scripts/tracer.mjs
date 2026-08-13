@@ -47,6 +47,16 @@ const Ajv2020 = /** @type {any} */ (Ajv2020Module)
 const toolchainMetadataPath = path.join(repoRoot, "config", "quartz-toolchain.json")
 const secretRulesPath = path.join(repoRoot, "config", "public-secret-rules.toml")
 const scholarlyThemePath = path.join(repoRoot, "styles", "tracer-scholarly.scss")
+const projectFontStylesPath = path.join(repoRoot, "styles", "tracer-fonts.css")
+const projectFontAssetPath = path.join(repoRoot, "assets", "fonts")
+/** @type {Readonly<Record<string,string>>} */
+const projectFontAssetHashes = Object.freeze({
+  "newsreader-variable.woff2": "1faa3380ac0e87e057b180e03fd94bd708a612afb67d2590677be4508909fae9",
+  "newsreader-italic-variable.woff2": "d184d5e6a967ffea109d9f99fa245eccbff221e27f30bfd7d6fdb2940fcc6265",
+  "source-sans-3-variable.woff2": "5f16566f7a40d39b339ad26be151fa5a1ab1f0c2574c7a2e619765584a1acbd8",
+  "source-sans-3-italic-variable.woff2": "b4959abc0569392f87c6c6ac612f90e3fe0104d283724189b7d8b6f61af347d3",
+})
+const projectFontAssets = Object.freeze(Object.keys(projectFontAssetHashes))
 const projectSiteBasePath = "/Tyler-Vault_PaperNote_ReadingSite/"
 const quartzContentIndexFile = "index.html"
 const testCapability = "t03-regression-v1"
@@ -344,6 +354,17 @@ function aliasKey(value) {
 /** @param {string} value */
 function markdownText(value) {
   return value.replace(/[\\`*_[\]<>]/g, (character) => `\\${character}`).replace(/[\r\n]+/g, " ").trim()
+}
+
+/** @param {unknown} value */
+function htmlText(value) {
+  return String(value).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  })[character] ?? character)
 }
 
 /** @param {string} value @param {number} offset */
@@ -718,18 +739,49 @@ function searchableMarkdownSegments(/** @type {string} */ markdown) {
   return { headings, body }
 }
 
+/** Read one public level-two Markdown section without leaking content from the
+ * following section. Managed Zotero blocks remain excluded by the same parser
+ * boundary used by the public search projection. */
+function publicMarkdownSectionText(/** @type {string} */ markdown, /** @type {string} */ heading) {
+  let tree = fromMarkdown(markdown)
+  const managed = zoteroManagedRange(markdown, tree)
+  if (managed) {
+    markdown = `${markdown.slice(0, managed.start)}${markdown.slice(managed.end)}`
+    tree = fromMarkdown(markdown)
+  }
+  const start = tree.children.findIndex((node) => node.type === "heading" && node.depth === 2 && collapseUnicodeWhitespace(visibleNodeText(node)).toLocaleLowerCase("en-US") === heading.toLocaleLowerCase("en-US"))
+  if (start < 0) return null
+  const section = []
+  for (const node of tree.children.slice(start + 1)) {
+    if (node.type === "heading" && node.depth <= 2) break
+    const text = collapseUnicodeWhitespace(visibleNodeText(node))
+    if (text) section.push(text)
+  }
+  return section.length > 0 ? section.join(" ") : null
+}
+
 /** @param {Map<string,any>} records @param {Map<string,Set<string>>} outgoing @param {Map<string,string>} searchableBodies */
 function publicContracts(records, outgoing, searchableBodies) {
   const compare = (/** @type {string} */ left, /** @type {string} */ right) => Buffer.compare(Buffer.from(left), Buffer.from(right))
   const ordered = [...records.entries()].sort(([left], [right]) => compare(left, right))
+  const displayTitle = (/** @type {string} */ publicId, /** @type {any} */ record) => {
+    const title = collapseUnicodeWhitespace(String(record.frontmatter.title ?? publicId))
+    if (record.node.node_class === "author") return path.posix.basename(record.node.path, ".md")
+    return ["concept", "method", "task"].includes(record.node.node_class)
+      ? title.replace(/^./u, (character) => character.toLocaleUpperCase("en-US"))
+      : title
+  }
   const nodes = ordered.map(([publicId, record]) => ({
     public_id: publicId,
-    title: collapseUnicodeWhitespace(String(record.frontmatter.title ?? publicId)),
+    title: displayTitle(publicId, record),
     node_class: record.node.node_class,
     url: record.route,
   }))
   const edgeKeys = new Set()
-  for (const [source, targets] of outgoing) for (const target of targets) edgeKeys.add(`${source}\0${target}`)
+  for (const [source, targets] of outgoing) for (const target of targets) {
+    const [left, right] = compare(source, target) <= 0 ? [source, target] : [target, source]
+    edgeKeys.add(`${left}\0${right}`)
+  }
   const edges = [...edgeKeys].sort(compare).map((key) => {
     const [source, target] = key.split("\0")
     return { source, target }
@@ -738,6 +790,7 @@ function publicContracts(records, outgoing, searchableBodies) {
   if (edges.some((edge) => !publicIds.has(edge.source) || !publicIds.has(edge.target))) throw new TracerError("UNEXPECTED_GRAPH_STATE", "public graph edge endpoint is not public")
   const recordsProjection = ordered.map(([publicId, record]) => {
     const authors = (Array.isArray(record.frontmatter.authors) ? record.frontmatter.authors : []).map((/** @type {string} */ value) => collapseUnicodeWhitespace(String(value))).filter(Boolean)
+    const yearValue = record.frontmatter.year === undefined || record.frontmatter.year === null ? "" : collapseUnicodeWhitespace(String(record.frontmatter.year))
     const doiValue = typeof record.frontmatter.doi === "string" ? collapseUnicodeWhitespace(record.frontmatter.doi) : ""
     const sourceTags = [...new Set((Array.isArray(record.frontmatter.tags) ? record.frontmatter.tags : []).map((/** @type {string} */ value) => collapseUnicodeWhitespace(String(value))).filter(Boolean))].sort(compare)
     const segments = searchableMarkdownSegments(searchableBodies.get(publicId) ?? "")
@@ -751,12 +804,14 @@ function publicContracts(records, outgoing, searchableBodies) {
     ].filter(Boolean)
     return {
       public_id: publicId,
-      title: collapseUnicodeWhitespace(String(record.frontmatter.title ?? publicId)),
+      title: displayTitle(publicId, record),
       node_class: record.node.node_class,
       url: record.route,
       authors,
+      year: yearValue || null,
       doi: doiValue || null,
       source_tags: sourceTags,
+      definition: ["concept", "method", "task"].includes(record.node.node_class) ? publicMarkdownSectionText(searchableBodies.get(publicId) ?? "", "Definition") : null,
       search_text: searchSegments.join("\n"),
     }
   })
@@ -828,7 +883,7 @@ function tracerQuartzConfig(source) {
     transformed = transformed.replace(before, after)
   }
   for (const [before, after] of [
-    ["pageTitle: Quartz 5", "pageTitle: Tyler-Vault Reading Site"],
+    ["pageTitle: Quartz 5", "pageTitle: Psychology Research Notes"],
     ["enableSPA: true", "enableSPA: false"],
     ["enablePopovers: true", "enablePopovers: false"],
     ["provider: plausible", "provider: null"],
@@ -847,7 +902,7 @@ function tracerQuartzConfig(source) {
   replaceOne("source: \"@quartz-community/table-of-contents\"\n    enabled: true\n    order: 50", "source: \"@quartz-community/table-of-contents\"\n    enabled: true\n    options:\n      maxDepth: 3\n      minEntries: 1\n      showByDefault: true\n      collapseByDefault: true\n      layout: modern\n    order: 50")
   replaceOne("    folder:\n      exclude:\n        - reader-mode\n      positions:\n        right: []", "    folder: {}")
 
-  for (const expected of ["pageTitle: Tyler-Vault Reading Site", "enableSPA: false", "enablePopovers: false", "provider: null", "baseUrl: example.invalid", "fontOrigin: local", "cdnCaching: false", "header: system-ui", "body: Georgia", "code: ui-monospace", "enableInHtmlEmbed: true", "folder: {}"]) {
+  for (const expected of ["pageTitle: Psychology Research Notes", "enableSPA: false", "enablePopovers: false", "provider: null", "baseUrl: example.invalid", "fontOrigin: local", "cdnCaching: false", "header: system-ui", "body: Georgia", "code: ui-monospace", "enableInHtmlEmbed: true", "folder: {}"]) {
     if (transformed.split(expected).length !== 2) fail()
   }
   for (const plugin of disabledPlugins) {
@@ -865,7 +920,7 @@ function tracerQuartzConfig(source) {
 /** @param {"warm"|"contrast"} variant @param {string} template */
 function scholarlyTheme(variant, template) {
   const palettes = {
-    warm: { LIGHT: "#f8f4ec", LIGHTGRAY: "#ded6c8", GRAY: "#8a8175", DARKGRAY: "#3f3a34", DARK: "#201d1a", SECONDARY: "#745238", TERTIARY: "#4f6b62", HIGHLIGHT: "rgba(116, 82, 56, 0.12)" },
+    warm: { LIGHT: "#f7f4ee", LIGHTGRAY: "#ddd6c9", GRAY: "#6b7280", DARKGRAY: "#20262e", DARK: "#20262e", SECONDARY: "#405d78", TERTIARY: "#62806a", HIGHLIGHT: "rgba(64, 93, 120, 0.12)" },
     contrast: { LIGHT: "#fffdf8", LIGHTGRAY: "#c9bfae", GRAY: "#6e655a", DARKGRAY: "#292520", DARK: "#100e0c", SECONDARY: "#5b351f", TERTIARY: "#31564b", HIGHLIGHT: "rgba(91, 53, 31, 0.16)" },
   }
   const palette = palettes[variant]
@@ -971,19 +1026,236 @@ async function injectQuartzHtmlRegression(candidate, run, variant) {
   await writeFile(index, mutated)
 }
 
-/** Quartz breadcrumbs include links for synthetic folder pages that are later
- * removed by the exact route gate. Before the immutable baseline, normalize
- * only those renderer-owned breadcrumb links to the approved library root.
+const homeNodeClasses = Object.freeze([
+  Object.freeze({ nodeClass: "concept", label: "Concepts", description: "Ideas that connect findings across the reading layer. 串連閱讀層中不同研究發現的核心概念。" }),
+  Object.freeze({ nodeClass: "method", label: "Methods", description: "Approaches used to collect, connect, and interpret evidence. 用來蒐集、連結與解讀證據的研究方法。" }),
+  Object.freeze({ nodeClass: "task", label: "Tasks", description: "Research problems that organize the public literature. 組織公開文獻與研究問題的任務脈絡。" }),
+  Object.freeze({ nodeClass: "author", label: "Authors", description: "Researchers connected to the mapped papers and methods. 與目前論文及方法相連的研究者。" }),
+])
+// Lucide outline icons sourced through Iconstack's public SVG API. Keeping the
+// paths inline makes this navigation deterministic and removes a runtime fetch.
+/** @type {Readonly<Record<string, Readonly<{id:string,body:string}>>>} */
+const homeNodeIcons = Object.freeze({
+  concept: Object.freeze({
+    id: "lucide-network",
+    body: '<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/>',
+  }),
+  method: Object.freeze({
+    id: "lucide-flask-conical",
+    body: '<path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2"/><path d="M6.453 15h11.094"/><path d="M8.5 2h7"/>',
+  }),
+  task: Object.freeze({
+    id: "lucide-list-checks",
+    body: '<path d="M13 5h8"/><path d="M13 12h8"/><path d="M13 19h8"/><path d="m3 17 2 2 4-4"/><path d="m3 7 2 2 4-4"/>',
+  }),
+  author: Object.freeze({
+    id: "lucide-users-round",
+    body: '<path d="M18 21a8 8 0 0 0-16 0"/><circle cx="10" cy="8" r="5"/><path d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3"/>',
+  }),
+})
+const homeStatClasses = Object.freeze([
+  Object.freeze({ nodeClass: "paper", label: "Papers" }),
+  ...homeNodeClasses.map(({ nodeClass, label }) => Object.freeze({ nodeClass, label })),
+  Object.freeze({ nodeClass: "synthesis", label: "Syntheses" }),
+  Object.freeze({ nodeClass: "map", label: "Maps" }),
+])
+
+/** @param {string} markdown @param {string} fallback */
+function paperHeadingTitle(markdown, fallback) {
+  const heading = /^#\s+(.+)$/m.exec(markdown)?.[1]
+  return collapseUnicodeWhitespace(heading ?? fallback)
+}
+
+/** @param {string} markdown @param {string} fallback */
+function shortPaperTitle(markdown, fallback) {
+  return paperHeadingTitle(markdown, fallback)
+    .replace(/^.{1,100}?\b(?:19|20)\d{2}\s*[—–-]\s+/, "")
+}
+
+/** @param {string} markdown @param {string} heading */
+function markdownSectionSummary(markdown, heading) {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const match = new RegExp(`^##\\s+${escaped}\\s*$([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`, "mi").exec(markdown)
+  if (!match) return "Open the paper note for its public takeaway, questions, and evidence."
+  const summary = collapseUnicodeWhitespace(searchableMarkdownSegments(match[1]).body.join(" "))
+  if (!summary) return "Open the paper note for its public takeaway, questions, and evidence."
+  return summary.length > 220 ? `${summary.slice(0, 217).trimEnd()}…` : summary
+}
+
+/** @param {string} nodeClass */
+function homeNodeIconSvg(nodeClass) {
+  const icon = homeNodeIcons[nodeClass]
+  if (!icon) throw new TracerError("HOME_COMPOSITION_INVALID", `home icon is missing for ${nodeClass}`)
+  return `<svg class="node-type-card-icon-svg" data-icon="${icon.id}" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${icon.body}</svg>`
+}
+
+/** @param {Map<string,any>} records @param {Map<string,Set<string>>} outgoing @param {Map<string,string>} searchableBodies */
+function homePageMarkdown(records, outgoing, searchableBodies) {
+  const entries = [...records.entries()]
+  const byClass = new Map(homeStatClasses.map(({ nodeClass }) => [nodeClass, entries.filter(([, record]) => record.node.node_class === nodeClass)]))
+  const publicHref = (/** @type {string} */ route) => htmlText(route.slice(1))
+  const titleOf = (/** @type {any} */ record) => String(record.frontmatter.title ?? record.node.public_id)
+  const stats = homeStatClasses.map(({ nodeClass, label }) => `<li><strong>${byClass.get(nodeClass)?.length ?? 0}</strong> ${htmlText(label)}</li>`).join("")
+  const nodeCards = homeNodeClasses.flatMap(({ nodeClass, label, description }) => {
+    const grouped = byClass.get(nodeClass) ?? []
+    return grouped.length === 0 ? [] : [`<article class="node-type-card node-type-${nodeClass}" data-home-node-class="${nodeClass}"><span class="node-type-card-icon" aria-hidden="true">${homeNodeIconSvg(nodeClass)}</span><div><p class="node-type-card-count">${grouped.length} ${htmlText(label)}</p><h3>${htmlText(label)}</h3><p>${htmlText(description)}</p><button type="button" data-home-library-target="${nodeClass}">View ${htmlText(label.toLowerCase())} <span aria-hidden="true">→</span></button></div></article>`]
+  }).join("")
+  const papers = (byClass.get("paper") ?? []).slice(0, 6)
+  const paperCards = papers.map(([publicId, record]) => {
+    const authors = Array.isArray(record.frontmatter.authors) ? record.frontmatter.authors.join(", ") : ""
+    const year = record.frontmatter.year ? String(record.frontmatter.year) : ""
+    const related = [...(outgoing.get(publicId) ?? [])].map((id) => records.get(id)).filter(Boolean).slice(0, 3)
+    const tags = related.map((target) => `<span data-node-class="${htmlText(target.node.node_class)}">${htmlText(titleOf(target))}</span>`).join("")
+    const title = shortPaperTitle(searchableBodies.get(publicId) ?? "", titleOf(record))
+    return `<a class="paper-card" href="${publicHref(record.route)}" aria-label="Read ${htmlText(title)}"><p class="paper-card-kicker">Paper${year ? ` · ${htmlText(year)}` : ""}</p><p class="paper-card-title">${htmlText(title)}</p>${authors ? `<p class="paper-card-authors">${htmlText(authors)}</p>` : ""}<p class="paper-card-summary">${htmlText(markdownSectionSummary(searchableBodies.get(publicId) ?? "", "One-sentence Takeaway"))}</p>${tags ? `<div class="paper-card-tags">${tags}</div>` : ""}</a>`
+  }).join("")
+  return `---\ntitle: "Psychology Research Notes"\n---\n\n<section class="home-hero reveal-on-entry" data-home-total="${entries.length}"><p class="home-eyebrow">Public research reading layer</p><h1>Psychology Research Notes</h1><p class="home-intro">Literature-centered notes on psychology, connected through authors, concepts, methods, and research tasks. <span lang="zh-Hant">以心理學文獻為核心的研究筆記，透過作者、構念、研究方法與實驗作業彼此串聯。</span></p><div class="home-search-slot"></div><ul class="home-stats" aria-label="Public collection totals">${stats}</ul></section>\n\n<section class="home-section reveal-on-entry" aria-labelledby="browse-heading"><div class="home-section-heading"><p class="home-eyebrow">Browse the library</p><h2 id="browse-heading">Choose a research lens</h2></div><div class="node-type-grid">${nodeCards}</div></section>\n\n<section class="home-section reveal-on-entry" aria-labelledby="featured-heading"><div class="home-section-heading"><p class="home-eyebrow">Featured papers</p><h2 id="featured-heading">Start with the evidence</h2></div><div class="featured-paper-grid">${paperCards}</div></section>\n`
+}
+
+const paperTabs = Object.freeze([
+  Object.freeze({ key: "introductions", label: "Introductions", startId: "bibliography", fallbackId: null }),
+  Object.freeze({ key: "methods", label: "Methods", startId: "method", fallbackId: null }),
+  Object.freeze({ key: "results", label: "Results", startId: "main-results", fallbackId: null }),
+  Object.freeze({ key: "discussion", label: "Discussion", startId: "authors-discussion", fallbackId: null }),
+  Object.freeze({ key: "others", label: "Others", startId: "relevance-to-my-research", fallbackId: "connections" }),
+])
+
+/** Split only the rendered paper-note body. The immutable Vault Markdown stays
+ * untouched; absent optional sections produce an empty, stable panel. */
+function addPaperTabs(/** @type {string} */ html) {
+  const mastheadEnd = html.indexOf("</header>")
+  const articleEnd = html.lastIndexOf("</article>")
+  const trailingContainers = articleEnd > 0 ? /(?:<\/div>\s*)+$/.exec(html.slice(0, articleEnd)) : null
+  const contentEnd = trailingContainers?.index ?? -1
+  const firstHeading = html.indexOf('<h2 id="bibliography"', mastheadEnd)
+  if (mastheadEnd < 0 || firstHeading < 0 || contentEnd <= firstHeading) throw new TracerError("PAPER_TABS_INVALID", "generated paper page lacks the stable tab section seams")
+  const content = html.slice(firstHeading, contentEnd)
+  const starts = paperTabs.map((tab) => {
+    const primary = content.indexOf(`<h2 id="${tab.startId}"`)
+    if (primary >= 0) return primary
+    return tab.fallbackId ? content.indexOf(`<h2 id="${tab.fallbackId}"`) : -1
+  })
+  const panelContent = paperTabs.map((_, index) => {
+    const start = starts[index]
+    if (start < 0) return ""
+    const later = starts.slice(index + 1).filter((candidate) => candidate > start)
+    const end = later.length > 0 ? Math.min(...later) : content.length
+    return content.slice(start, end)
+  })
+  const controls = paperTabs.map((tab, index) => `<button type="button" id="paper-tab-${tab.key}" role="tab" data-paper-tab="${tab.key}" aria-controls="paper-panel-${tab.key}" aria-selected="${index === 0}" tabindex="${index === 0 ? "0" : "-1"}">${tab.label}</button>`).join("")
+  const pickerOptions = paperTabs.map((tab, index) => `<button type="button" role="option" data-section-option="${tab.key}" aria-selected="${index === 0}"><span>${tab.label}</span><span class="section-picker-check" aria-hidden="true">✓</span></button>`).join("")
+  const panels = paperTabs.map((tab, index) => `<section class="paper-tab-panel" id="paper-panel-${tab.key}" role="tabpanel" aria-labelledby="paper-tab-${tab.key}" data-paper-panel="${tab.key}"${index === 0 ? "" : " hidden"}><h2 class="paper-tab-title" id="paper-section-${tab.key}" tabindex="-1">${tab.label}</h2>${panelContent[index]}</section>`).join("")
+  /** @param {string} className */
+  const pickerChevron = (className) => `<svg class="${className}" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><polyline points="6 9 12 15 18 9"></polyline></svg>`
+  const navigationChevron = pickerChevron("section-picker-icon")
+  const selectionChevron = pickerChevron("section-picker-caret")
+  const picker = `<div class="paper-section-picker" data-section-picker role="toolbar" aria-label="Paper section controls"><button type="button" class="section-picker-step section-picker-previous" data-section-step="previous" aria-label="Previous paper section" aria-disabled="true" disabled>${navigationChevron}</button><div class="section-picker-select"><button type="button" class="section-picker-toggle" data-section-picker-toggle aria-haspopup="listbox" aria-controls="paper-section-picker-options" aria-expanded="false"><span data-section-current>Introductions</span>${selectionChevron}</button><div class="section-picker-options" id="paper-section-picker-options" role="listbox" aria-label="Choose paper section" hidden>${pickerOptions}</div></div><button type="button" class="section-picker-step section-picker-next" data-section-step="next" aria-label="Next paper section" aria-disabled="false">${navigationChevron}</button></div>`
+  const tabs = `<div class="paper-section-navigation" data-paper-section-navigation><div class="paper-tabs"><div class="paper-tab-list" role="tablist" aria-label="Paper note sections"><span class="paper-tab-pill" aria-hidden="true"></span>${controls}</div></div>${picker}</div>${panels}`
+  return `${html.slice(0, firstHeading)}${tabs}${html.slice(contentEnd)}`
+}
+
+function paperReadingRuntimeScript() {
+  return `<script data-tracer-extension="t06-reading">(()=>{
+    const setup=()=>{
+      const body=document.body
+      if(body.dataset.tracerTemplate!=="paper"||body.hasAttribute("data-reading-tools-ready"))return
+      body.setAttribute("data-reading-tools-ready","")
+      const progress=document.querySelector(".reading-progress span"),citationButton=document.querySelector("[data-copy-citation]"),toast=document.querySelector("[data-citation-toast]"),tabs=[...document.querySelectorAll("[data-paper-tab]")],panels=[...document.querySelectorAll("[data-paper-panel]")],pill=document.querySelector(".paper-tab-pill"),toc=document.querySelector(".toc-content"),navigation=document.querySelector("[data-paper-section-navigation]"),picker=document.querySelector("[data-section-picker]"),pickerToggle=document.querySelector("[data-section-picker-toggle]"),pickerOptions=document.getElementById("paper-section-picker-options"),currentLabel=document.querySelector("[data-section-current]"),previousButton=document.querySelector('[data-section-step="previous"]'),nextButton=document.querySelector('[data-section-step="next"]')
+      const updateProgress=()=>{const maximum=Math.max(1,document.documentElement.scrollHeight-innerHeight),value=Math.min(1,Math.max(0,scrollY/maximum));if(progress)progress.style.transform="scaleX("+value+")"}
+      updateProgress()
+      addEventListener("scroll",updateProgress,{passive:true})
+      citationButton?.addEventListener("click",async()=>{const heading=document.getElementById("citation"),parts=[];for(let node=heading?.nextElementSibling;node&&!/^H[12]$/.test(node.tagName);node=node.nextElementSibling)parts.push(node.textContent?.trim()??"");const citation=parts.filter(Boolean).join("\\n");if(!citation)return;await navigator.clipboard.writeText(citation);if(toast){toast.hidden=false;clearTimeout(window.__tylerCitationToast);window.__tylerCitationToast=setTimeout(()=>{toast.hidden=true},2200)}})
+      const measure=button=>{if(!pill||!button)return;pill.style.left=button.offsetLeft+"px";pill.style.top=button.offsetTop+"px";pill.style.width=button.offsetWidth+"px";pill.style.height=button.offsetHeight+"px"}
+      const renderToc=panel=>{if(!toc||!panel)return;const label=document.getElementById(panel.getAttribute("aria-labelledby"))?.textContent?.trim()??"Section",rows=[{id:panel.querySelector(".paper-tab-title")?.id,label,depth:0},...[...panel.querySelectorAll("h2[id]:not(.paper-tab-title),h3[id]")].map(heading=>({id:heading.id,label:heading.childNodes[0]?.textContent?.trim()||heading.textContent?.trim()||heading.id,depth:heading.tagName==="H2"?1:2}))];toc.replaceChildren(...rows.filter(row=>row.id).map((row,index)=>{const item=document.createElement("li"),link=document.createElement("a");item.className="depth-"+row.depth+(row.depth===0?" paper-tab-toc-title":"");item.style.setProperty("--toc-item-delay",Math.min(index*42,420)+"ms");link.href="#"+row.id;link.dataset.for=row.id;link.textContent=row.label;item.append(link);return item}))}
+      const setPickerOpen=open=>{if(!pickerToggle||!pickerOptions)return;pickerToggle.setAttribute("aria-expanded",String(open));pickerOptions.hidden=!open;navigation?.toggleAttribute("data-picker-open",open);if(open)navigation?.removeAttribute("data-sticky-hidden")}
+      const setStepDisabled=(button,disabled)=>{if(!button)return;button.disabled=disabled;button.setAttribute("aria-disabled",String(disabled))}
+      const activate=(key,{focus=false}={})=>{const button=tabs.find(candidate=>candidate.dataset.paperTab===key)??tabs[0],panel=panels.find(candidate=>candidate.dataset.paperPanel===button?.dataset.paperTab);if(!button||!panel)return;const activeIndex=tabs.indexOf(button);for(const candidate of tabs){const active=candidate===button;candidate.setAttribute("aria-selected",String(active));candidate.tabIndex=active?0:-1}for(const candidate of panels)candidate.hidden=candidate!==panel;for(const option of document.querySelectorAll("[data-section-option]"))option.setAttribute("aria-selected",String(option.dataset.sectionOption===button.dataset.paperTab));if(currentLabel)currentLabel.textContent=button.textContent?.trim()??"Section";setStepDisabled(previousButton,activeIndex<=0);setStepDisabled(nextButton,activeIndex>=tabs.length-1);measure(button);renderToc(panel);updateProgress();if(focus)button.focus()}
+      const activateOffset=offset=>{const index=tabs.findIndex(button=>button.getAttribute("aria-selected")==="true"),target=tabs[index+offset];if(target)activate(target.dataset.paperTab)}
+      const panelForHash=()=>{const target=location.hash&&document.getElementById(decodeURIComponent(location.hash.slice(1)));return target?.closest?.("[data-paper-panel]")?.dataset.paperPanel}
+      for(const [index,button] of tabs.entries()){button.addEventListener("click",()=>activate(button.dataset.paperTab));button.addEventListener("keydown",event=>{let target;if(event.key==="ArrowRight")target=(index+1)%tabs.length;else if(event.key==="ArrowLeft")target=(index-1+tabs.length)%tabs.length;else if(event.key==="Home")target=0;else if(event.key==="End")target=tabs.length-1;else return;event.preventDefault();activate(tabs[target].dataset.paperTab,{focus:true})})}
+      previousButton?.addEventListener("click",()=>activateOffset(-1))
+      nextButton?.addEventListener("click",()=>activateOffset(1))
+      pickerToggle?.addEventListener("click",()=>setPickerOpen(pickerToggle.getAttribute("aria-expanded")!=="true"))
+      for(const option of document.querySelectorAll("[data-section-option]"))option.addEventListener("click",()=>{activate(option.dataset.sectionOption);setPickerOpen(false);pickerToggle?.focus()})
+      document.addEventListener("click",event=>{if(!event.target.closest("[data-section-picker]"))setPickerOpen(false)})
+      document.addEventListener("keydown",event=>{if(event.key==="Escape"&&pickerToggle?.getAttribute("aria-expanded")==="true"){setPickerOpen(false);pickerToggle.focus()}})
+      let swipeStart=null
+      picker?.addEventListener("pointerdown",event=>{swipeStart=event.clientX})
+      picker?.addEventListener("pointerup",event=>{if(swipeStart===null)return;const distance=event.clientX-swipeStart;swipeStart=null;if(Math.abs(distance)<44)return;activateOffset(distance<0?1:-1)})
+      let lastScrollY=scrollY,naturalTop=navigation?.offsetTop??0
+      const updateNavigationVisibility=()=>{if(!navigation)return;const current=scrollY,delta=current-lastScrollY;if(current<=naturalTop+8)navigation.removeAttribute("data-sticky-hidden");else if(delta>6&&!navigation.hasAttribute("data-picker-open"))navigation.setAttribute("data-sticky-hidden","");else if(delta<-6)navigation.removeAttribute("data-sticky-hidden");lastScrollY=current}
+      addEventListener("scroll",updateNavigationVisibility,{passive:true})
+      activate(panelForHash()??"introductions")
+      addEventListener("hashchange",()=>{const key=panelForHash();if(key)activate(key)})
+      new ResizeObserver(()=>{naturalTop=navigation?.offsetTop??naturalTop;measure(tabs.find(button=>button.getAttribute("aria-selected")==="true"))}).observe(document.querySelector(".paper-tab-list"))
+    }
+    setup()
+    document.addEventListener("nav",setup)
+  })()</script>`
+}
+
+/** @param {string} html @param {any} record */
+function addPaperMasthead(html, record) {
+  const heading = /<h1\b[^>]*>[\s\S]*?<\/h1>/.exec(html)?.[0]
+  if (!heading) throw new TracerError("PAPER_MASTHEAD_INVALID", "generated paper page lacks its primary heading")
+  const frontmatter = record.frontmatter
+  const headingOpen = /^<h1\b[^>]*>/.exec(heading)?.[0] ?? "<h1>"
+  const headingAnchor = /(<a\b[^>]*href="#[^"]*"[^>]*>[\s\S]*?<\/a>)\s*<\/h1>$/.exec(heading)?.[1] ?? ""
+  const fullHeading = `${headingOpen}${htmlText(frontmatter.title ?? record.node.public_id)}${headingAnchor}</h1>`
+  const authors = Array.isArray(frontmatter.authors) ? frontmatter.authors.map(htmlText).join(", ") : ""
+  const year = frontmatter.year ? htmlText(frontmatter.year) : ""
+  const venue = frontmatter.venue ? htmlText(frontmatter.venue) : ""
+  const doi = typeof frontmatter.doi === "string" ? frontmatter.doi : ""
+  const tags = [...new Set([...(Array.isArray(frontmatter.author_keywords) ? frontmatter.author_keywords : []), ...(Array.isArray(frontmatter.reader_keywords) ? frontmatter.reader_keywords : [])])]
+  const badges = tags.map((tag) => `<span>${htmlText(tag)}</span>`).join("")
+  const doiAction = doi ? `<a href="https://doi.org/${doi.split("/").map(encodeURIComponent).join("/")}" target="_blank" rel="noopener noreferrer">DOI / source</a>` : ""
+  const masthead = `<header class="paper-masthead"><p class="paper-masthead-kicker">Paper note</p><p class="paper-masthead-meta">${htmlText([authors, year].filter(Boolean).join(" · "))}</p>${fullHeading}${venue ? `<p class="paper-masthead-venue">${venue}</p>` : ""}<div class="paper-masthead-actions"><button type="button" data-copy-citation>Copy citation</button>${doiAction}<a href="#public-graph-local-${htmlText(record.node.public_id)}">View in graph</a></div>${badges ? `<div class="paper-masthead-tags">${badges}</div>` : ""}</header>`
+  let normalized = html.replace(heading, masthead).replace(/<body\b[^>]*>/, (body) => `${body}<div class="reading-progress" aria-hidden="true"><span></span></div>`)
+  normalized = addPaperTabs(normalized)
+  normalized = normalized.replace("</body>", `<div class="copy-citation-toast" data-citation-toast role="status" aria-live="polite" hidden>Citation copied.</div>${paperReadingRuntimeScript()}</body>`)
+  return normalized
+}
+
+function homeRuntimeScript() {
+  return `<script data-tracer-extension="t06-home">(()=>{const setup=()=>{const hero=document.querySelector(".home-hero");if(!hero||hero.hasAttribute("data-home-ready"))return;hero.setAttribute("data-home-ready","");for(const button of document.querySelectorAll("[data-home-library-target]"))button.addEventListener("click",()=>document.dispatchEvent(new CustomEvent("tracer:open-library",{detail:{nodeClass:button.dataset.homeLibraryTarget}})));if(!matchMedia("(prefers-reduced-motion: reduce)").matches){const observer=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){entry.target.classList.add("is-visible");observer.unobserve(entry.target)}},{threshold:.12});document.querySelectorAll(".reveal-on-entry").forEach(section=>observer.observe(section))}else document.querySelectorAll(".reveal-on-entry").forEach(section=>section.classList.add("is-visible"))};setup();document.addEventListener("nav",setup)})()</script>`
+}
+
+/** Breadcrumbs are orientation text only. Navigation lives in Library, so
+ * rendering route fragments as links would imply pages that do not exist.
+ * @param {string} route @param {any|null} record @param {Map<string,string>} searchableBodies */
+function plainBreadcrumbMarkup(route, record, searchableBodies) {
+  const routeParts = route.split("/").filter(Boolean)
+  const hierarchy = routeParts.slice(0, -1).map((part) => part.replaceAll("-", " ").replace(/^./, (character) => character.toUpperCase()))
+  const current = record
+    ? record.node.node_class === "paper"
+      ? shortPaperTitle(searchableBodies.get(record.node.public_id) ?? "", String(record.frontmatter.title ?? record.node.public_id))
+      : ["concept", "method", "task"].includes(record.node.node_class)
+        ? String(record.frontmatter.title ?? record.node.public_id).replace(/^./u, (character) => character.toLocaleUpperCase("en-US"))
+        : String(record.frontmatter.title ?? record.node.public_id)
+    : "Home"
+  const labels = route === "/" ? ["Home"] : ["Home", ...hierarchy, current]
+  const items = labels.map((label, index) => `<li${index === labels.length - 1 ? ' aria-current="page"' : ""}>${htmlText(label)}</li>`).join("")
+  return `<nav class="breadcrumb-container" aria-label="Breadcrumb"><ol>${items}</ol></nav>`
+}
+
+const emptyQuartzFolderListing = /<div class="page-listing"><p>0 items under this folder\.<\/p><div><ul class="section-ul"><\/ul><\/div><\/div>/g
+const quartzArticleFooterRule = /<\/article>(<\/div>)?<hr\/><div class="page-footer">/g
+
+/** Replace Quartz breadcrumb navigation before the immutable baseline.
  * @param {string} candidate @param {string} run
- * @param {Map<string,{route:string,frontmatter:Record<string,string|string[]>,node:{public_id:string,node_class:string}}>} records
- * @param {Map<string,Set<string>>} outgoing @param {{entryFile:string,custom404:string}} deploymentFiles */
-async function normalizeBreadcrumbRoutes(candidate, run, records, outgoing, deploymentFiles) {
-  const approved = new Set(["/", ...[...records.values()].map((record) => record.route)])
+ * @param {Map<string,{route:string,frontmatter:Record<string,string|string[]>,node:{public_id:string,node_class:string,path:string}}>} records
+ * @param {Map<string,Set<string>>} outgoing @param {Map<string,string>} searchableBodies
+ * @param {{entryFile:string,custom404:string}} deploymentFiles */
+async function normalizeBreadcrumbRoutes(candidate, run, records, outgoing, searchableBodies, deploymentFiles) {
   const explorerEntries = [...records.values()].map((record) => ({
     publicId: record.node.public_id,
     nodeClass: record.node.node_class,
     route: record.route,
-    label: String(record.frontmatter.title ?? record.node.public_id),
+    label: record.node.node_class === "paper"
+      ? paperHeadingTitle(searchableBodies.get(record.node.public_id) ?? "", String(record.frontmatter.title ?? record.node.public_id))
+      : record.node.node_class === "author"
+        ? path.posix.basename(record.node.path, ".md")
+        : String(record.frontmatter.title ?? record.node.public_id),
   })).sort((left, right) => Buffer.compare(Buffer.from(left.publicId), Buffer.from(right.publicId)))
   for (const file of await listRegularTree(candidate, run)) {
     if (!file.relative.endsWith(".html")) continue
@@ -1009,12 +1281,15 @@ async function normalizeBreadcrumbRoutes(candidate, run, records, outgoing, depl
       backlinks,
     })
     let normalized = html
-    normalized = normalized.replace(/<nav\b(?=[^>]*class="[^"]*breadcrumb-container)[^>]*>[\s\S]*?<\/nav>/gi, (nav) => nav.replace(/href="([^"]*)"/g, (attribute, href) => {
-      if (!href) return attribute
-      let pathname
-      try { pathname = new URL(href, `https://example.invalid${route}`).pathname } catch { return attribute }
-      return approved.has(pathname) ? attribute : `href="${navigation.rootHref}"`
-    }))
+    const breadcrumbPattern = /<nav\b(?=[^>]*class="[^"]*breadcrumb-container)[^>]*>[\s\S]*?<\/nav>/gi
+    const breadcrumbCount = normalized.match(breadcrumbPattern)?.length ?? 0
+    if (breadcrumbCount !== (record ? 1 : 0)) throw new TracerError("CANDIDATE_BREADCRUMB_INVALID", "generated public page has an unexpected breadcrumb seam")
+    if (record) {
+      normalized = normalized.replace(breadcrumbPattern, plainBreadcrumbMarkup(route, record, searchableBodies))
+      const emptyFolderListingCount = normalized.match(emptyQuartzFolderListing)?.length ?? 0
+      if (emptyFolderListingCount !== 1) throw new TracerError("CANDIDATE_FOLDER_LISTING_INVALID", "generated mapped page lacks the exact empty Quartz folder listing")
+      normalized = normalized.replace(emptyQuartzFolderListing, "")
+    }
     const contentIndexFetchSeam = /<script type="application\/javascript" data-persist="true">const fetchData = fetch\("[^"]*static\/contentIndex\.json"\)\.then\(data => data\.json\(\)\)<\/script>/g
     const contentIndexFetchSeams = normalized.match(contentIndexFetchSeam) ?? []
     if (contentIndexFetchSeams.length !== 1) {
@@ -1024,27 +1299,45 @@ async function normalizeBreadcrumbRoutes(candidate, run, records, outgoing, depl
       .replace(/<link rel="preconnect" href="https:\/\/cdnjs\.cloudflare\.com" crossorigin="anonymous"\/>/g, "")
       .replace(contentIndexFetchSeam, navigation.contentIndexScript)
       .replaceAll("https://example.invalid", "")
+    const articleFooterRuleCount = normalized.match(quartzArticleFooterRule)?.length ?? 0
+    if (articleFooterRuleCount !== 1) throw new TracerError("CANDIDATE_ARTICLE_FOOTER_RULE_INVALID", "generated public page lacks the exact Quartz article footer rule")
+    normalized = normalized.replace(quartzArticleFooterRule, (_match, centerClose = "") => `</article>${centerClose}<div class="page-footer">`)
     if (publicPage) {
       const existingExplorerCount = [...normalized.matchAll(/\bclass="([^"]*)"/g)].filter((match) => match[1].split(/\s+/).includes("explorer")).length
       if (existingExplorerCount !== 0 || normalized.includes("public-explorer")) {
         throw new TracerError("CANDIDATE_EXPLORER_INVALID", "generated public page must not retain the disabled vendor Explorer shell")
       }
-      normalized = normalized.replace(/<body\b[^>]*>/, (body) => `${body}${navigation.searchMarkup}`)
+      if (route === "/") {
+        const homeSearchSlot = /<div class="home-search-slot"><\/div>/
+        if (!homeSearchSlot.test(normalized)) throw new TracerError("HOME_COMPOSITION_INVALID", "generated home page lacks its search insertion seam")
+        normalized = normalized.replace(homeSearchSlot, navigation.searchMarkup)
+      }
+      const explorerMarkup = navigation.explorerShellMarkup
       const leftSidebar = '<div class="left sidebar">'
       const leftSidebarCount = normalized.split(leftSidebar).length - 1
       if (leftSidebarCount > 1) throw new TracerError("CANDIDATE_EXPLORER_INVALID", "generated public page has an ambiguous left sidebar seam")
-      if (leftSidebarCount === 1) normalized = normalized.replace(leftSidebar, `${leftSidebar}${navigation.explorerShellMarkup}`)
+      if (leftSidebarCount === 1) normalized = normalized.replace(leftSidebar, `${leftSidebar}${explorerMarkup}`)
       else {
         const quartzBody = '<div id="quartz-body">'
         if (normalized.split(quartzBody).length !== 2) throw new TracerError("CANDIDATE_EXPLORER_INVALID", "generated public page lacks the exact Quartz body insertion seam")
-        normalized = normalized.replace(quartzBody, `${quartzBody}<div class="left sidebar">${navigation.explorerShellMarkup}</div>`)
+        normalized = normalized.replace(quartzBody, `${quartzBody}<div class="left sidebar">${explorerMarkup}</div>`)
       }
-      if (!normalized.includes("class=\"public-search\"")) throw new TracerError("CANDIDATE_SEARCH_INVALID", "generated public page lacks the project-owned search surface")
+      const duplicateHomepage = /<h2 class="page-title"><a href="[^"]*">Psychology Research Notes<\/a><\/h2>/g
+      const duplicateHomepageCount = normalized.match(duplicateHomepage)?.length ?? 0
+      if (duplicateHomepageCount !== 1) throw new TracerError("CANDIDATE_EXPLORER_INVALID", "generated public page must expose exactly one removable vendor homepage link")
+      normalized = normalized.replace(duplicateHomepage, "")
+      const searchCount = [...normalized.matchAll(/\bclass="[^"]*\bpublic-search\b[^"]*"/g)].length
+      if (searchCount !== (route === "/" ? 1 : 0)) throw new TracerError("CANDIDATE_SEARCH_INVALID", "generated public search must appear on the homepage only")
       const explorerCount = [...normalized.matchAll(/\bclass="([^"]*)"/g)].filter((match) => match[1].split(/\s+/).includes("explorer")).length
       if (explorerCount !== 1 || normalized.includes("public-explorer")) throw new TracerError("CANDIDATE_EXPLORER_INVALID", "generated public page must expose exactly one project-owned Explorer")
+      const rightSidebar = '<div class="right sidebar">'
+      const rightSidebarCount = normalized.split(rightSidebar).length - 1
+      if (rightSidebarCount !== 1) throw new TracerError("CANDIDATE_TOC_INVALID", "generated public page lacks the exact right sidebar seam")
+      normalized = normalized.replace(rightSidebar, `${rightSidebar}${navigation.tocBackdropMarkup}`)
     }
     if (record) {
       const template = selectProjectPageTemplate(record.node.node_class === "paper" ? "paper" : "support")
+      if (record.node.node_class === "paper") normalized = addPaperMasthead(normalized, record)
       try {
         normalized = template.render(normalized, navigation)
       } catch (error) {
@@ -1052,11 +1345,13 @@ async function normalizeBreadcrumbRoutes(candidate, run, records, outgoing, depl
         throw error
       }
     } else {
-      const beforeGraph = normalized
-      normalized = normalized.replace("</article>", `${navigation.graphMarkup}</article>`)
-      if (normalized === beforeGraph) throw new TracerError("CANDIDATE_GRAPH_INVALID", "generated public page lacks an article graph surface")
+      const articleEnd = normalized.lastIndexOf("</article>")
+      if (articleEnd < 0) throw new TracerError("CANDIDATE_GRAPH_INVALID", "generated public page lacks an article graph surface")
+      normalized = `${normalized.slice(0, articleEnd)}${navigation.graphMarkup}${navigation.backToTopMarkup}${normalized.slice(articleEnd)}`
       normalized = normalized.replace("</body>", `${navigation.runtimeScripts}</body>`)
+      normalized = normalized.replace("</body>", `${homeRuntimeScript()}</body>`)
     }
+    normalized = openExternalLinksInNewTab(normalized)
     if (normalized !== html) await writeFile(file.absolute, normalized)
   }
 }
@@ -1123,6 +1418,26 @@ async function writePublicDataAssets(/** @type {string} */ candidate, /** @type 
     writeFile(path.join(candidate, "search-index.json"), searchBytes),
     writeFile(path.join(candidate, "static", "contentIndex.json"), searchBytes),
   ])
+}
+
+/** Add the project-owned local fonts to the generated theme before its
+ * immutable baseline is captured. Quartz's SCSS bundler treats font URLs as
+ * module imports, so the URL-bearing rules enter after that compilation step. */
+async function installProjectTypographyAssets(/** @type {string} */ candidate, /** @type {string} */ run) {
+  await assertCandidateRoot(candidate, run)
+  const files = await listRegularTree(candidate, run)
+  const themeStylesheets = files.filter((file) => file.relative.endsWith(".css") && file.bytes.includes(Buffer.from("--tyler-tracer-theme")))
+  if (themeStylesheets.length !== 1) throw new TracerError("PROJECT_TYPOGRAPHY_ASSET_INVALID", "generated output must contain exactly one project theme stylesheet")
+  const targetFontPath = path.join(candidate, "static", "fonts")
+  await mkdir(targetFontPath, { recursive: true })
+  await Promise.all(projectFontAssets.map(async (fontAsset) => {
+    const bytes = await readFile(path.join(projectFontAssetPath, fontAsset))
+    if (sha256(bytes) !== projectFontAssetHashes[fontAsset]) throw new TracerError("PROJECT_TYPOGRAPHY_ASSET_INVALID", "project font asset does not match its pinned official source")
+    await writeFile(path.join(targetFontPath, fontAsset), bytes, { flag: "wx" })
+  }))
+  const fontStyles = await readFile(projectFontStylesPath, "utf8")
+  const themeStylesheet = themeStylesheets[0]
+  await writeFile(themeStylesheet.absolute, `${themeStylesheet.bytes.toString("utf8")}\n${fontStyles}`)
 }
 
 /** @param {Map<string,{route:string}>} records @param {{entryFile:string,custom404:string}} deploymentFiles @param {boolean} [retainCustom404] */
@@ -1205,6 +1520,29 @@ function parseTagAttributes(source) {
     if (name) attributes.push({ name, value })
   }
   return attributes
+}
+
+/** @param {string} tag @param {string} name @param {string} value */
+function setHtmlTagAttribute(tag, name, value) {
+  const attribute = new RegExp(`\\s${name}\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+)`, "i")
+  return attribute.test(tag)
+    ? tag.replace(attribute, ` ${name}="${value}"`)
+    : tag.replace(/>$/, ` ${name}="${value}">`)
+}
+
+/** Keep public-site navigation in the current tab while opening actual
+ * off-site HTTP(S) anchors in a separate, opener-isolated tab.
+ * @param {string} html */
+function openExternalLinksInNewTab(html) {
+  return html.replace(/<a\b[^>]*>/gi, (/** @type {string} */ tag) => {
+    const attributes = new Map(parseTagAttributes(tag.slice(2, -1)).map((attribute) => [attribute.name, attribute.value]))
+    const href = (attributes.get("href") ?? "").trim()
+    if (!/^(?:https?:)?\/\//i.test(href)) return tag
+    const rel = new Set((attributes.get("rel") ?? "").split(/\s+/).filter(Boolean).map((token) => token.toLowerCase()))
+    rel.add("noopener")
+    rel.add("noreferrer")
+    return setHtmlTagAttribute(setHtmlTagAttribute(tag, "target", "_blank"), "rel", [...rel].join(" "))
+  })
 }
 
 /** @param {string} html */
@@ -1412,6 +1750,12 @@ function validateCandidateHtml(html, route, approvedRoutes, expectedAssets) {
     const attributes = new Map(tag.attributes.map((attribute) => [attribute.name, attribute.value]))
     if (tag.attributes.some((attribute) => attribute.name.startsWith("on"))) throw new TracerError("CANDIDATE_EVENT_ATTRIBUTE", "candidate HTML contains an inline event attribute")
     if (tag.name === "meta" && (attributes.get("http-equiv") ?? "").trim().toLowerCase() === "refresh") throw new TracerError("CANDIDATE_META_REFRESH", "candidate HTML contains meta refresh")
+    if (tag.name === "a" && /^(?:https?:)?\/\//i.test((attributes.get("href") ?? "").trim())) {
+      const rel = new Set((attributes.get("rel") ?? "").toLowerCase().split(/\s+/).filter(Boolean))
+      if ((attributes.get("target") ?? "").toLowerCase() !== "_blank" || !rel.has("noopener") || !rel.has("noreferrer")) {
+        throw new TracerError("CANDIDATE_EXTERNAL_LINK_INVALID", "candidate external links must open in an opener-isolated new tab")
+      }
+    }
     for (const { name, value } of tag.attributes) {
       if (name === "style") validateCandidateCss(value, route, approvedRoutes, expectedAssets)
       if (name === "srcset") {
@@ -1659,7 +2003,9 @@ async function repairTocAccessibility(candidate, run) {
         const id = `tracer-toc-${tocIndex++}`
         return relationship
           .replace(/\baria-controls="[^"]+"/, `aria-controls="${id}"`)
+          .replace(/<button\b/, '<button aria-label="Open Table of Contents"')
           .replace(/(<ul\b[^>]*\b)id="[^"]+"/, `$1id="${id}"`)
+          .replace(/<\/button>\s*(<ul\b)/, '</button><h2 class="toc-panel-title">Table of Contents</h2>$1')
       },
     )
     const ids = [...repaired.matchAll(/(?:^|\s)id="([^"]+)"/g)].map((match) => match[1])
@@ -1820,7 +2166,7 @@ async function validatePublicDataStructure(/** @type {Array<{relative:string,byt
   for (let index = 0; index < search.records.length; index += 1) {
     const record = search.records[index]
     const node = graph.nodes[index]
-    if (JSON.stringify(Object.keys(record)) !== JSON.stringify(["public_id", "title", "node_class", "url", "authors", "doi", "source_tags", "search_text"])
+    if (JSON.stringify(Object.keys(record)) !== JSON.stringify(["public_id", "title", "node_class", "url", "authors", "year", "doi", "source_tags", "definition", "search_text"])
       || record.public_id !== node.public_id
       || record.title !== node.title
       || record.node_class !== node.node_class
@@ -1844,10 +2190,15 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
       || /(?:^|\/)(?:runtime|work)(?:[._-][^/]*)?$/i.test(file.relative)) {
       throw new TracerError("CANDIDATE_FORBIDDEN_FILE", "candidate contains a forbidden public file")
     }
-    if (containsZoteroSchemeDisclosure(file.bytes.toString("utf8"))) throw new TracerError("CANDIDATE_UNSAFE_SCHEME", "candidate contains a Zotero local URL disclosure", { file: file.relative })
-    const finding = secretFinding(file.bytes, file.relative, secretRules, privatePaths)
-    if (finding === "absolute-path") throw new TracerError("CANDIDATE_ABSOLUTE_PATH_DISCLOSURE", "candidate contains an absolute local path")
-    if (finding) throw new TracerError("CANDIDATE_SECRET_DISCLOSURE", "candidate contains credential-shaped bytes")
+    const fontAsset = /^static\/fonts\/([^/]+\.woff2)$/.exec(file.relative)?.[1]
+    const pinnedFontHash = fontAsset ? projectFontAssetHashes[fontAsset] : undefined
+    if (fontAsset && (!pinnedFontHash || sha256(file.bytes) !== pinnedFontHash)) throw new TracerError("PROJECT_TYPOGRAPHY_ASSET_INVALID", "candidate font is not an authenticated project asset")
+    if (!pinnedFontHash) {
+      if (containsZoteroSchemeDisclosure(file.bytes.toString("utf8"))) throw new TracerError("CANDIDATE_UNSAFE_SCHEME", "candidate contains a Zotero local URL disclosure", { file: file.relative })
+      const finding = secretFinding(file.bytes, file.relative, secretRules, privatePaths)
+      if (finding === "absolute-path") throw new TracerError("CANDIDATE_ABSOLUTE_PATH_DISCLOSURE", "candidate contains an absolute local path")
+      if (finding) throw new TracerError("CANDIDATE_SECRET_DISCLOSURE", "candidate contains credential-shaped bytes")
+    }
   }
   await validatePublicDataStructure(files)
   const html = files.filter((file) => file.relative.endsWith(".html")).map((file) => file.relative)
@@ -1879,6 +2230,8 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
   const actualManifest = files.map((file) => ({ relative: file.relative, fileClass: "regular-file", sha256: sha256(file.bytes) }))
   if (JSON.stringify(actualManifest) !== JSON.stringify(expectedFinal)) throw new TracerError("CANDIDATE_FILE_MANIFEST_MISMATCH", "candidate files differ from the immutable post-Quartz baseline")
   for (const file of files) {
+    const fontAsset = /^static\/fonts\/([^/]+\.woff2)$/.exec(file.relative)?.[1]
+    if (fontAsset && projectFontAssetHashes[fontAsset] === sha256(file.bytes)) continue
     const text = file.bytes.toString("utf8")
     const forbiddenDisclosure = file.relative.endsWith(".html") ? /\.md\b|\.pdf\b/i.exec(text) : null
     if (forbiddenDisclosure) throw new TracerError("CANDIDATE_FORBIDDEN_DISCLOSURE", "candidate contains forbidden source metadata", { file: file.relative, token: forbiddenDisclosure[0].toLowerCase() })
@@ -1937,11 +2290,7 @@ async function runRendererPipeline(safe) {
       if (!projected) throw new TracerError("UNEXPECTED_GRAPH_STATE", "projected node is missing")
       await writeFile(derivedPath, projected, { flag: "wx" })
     }
-    const homeLinks = [...safe.records.values()]
-      .sort((left, right) => Buffer.compare(Buffer.from(left.node.public_id), Buffer.from(right.node.public_id)))
-      .map((record) => `- [${markdownText(String(record.frontmatter.title ?? record.node.public_id))}](${record.route})`)
-      .join("\n")
-    await writeFile(path.join(content, "index.md"), `---\ntitle: "Tyler-Vault Reading Site"\n---\n\n# Tyler-Vault Reading Site\n\n${homeLinks}\n`, { flag: "wx" })
+    await writeFile(path.join(content, "index.md"), homePageMarkdown(safe.records, safe.outgoing, safe.searchableBodies), { flag: "wx" })
     await Promise.all([
       cp(path.join(safe.installedRoot, "quartz"), path.join(toolchain, "quartz"), { recursive: true, errorOnExist: true, force: false }),
       copyFile(path.join(safe.installedRoot, "package.json"), path.join(toolchain, "package.json"), constants.COPYFILE_EXCL),
@@ -1955,9 +2304,10 @@ async function runRendererPipeline(safe) {
     const executable = path.join(toolchain, "quartz", "bootstrap-cli.mjs")
     const quartz = /** @type {{code:number,logs:string}} */ (await spawnCaptured(executable, ["build", "--directory", content, "--output", candidate, "--concurrency", "1"], toolchain))
     if (quartz.code !== 0) throw new TracerError("QUARTZ_BUILD_FAILED", "pinned Quartz build failed", testHook("TYLER_TRACER_TEST_DEBUG") === "1" ? { logs: quartz.logs } : {})
+    await installProjectTypographyAssets(candidate, run)
     const quartzHtmlCase = testHook("TYLER_TRACER_TEST_QUARTZ_HTML_CASE")
     if (quartzHtmlCase) await injectQuartzHtmlRegression(candidate, run, quartzHtmlCase)
-    await normalizeBreadcrumbRoutes(candidate, run, safe.records, safe.outgoing, safe.deploymentFiles)
+    await normalizeBreadcrumbRoutes(candidate, run, safe.records, safe.outgoing, safe.searchableBodies, safe.deploymentFiles)
     await normalizeCustom404BasePath(candidate, run, safe.deploymentFiles)
     await repairTocAccessibility(candidate, run)
     await installNetworkCsp(candidate, run)
