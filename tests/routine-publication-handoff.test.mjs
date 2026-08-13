@@ -654,6 +654,26 @@ test("multiple exact open mapping PRs fail closed without create or public mutat
   }
 })
 
+test("mapping branch push failures retain the safe mutation uncertainty code", async () => {
+  const fixture = await makeFixture()
+  try {
+    fixture.localGit.createMappingBranch = async () => {
+      throw Object.assign(new Error("redacted adapter failure"), { code: "mapping_push_failed" })
+    }
+    const result = await routinePublicationHandoff(fixture.operation, { provider: fixture.provider, localGit: fixture.localGit })
+    assert.equal(result.status, "needs_attention")
+    assert.equal(result.error_code, "push_uncertain")
+    assert.deepEqual(result.checks.map(({ name, outcome }) => ({ name, outcome })), [
+      { name: "approval", outcome: "pass" },
+      { name: "candidate", outcome: "pass" },
+      { name: "remote_heads", outcome: "pass" },
+      { name: "mapping_branch", outcome: "fail" },
+    ])
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true })
+  }
+})
+
 test("lost mapping PR create response reconciles exactly one newly visible PR", async () => {
   const fixture = await makeFixture()
   try {
