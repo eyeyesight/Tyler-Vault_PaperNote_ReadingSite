@@ -15,6 +15,7 @@ import {
   sha256,
 } from "../lib/content-private-preview.mjs"
 import * as contentPreview from "../lib/content-private-preview.mjs"
+import { parseArgs as parsePrepareArgs } from "../scripts/vault-papernote-prepare.mjs"
 
 test("site presentation exposes a one-argument production seam", async () => {
   assert.equal(typeof contentPreview.prepareSitePrivatePreview, "function")
@@ -27,6 +28,12 @@ test("site presentation exposes a one-argument production seam", async () => {
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const cli = path.join(repoRoot, "scripts", "slim-build.mjs")
 const prepareCli = path.join(repoRoot, "scripts", "vault-papernote-prepare.mjs")
+
+test("prepare defaults keep renderer input outside repository ignore rules", () => {
+  const parsed = parsePrepareArgs(["--vault-root", path.join(os.tmpdir(), "vault")])
+  assert.equal(path.isAbsolute(parsed.workRoot), true)
+  assert.equal(path.relative(repoRoot, parsed.workRoot).startsWith(".."), true)
+})
 
 /** @param {string} title */
 function source(title) {

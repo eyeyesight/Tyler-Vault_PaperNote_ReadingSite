@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // @ts-nocheck -- CLI values are validated and delegated to the bounded controller.
 import path from "node:path"
+import os from "node:os"
 import { fileURLToPath } from "node:url"
 
 import {
@@ -10,7 +11,7 @@ import {
 } from "../lib/content-private-preview.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
-const defaultWorkRoot = path.join(repoRoot, ".artifacts", "content-private-preview")
+const defaultWorkRoot = path.join(os.tmpdir(), "tyler-vault-content-private-preview")
 
 /** @param {string[]} argv */
 export function parseArgs(argv) {
