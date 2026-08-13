@@ -184,6 +184,35 @@ test("public Pages smoke failure restores the LKG without reusing failed candida
   assert.equal(qaCalls, 0)
 })
 
+test("publication handoff stable failures retain their exact terminal code", async () => {
+  const result = await runSitePublication(operation(), {}, {
+    publish: async () => ({
+      version: 1,
+      operation_id: OPERATION_ID,
+      status: "needs_attention",
+      checks: [
+        { name: "approval", outcome: "pass" },
+        { name: "candidate", outcome: "pass" },
+        { name: "remote_heads", outcome: "pass" },
+        { name: "mapping_pr", outcome: "fail" },
+      ],
+      error_code: "pr_failed",
+      next_action: "request_manual_review",
+      identifiers: {},
+    }),
+    qa: async () => assert.fail("pre-deployment failures must not run live QA"),
+    lkg: {
+      readCurrent: async () => assert.fail("pre-deployment failures must not read LKG"),
+      record: async () => assert.fail("pre-deployment failures must not replace LKG"),
+    },
+  })
+
+  assert.equal(result.status, "needs_attention")
+  assert.equal(result.error_code, "PR_FAILED")
+  assert.equal(result.next_action, "request_manual_review")
+  assert.deepEqual(result.checks.at(-1), { name: "mapping_pr", outcome: "fail" })
+})
+
 test("default production rollback restores the exact LKG and deploys it through existing seams", async () => {
   const calls = []
   const failedCommit = "8".repeat(40)
