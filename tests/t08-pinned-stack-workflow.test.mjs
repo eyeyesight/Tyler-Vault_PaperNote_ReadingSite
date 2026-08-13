@@ -105,3 +105,17 @@ test("No shell step interpolates caller-controlled input or a synthetic merge re
     assert.doesNotMatch(step.run, /\$\{\{\s*(?:inputs\.|github\.ref\b|github\.event\.pull_request\.(?:head|base|merge_commit_sha))/)
   }
 })
+
+test("T08 uses a bounded publication acceptance suite instead of the repository-wide test scan", () => {
+  const acceptance = stepNamed("Run the bounded publication and headless browser acceptance suite")
+  const command = runText(acceptance).trim()
+  assert.equal(command, [
+    "node --test --test-concurrency=1",
+    "tests/routine-publication-adapter.test.mjs",
+    "tests/routine-publication-handoff.test.mjs",
+    "tests/t13-exact-publication-controller.test.mjs",
+    "tests/vault-papernote-publish-cli.test.mjs",
+    "tests/site-headless-qa.test.mjs",
+  ].join(" "))
+  assert.doesNotMatch(command, /\bnpm test\b|node --test(?:\s+--test-concurrency=1)?\s*$/)
+})
