@@ -26,7 +26,7 @@ test("site presentation exposes a one-argument production seam", async () => {
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const cli = path.join(repoRoot, "scripts", "slim-build.mjs")
-const publishCli = path.join(repoRoot, "scripts", "vault-papernote-publish.mjs")
+const prepareCli = path.join(repoRoot, "scripts", "vault-papernote-prepare.mjs")
 
 /** @param {string} title */
 function source(title) {
@@ -71,7 +71,7 @@ test("content map snapshot preflight accepts a non-nine page proposal through th
 
 const mappedPages = parseYaml(await readFile(path.join(repoRoot, "site-content.yml"), "utf8")).pages
 
-test("publish CLI starts a real temporary Git/Vault fixture without an operation id", async () => {
+test("prepare CLI starts a real temporary Git/Vault fixture without an operation id", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-publish-cli-red-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
@@ -81,7 +81,7 @@ test("publish CLI starts a real temporary Git/Vault fixture without an operation
     await populateVault({ root, vault }, true)
     const refs = await makeFixture(root, map, vault, true)
     const result = spawnSync(process.execPath, [
-      publishCli,
+      prepareCli,
       "--vault-root", vault,
       "--git-root", refs.repo,
       "--main-ref", "refs/heads/main",
@@ -97,7 +97,7 @@ test("publish CLI starts a real temporary Git/Vault fixture without an operation
     assert.equal(result.stdout.trim().split(/\r?\n/u).length, 1)
     for (const mainRef of ["refs/heads/main~1", "refs/heads/main^", "refs/heads/main:site-content.yml"]) {
       const invalidRef = spawnSync(process.execPath, [
-        publishCli,
+        prepareCli,
         "--vault-root", vault,
         "--git-root", refs.repo,
         "--main-ref", mainRef,
@@ -117,12 +117,12 @@ test("publish CLI starts a real temporary Git/Vault fixture without an operation
   }
 })
 
-test("publish CLI rejects unsupported caller authority flags without path leakage", async () => {
+test("prepare CLI rejects unsupported caller authority flags without path leakage", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-publish-flags-"))
   try {
     for (const [flag, value] of [["--content-map", path.join(root, "private-input")], ["--baseline-site", path.join(root, "private-input")], ["--cleanup", "true"]]) {
       const result = spawnSync(process.execPath, [
-        publishCli,
+        prepareCli,
         "--vault-root", path.join(root, "private-vault"),
         flag, path.join(root, "private-input"),
       ], { cwd: repoRoot, encoding: "utf8", timeout: 30_000 })
@@ -384,6 +384,45 @@ test("renderer file dependencies reject outside and untracked targets before res
     } finally {
       await rm(root, { recursive: true, force: true })
     }
+  }
+})
+
+test("content discovery includes direct formal Literature and Knowledge support pages", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-content-direct-support-"))
+  const vault = path.join(root, "vault")
+  const map = path.join(root, "map.yml")
+  await mkdir(vault, { recursive: true })
+  await writeFile(map, await readFile(path.join(repoRoot, "site-content.yml")))
+  await populateVault(
+    { root, vault },
+    true,
+    "Lima et al. 2020 — Neurobehavioural signatures in race car driving.md",
+    [
+      "- [[Literature/Syntheses/Neurophysiological Signatures of Driving Expertise]]",
+      "- [[Literature/Reviews & Maps/Mobile EEG in Real-World Sport and Driving]]",
+      "- [[Knowledge/Concepts/New Concept]]",
+    ].join("\n"),
+  )
+  await put(vault, "Literature/Syntheses/Neurophysiological Signatures of Driving Expertise.md", note("Neurophysiological Signatures of Driving Expertise", "support"))
+  await put(vault, "Literature/Reviews & Maps/Mobile EEG in Real-World Sport and Driving.md", note("Mobile EEG in Real-World Sport and Driving", "support"))
+  const refs = await makeFixture(root, map, vault, true)
+  try {
+    const result = await prepareContentPrivatePreview({
+      vaultRoot: vault,
+      gitRoot: refs.repo,
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      workRoot: path.join(root, "work"),
+    })
+    assert.equal(result.status, "ready_for_review", JSON.stringify(result))
+    assert.deepEqual(result.mapping_identity.additions.map((/** @type {{source:string}} */ { source }) => source), [
+      "Literature/Notes/Lima et al. 2020 — Neurobehavioural signatures in race car driving.md",
+      "Knowledge/Concepts/New Concept.md",
+      "Literature/Reviews & Maps/Mobile EEG in Real-World Sport and Driving.md",
+      "Literature/Syntheses/Neurophysiological Signatures of Driving Expertise.md",
+    ])
+  } finally {
+    await rm(root, { recursive: true, force: true })
   }
 })
 

@@ -299,6 +299,22 @@ function decodeMarkdown(bytes, role) {
 
 const unsupportedRawHtml = /<!--|-->|<(?:[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*|[^<>\s@]+@[^<>\s@]+)>|<\s*\/?\s*[A-Za-z][A-Za-z0-9:-]*(?=[\s/>]|$)[^<>\r\n]*(?:>|$)|<![A-Za-z][^>\r\n]*(?:>|$)|<\?[^>\r\n]*(?:>|$)/i
 
+/** Remove only exact root-line workflow boundaries from the derived public
+ * body. The approved Markdown between each pair remains public; malformed,
+ * mismatched, nested, or arbitrary comments remain for the existing HTML gate
+ * to reject. Source bytes are never changed. @param {string} body */
+function projectIntegrationBoundaries(body) {
+  return body
+    .replace(
+      /^<!-- candidate-integration:start -->\r?\n([\s\S]*?)^<!-- candidate-integration:end -->\r?\n?/gmu,
+      "$1",
+    )
+    .replace(
+      /^<!-- source-contribution:([a-f0-9]{12}):start -->\r?\n([\s\S]*?)^<!-- source-contribution:\1:end -->\r?\n?/gmu,
+      "$2",
+    )
+}
+
 /** @param {string} markdown @param {string} body @param {string} role @param {ReturnType<typeof analyzeMarkdown>} analysis */
 function validateMarkdownSafety(markdown, body, role, analysis) {
   // This intentionally recognizes a narrow accepted Markdown subset rather than
@@ -549,6 +565,30 @@ function suppressedTargetVariants(target) {
   return variants
 }
 
+/** Return only path-bearing forms that must not survive into public output.
+ * The basename is intentionally excluded because it is the safe inert display
+ * for an unlisted target. @param {string} target */
+function suppressedDisclosureVariants(target) {
+  const normalized = target.trim().replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/{2,}/g, "/")
+  if (!normalized.includes("/")) return new Set()
+  const variants = new Set([normalized, normalized.replace(/\.md$/i, "")].filter(Boolean))
+  for (const variant of [...variants]) variants.add(variant.toLowerCase())
+  return variants
+}
+
+/** Render an unlisted target as inert text without disclosing its Vault path.
+ * An explicit author label is retained unless it is itself a target variant;
+ * otherwise the safe basename is derived automatically.
+ * @param {{target:string,display:string,explicit:boolean}} link */
+function unlistedDisplay(link) {
+  const variants = suppressedTargetVariants(link.target)
+  const explicit = link.display.trim().replace(/\\/g, "/")
+  if (link.explicit && explicit && !variants.has(explicit) && !variants.has(explicit.toLowerCase())) {
+    return markdownText(link.display)
+  }
+  return markdownText(path.posix.basename(link.target.trim().replace(/\\/g, "/")).replace(/\.md$/i, ""))
+}
+
 /** @param {Map<string,{node:any,markdown:string,body:string,frontmatter:Record<string,string|string[]>,route:string,analysis:ReturnType<typeof analyzeMarkdown>}>} records */
 function projectContent(records) {
   /** @type {Map<string,string>} */
@@ -599,14 +639,10 @@ function projectContent(records) {
         const value = `[${markdownText(link.display)}](${target.route})`
         replacements.push({ start: link.start, end: link.end, value, searchValue: value })
       } else {
-        const variants = suppressedTargetVariants(link.target)
-        const normalizedDisplay = link.display.trim().replace(/\\/g, "/")
-        if (!link.explicit || !normalizedDisplay || variants.has(normalizedDisplay) || variants.has(normalizedDisplay.toLowerCase())) {
-          throw new TracerError("UNLISTED_DISPLAY_REQUIRED", "an unlisted wikilink requires an explicit non-private display")
-        }
+        const variants = suppressedDisclosureVariants(link.target)
         for (const variant of variants) suppressedTargets.add(variant)
         suppressedTargetKeys.add(aliasKey(link.target))
-        const value = markdownText(link.display)
+        const value = unlistedDisplay(link)
         replacements.push({ start: link.start, end: link.end, value, searchValue: value })
       }
     }
@@ -615,14 +651,10 @@ function projectContent(records) {
     // the source-visible page body.
     for (const link of record.analysis.tokens) {
       if (semanticRanges.has(`${link.start}:${link.end}`) || aliasOwners.has(aliasKey(link.target))) continue
-      const variants = suppressedTargetVariants(link.target)
-      const normalizedDisplay = link.display.trim().replace(/\\/g, "/")
-      if (!link.explicit || !normalizedDisplay || variants.has(normalizedDisplay) || variants.has(normalizedDisplay.toLowerCase())) {
-        throw new TracerError("UNLISTED_DISPLAY_REQUIRED", "an unlisted wikilink requires an explicit non-private display")
-      }
+      const variants = suppressedDisclosureVariants(link.target)
       for (const variant of variants) suppressedTargets.add(variant)
       suppressedTargetKeys.add(aliasKey(link.target))
-      const value = markdownText(link.display)
+      const value = unlistedDisplay(link)
       replacements.push({ start: link.start, end: link.end, value, searchValue: value })
     }
     const orderedReplacements = replacements.sort((left, right) => right.start - left.start)
@@ -1973,6 +2005,7 @@ export {
   decodeMarkdown,
   normalizePaperMasthead,
   parseFrontmatter,
+  projectIntegrationBoundaries,
   projectContent,
   publicContracts,
   readDeploymentSiteFiles,

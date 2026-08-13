@@ -8,6 +8,7 @@ import test from "node:test"
 import { parse as parseYaml } from "yaml"
 
 import { loadSiteContent } from "../lib/slim-content-map.mjs"
+import { parseArgs } from "../scripts/slim-build.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const cli = path.join(repoRoot, "scripts", "slim-build.mjs")
@@ -23,6 +24,13 @@ const approvedPages = mappedPages.map((page) => [page.source, page.route, page.l
 assert.ok(approvedPages.length > 0)
 
 const tracerCsp = "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self' data:; frame-src 'none'; img-src 'self' data:; media-src 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'none'"
+
+test("default work root stays outside repository ignore rules", () => {
+  const options = parseArgs(["build", "--vault-root", path.join(repoRoot, "vault-fixture")])
+  const relativeWork = path.relative(repoRoot, options.workRoot)
+  assert.ok(relativeWork === ".." || relativeWork.startsWith(`..${path.sep}`) || path.isAbsolute(relativeWork))
+  assert.equal(path.relative(repoRoot, options.output).split(path.sep)[0], ".artifacts")
+})
 
 /** @param {"paper"|"support"} layout @returns {MappedPage} */
 function pageForLayout(layout) {
@@ -371,6 +379,63 @@ test("Phase 1 preflight fails closed when a mapped source has malformed frontmat
   }
 })
 
+test("build strips exact integration boundary comments while preserving approved content", async () => {
+  const paths = await fixture()
+  try {
+    const supportPages = mappedPages.filter((page) => page.layout === "support")
+    assert.ok(supportPages.length >= 2)
+    await replaceMappedSource(paths, supportPages[0].source, `${noteFor(90, "support")}\n<!-- candidate-integration:start -->\n\nApproved candidate content.\n\n<!-- candidate-integration:end -->\n`)
+    await replaceMappedSource(paths, supportPages[1].source, `${noteFor(91, "support")}\n<!-- source-contribution:bae7f880ec64:start -->\n\nApproved source contribution.\n\n<!-- source-contribution:bae7f880ec64:end -->\n`)
+
+    const result = invoke(paths, "build")
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const publicText = (await outputTree(paths.output)).map(([, bytes]) => bytes.toString("utf8")).join("\n")
+    assert.match(publicText, /Approved candidate content\./)
+    assert.match(publicText, /Approved source contribution\./)
+    assert.doesNotMatch(publicText, /candidate-integration|source-contribution/)
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
+test("build projects an unlisted wikilink without a manual alias to safe basename text", async () => {
+  const paths = await fixture()
+  try {
+    const support = pageForLayout("support")
+    await replaceMappedSource(paths, support.source, `${noteFor(92, "support")}\nA related private draft is [[Private/Workflow/Hidden Target]].\n`)
+
+    const result = invoke(paths, "build")
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const publicText = (await outputTree(paths.output)).map(([, bytes]) => bytes.toString("utf8")).join("\n")
+    assert.match(publicText, /A related private draft is Hidden Target\./)
+    assert.doesNotMatch(publicText, /Private\/Workflow|\[\[Private\/Workflow\/Hidden Target\]\]/)
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
+test("build still rejects malformed integration markers and arbitrary HTML comments", async () => {
+  const cases = [
+    "<!-- candidate-integration:start -->\n\nApproved content without an end marker.\n",
+    "<!-- source-contribution:bae7f880ec64:start -->\n\nMismatched marker.\n\n<!-- source-contribution:ffffffffffff:end -->\n",
+    "<!-- arbitrary private workflow note -->\n",
+  ]
+  for (const [index, marker] of cases.entries()) {
+    const paths = await fixture()
+    try {
+      const support = pageForLayout("support")
+      await replaceMappedSource(paths, support.source, `${noteFor(100 + index, "support")}\n${marker}`)
+      const result = invoke(paths, "build")
+      assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`)
+      assert.equal(result.stderr, "")
+      assert.equal(JSON.parse(result.stdout).error.code, "SOURCE_ACTIVE_CONTENT_NOT_ALLOWED")
+      assert.equal(await pathExists(paths.output), false)
+    } finally {
+      await rm(paths.root, { recursive: true, force: true })
+    }
+  }
+})
+
 test("Phase 5 map preflight reads injected map bytes exactly once and hashes those exact bytes", async () => {
   const paths = await fixture()
   const mapBytes = await readFile(path.join(repoRoot, "site-content.yml"))
@@ -429,7 +494,7 @@ test("Phase 5 slim-build rejects malformed content-map structure before Vault ad
   }
 })
 
-test("Phase 1 build renders all nine mapped routes and keeps workflow metadata private", async () => {
+test("build renders every mapped route and keeps workflow metadata private", async () => {
   const paths = await fixture()
   try {
     const before = await mappedSourceBytes(paths)

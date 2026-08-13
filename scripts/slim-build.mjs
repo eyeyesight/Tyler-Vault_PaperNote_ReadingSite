@@ -3,12 +3,13 @@ import { createHash } from "node:crypto"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { copyFile, lstat, mkdir, readFile, rm } from "node:fs/promises"
+import os from "node:os"
 
 import { loadSiteContent, SiteContentError } from "../lib/slim-content-map.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const defaultMap = path.join(repoRoot, "site-content.yml")
-const defaultWorkRoot = path.join(repoRoot, ".artifacts", "slim-work")
+const defaultWorkRoot = path.join(os.tmpdir(), "tyler-vault-reading-site", String(process.pid), "slim-work")
 const defaultOutput = path.join(repoRoot, ".artifacts", "slim-site")
 const projectOwnedTheme = path.join(repoRoot, "styles", "tracer-scholarly.scss")
 
@@ -90,6 +91,7 @@ async function buildWithLocalRenderer(options, content) {
     analyzeMarkdown,
     decodeMarkdown,
     parseFrontmatter,
+    projectIntegrationBoundaries,
     projectContent,
     publicContracts,
     readDeploymentSiteFiles,
@@ -112,8 +114,9 @@ async function buildWithLocalRenderer(options, content) {
       const bytes = await readFile(page.sourceAbsolute)
       const markdown = decodeMarkdown(bytes, page.source)
       const parsed = parseFrontmatter(markdown)
-      const analysis = analyzeMarkdown(parsed.body)
-      validateMarkdownSafety(markdown, parsed.body, page.source, analysis)
+      const publicBody = projectIntegrationBoundaries(parsed.body)
+      const analysis = analyzeMarkdown(publicBody)
+      validateMarkdownSafety(markdown, publicBody, page.source, analysis)
       if (layout === "paper" && (parsed.data.type !== "literature-note" || parsed.data.status !== "integrated")) {
         throw new SlimBuildError("PAPER_FRONTMATTER_INVALID", "paper source requires type: literature-note and status: integrated")
       }
@@ -143,7 +146,7 @@ async function buildWithLocalRenderer(options, content) {
         },
         bytes,
         markdown,
-        body: parsed.body,
+        body: publicBody,
         frontmatter: projectedFrontmatter,
         route: page.route,
         mtimeMs: snapshotMetadata.mtimeMs,

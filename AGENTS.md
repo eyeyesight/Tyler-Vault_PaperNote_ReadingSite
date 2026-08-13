@@ -1,44 +1,67 @@
 # Tyler-Vault Reading Site Agent Rules
 
-## Product boundary
+## 目標
 
-- Tyler-Vault on Google Drive is the canonical Markdown source of truth and is always read-only to this repository.
-- `site-content.yml` is the only tracked inclusion and route authority for the slim site. Its current nine `source` / `route` / `layout` mappings are a verified baseline, not a permanent cardinality. Routine publication may prepare one bounded private proposal for eligible new pages, but the build must never read directly from discovery or infer routes from titles.
-- The proposal is frozen as one exact immutable map snapshot before preflight/build; preflight, build, preview, the mapping-only change, and approval consume those exact bytes. Existing mappings/routes are never rewritten or removed; route removal stops for manual review.
-- Bounded proposal generation is deterministic, reads only approved bounded Vault inputs, follows at most one Knowledge hop where applicable, uses no LLM, and never writes to the Vault; every repository build remains read-only to the Vault.
-- `scripts/slim-build.mjs` snapshots only mapped Markdown, applies the public metadata projection, and generates the mapped public site without writing to the Vault.
-- Never write HTML, CSS, JavaScript, JSON, deployment files, ZIPs, mirrors, or runtime state into Tyler-Vault.
-- Public output excludes workflow-only metadata, private identifiers, Zotero-local values, PDFs, credentials, local paths, drafts, queues, logs, and unlisted nodes.
+優先讓一般使用者能從Telegram完整操作PaperNote流程：
 
-## Active engineering seam
+1. `process`產生候選。
+2. decision reply建立pending plan。
+3. `integrate`正式寫入Vault。
+4. `publish`生成網站、部署、live QA並保存LKG。
+5. `zotero`同步managed annotations。
 
-- Build and preflight: `npm run slim:preflight -- --vault-root <path>` and `npm run slim:build -- --vault-root <path>`.
-- Local gh-pages handoff: `npm run gh-pages:prepare -- --built-site <path> --baseline-site <path> --output <path>`.
-- Deployment handoff: `.github/workflows/deploy-pages.yml` is manual-only and accepts the exact `site_commit` input. It checks out that commit from gh-pages, verifies the site shape, and uploads the exact `candidate/site` tree.
-- Keep the slim path as one build and one exact-commit handoff. Do not restore a parallel approval, receipt, digest, custody, or release layer.
-- T13-01 changes governance prose only. Remaining fixed-nine code/test seams in `lib/slim-content-map.mjs`, `scripts/prepare-gh-pages-commit.mjs`, `tests/slim-build.test.mjs`, and `tests/prepare-gh-pages-commit.test.mjs` are owned by T03 (T13-03); do not migrate them in this ticket.
-- Make deterministic, minimal changes; fail closed on ambiguous mappings, unsafe source paths, private output, missing routes, and invalid handoff roots.
+先確保這些journeys能實際完成，再處理廣泛hardening、release ceremony或非阻塞重構。
 
-## Verification
+## 產品邊界
 
-Use the public seams and run the relevant checks after changes:
+- Tyler-Vault Markdown是正式研究內容來源。
+- Repository build對Vault保持read-only；只有核准的integration workflow可寫入Vault。
+- `site-content.yml`記錄公開source、route與layout。頁面數量是data-driven，沒有固定上限。
+- 正式Literature notes、Syntheses、Reviews & Maps及直接連結的Knowledge support pages可進入publication。
+- 未公開wikilink應投影為安全文字，不要求作者為每個link補manual alias。
+- 合法workflow boundaries與Zotero managed metadata應在public projection中自動剝除。
+
+## 必要護欄
+
+保留以下限制：
+
+- credentials、tokens、private keys與local paths不得進入公開輸出或logs；
+- scripts、unsafe URL schemes、attachment embeds及真正active HTML不得公開；
+- source、work、output與deployment roots不得危險重疊；
+- GitHub／Pages權限與公開mutation必須使用已授權credentials；
+- duplicate publish不得建立第二個operation或第二個Site child；
+- Windows只能終止本workflow擁有的process tree；
+- build與deployment失敗不得回寫或破壞Vault。
+
+其他格式或工程限制若能安全自動推導、提供default或在projection處理，就不應要求使用者手動修正。
+
+## 修改原則
+
+- 修改authoritative source，不直接patch generated HTML。
+- 優先補足真實user journey，而不是新增parallel framework。
+- 使用最小、可回復的變更；非阻塞問題列為hardening debt。
+- 不把private preview、dependency install、Git push或metadata preparation稱為publication成功。
+- README與一般文件以安裝、操作、結果與故障處理為主；內部ticket與歷史設計不應主導產品說明。
+
+## 最小驗收
+
+依變更範圍執行：
 
 ```bash
 npm run typecheck
 npm run test:slim
-npm run test:gh-pages
-node --test tests/security-stack.test.mjs
-npm test
+npm run test:gh-pages   # 修改Pages preparation或workflow時
 node --check scripts/slim-build.mjs
-node --check scripts/prepare-gh-pages-commit.mjs
-node --check scripts/tracer.mjs
 git diff --check
 ```
 
-Do not deploy, create GitHub remotes, change Vault commands, or change cron jobs without explicit Tyler approval. Do not write to Vault/Drive, gh-pages, or another worktree from this repository task.
+功能完成需另外驗證相關Telegram journey與真實本機build。只有涉及廣泛cross-cutting、release或security stack變更時，才將完整suite視為必要blocker。
 
-## Repository documentation
+## 禁止事項
 
-- Read [`CONTEXT.md`](CONTEXT.md) for the current product vocabulary and fixed boundaries.
-- Read [`docs/quartz-toolchain.md`](docs/quartz-toolchain.md) for the pinned Quartz installation and build facts.
-- `docs/agents/domain.md` and `docs/agents/issue-tracker.md` describe repository-agent mechanics; they are not product authorities.
+- 不把HTML、CSS、JavaScript、JSON、logs、ZIP或runtime state寫進Tyler-Vault。
+- 不在文件、stdout、stderr或Telegram輸出credentials；一律顯示`[REDACTED]`。
+- 未經授權不改GitHub visibility、credentials、Pages設定或其他不可逆公開權限。
+- 不以固定頁數、manual alias、非必要frontmatter或內部驗收格式阻塞正常已核准內容。
+
+使用方式見 [`README.md`](README.md)，資料流見 [`CONTEXT.md`](CONTEXT.md)，renderer操作見 [`docs/quartz-toolchain.md`](docs/quartz-toolchain.md)。

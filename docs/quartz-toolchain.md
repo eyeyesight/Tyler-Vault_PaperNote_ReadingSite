@@ -1,28 +1,36 @@
-# Pinned Quartz toolchain
+# Quartz Toolchain
 
-Quartz is the renderer used by the active slim build. The project wrapper owns the content map, public projection, templates/theme, privacy checks, and local gh-pages handoff; Quartz remains an implementation dependency rather than a second command surface.
+Quartz是Reading Site的HTML renderer。一般使用者透過Telegram發布，不需要直接操作Quartz；本文件供修改theme、template或renderer的開發者使用。
 
-## Pin and installation
+## 需求
 
-- `package.json` pins Quartz to the GitHub tarball for commit `507ad7f3d4601d83482f61930fccf1c77f42a072` (`5.0.0`).
-- `package-lock.json` records the tarball integrity and the complete dependency graph. Use `npm ci` for a reproducible install; do not replace the lockfile with a floating Quartz install.
-- The required runtime is Node.js 22 or newer with npm 10.9.2 or newer.
-- `config/quartz-toolchain.json` records the pinned default icon SHA-256 and complete installed Quartz / Quartz Community tree fingerprints for the supported platforms. The active renderer checks those bytes before materializing or running Quartz.
-- The temporary Sharp and brace-expansion compatibility decision is documented separately in [`docs/adr/0003-temporary-pinned-stack-bridge.md`](adr/0003-temporary-pinned-stack-bridge.md). It is dependency evidence, not a site-content or deployment authority.
+- Node.js 22或更新版本。
+- npm 10.9.2或更新版本。
+- 一份可讀取的Tyler-Vault本機工作副本。
 
-## Active build commands
+## 安裝
 
-Run from the repository root. The canonical source root must be supplied through `TYLER_VAULT_ROOT` or `--vault-root`; the wrapper rejects a missing root and rejects overlap between Vault, work, snapshot, and output paths.
+從repository root執行：
 
 ```bash
 npm ci
-npm run slim:preflight -- --vault-root 'C:/absolute/canonical-vault'
-npm run slim:build -- --vault-root 'C:/absolute/canonical-vault'
 ```
 
-`slim-build.mjs` reads the exact tracked `site-content.yml`, snapshots its nine mapped Markdown files into temporary work space, calls the pinned Quartz renderer through the active renderer helper, applies the project-owned paper/support templates and theme, writes the local generated output, and removes the temporary snapshot. It must not write to the canonical Vault.
+`package.json`與`package-lock.json`已固定Quartz及其他dependencies。請使用`npm ci`，不要改成floating Quartz版本。
 
-The local exact-commit handoff is a separate wrapper:
+## 本機preflight與build
+
+```bash
+npm run slim:preflight -- --vault-root 'C:/absolute/Tyler-Vault'
+npm run slim:build -- --vault-root 'C:/absolute/Tyler-Vault'
+```
+
+- `slim:preflight`確認content map中的source可讀，並列出將生成的routes。
+- `slim:build`建立公開projection並生成本機網站。
+- Vault只會被讀取；snapshot、work與output位於repository artifacts或temporary directories。
+- 公開頁數由`site-content.yml`決定，沒有固定數量。
+
+若要檢查GitHub Pages將收到的檔案，可建立本機preview：
 
 ```bash
 npm run gh-pages:prepare -- \
@@ -31,20 +39,38 @@ npm run gh-pages:prepare -- \
   --output '.artifacts/gh-pages-preview'
 ```
 
-It requires ordinary, disjoint built/baseline/output directories, checks every mapped route plus `404.html`, rejects private or hidden public files, copies a fresh local `site/` tree, adds an empty `.nojekyll`, and reports the byte/file diff. It does not contact GitHub or mutate the baseline.
+這只產生本機preview與檔案差異，不會push或deploy。
 
-## Verification commands
+## 修改後的最小檢查
 
 ```bash
 npm run typecheck
 npm run test:slim
-npm run test:gh-pages
-node --test tests/security-stack.test.mjs
-npm test
-node --check scripts/slim-build.mjs
-node --check scripts/prepare-gh-pages-commit.mjs
-node --check scripts/tracer.mjs
 git diff --check
 ```
 
-The Pages workflow is [`../.github/workflows/deploy-pages.yml`](../.github/workflows/deploy-pages.yml). It accepts only the exact `site_commit`, checks out that commit, verifies the gh-pages ancestry and required site files, and uploads `candidate/site` without rebuilding.
+若修改GitHub Pages preparation或workflow，再加跑：
+
+```bash
+npm run test:gh-pages
+```
+
+完整test suite可在release或廣泛cross-cutting變更時執行；單純content、template或projection修正先以相關journey test與本機build為準。
+
+## 常見問題
+
+### Package tree不一致
+
+刪除自行修改的dependency狀態後重新執行`npm ci`。不要手動patch`node_modules`。
+
+### 找不到Vault
+
+使用完整的`--vault-root`路徑，並確認工作副本已同步。Build不會自動從Google Drive下載內容。
+
+### SOURCE_ACTIVE_CONTENT_NOT_ALLOWED
+
+先確認source是否真的含script、iframe、event handler、unsafe raw HTML或不應公開的annotation metadata。合法integration boundaries與Zotero managed blocks應由public projection清除，不需作者手動刪除。
+
+### Build成功但網站未更新
+
+本機build不會部署。日常正式發布請用Telegram的`/vault_papernote_publish`，並以terminal result與live QA結果判定成功。

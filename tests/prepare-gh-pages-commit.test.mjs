@@ -162,7 +162,7 @@ test("local handoff copies the generated site, adds empty .nojekyll, and reports
       ok: true,
       command: "prepare-gh-pages-commit",
       previewRoot: path.join(paths.output, "site"),
-      routeProof: { count: 10, routes: expectedProof, missing: [] },
+      routeProof: { count: expectedProof.length, routes: expectedProof, missing: [] },
       routeDiff: {
         added: [],
         deleted: [],
