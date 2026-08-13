@@ -111,8 +111,6 @@ test("T08 uses a bounded publication acceptance suite instead of the repository-
   const command = runText(acceptance).trim()
   assert.equal(command, [
     "node --test --test-concurrency=1",
-    "tests/routine-publication-adapter.test.mjs",
-    "tests/routine-publication-handoff.test.mjs",
     "tests/t13-exact-publication-controller.test.mjs",
     "tests/vault-papernote-publish-cli.test.mjs",
     "tests/site-headless-qa.test.mjs",

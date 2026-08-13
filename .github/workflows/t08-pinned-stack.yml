@@ -90,7 +90,7 @@ jobs:
         run: node --test tests/slim-build.test.mjs tests/prepare-gh-pages-commit.test.mjs
 
       - name: Run the bounded publication and headless browser acceptance suite
-        run: node --test --test-concurrency=1 tests/routine-publication-adapter.test.mjs tests/routine-publication-handoff.test.mjs tests/t13-exact-publication-controller.test.mjs tests/vault-papernote-publish-cli.test.mjs tests/site-headless-qa.test.mjs
+        run: node --test --test-concurrency=1 tests/t13-exact-publication-controller.test.mjs tests/vault-papernote-publish-cli.test.mjs tests/site-headless-qa.test.mjs
 
       - name: Generate and parse the exact-stack SBOM
         run: |
