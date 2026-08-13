@@ -69,7 +69,7 @@ async function outputTree(root) {
 function noteFor(index, layout) {
   const title = `Approved Node ${index}`
   if (layout === "paper") return `---
-title: ${title}
+title: The Full Approved Publication ${index}
 type: literature-note
 status: integrated
 authors:
@@ -88,11 +88,17 @@ model: PHASE1_WORKFLOW_SENTINEL
 zotero_uri: zotero://select/library/items/PRIVATE123
 ---
 
-# ${title}
+# Synthetic Author 2024 — ${title}
 
 ## One-sentence Takeaway
 
 A synthetic approved paper.
+
+[External research source](https://example.org/research-source)
+
+| Term | Source Definition | Boundary or Distinction |
+| --- | --- | --- |
+| Synthetic construct | A complete definition for responsive reading. | A useful distinction from adjacent constructs. |
 
 ## Citation
 
@@ -101,6 +107,40 @@ Synthetic citation.
 ## Research Question
 
 What does the bounded Phase 1 build preserve?
+
+## Method
+
+### Design or Approach
+
+Synthetic method details.
+
+## Main Results
+
+### Result Index
+
+Synthetic results.
+
+## Authors' Discussion
+
+### Conclusions
+
+Synthetic discussion.
+
+## Missing or Unclear Information
+
+Synthetic uncertainty.
+
+## Critical Appraisal
+
+### Strengths
+
+Synthetic appraisal.
+
+## Relevance to My Research
+
+### Claims Supported
+
+Synthetic relevance.
 
 ## Connections
 
@@ -116,6 +156,10 @@ reading_status: PHASE1_WORKFLOW_SENTINEL
 # ${title}
 
 A synthetic support node.
+
+## Definition
+
+A synthetic public definition for ${title}.
 `
 }
 
@@ -126,10 +170,16 @@ async function fixture() {
   const work = path.join(root, "work")
   const output = path.join(root, "output")
   await Promise.all([mkdir(vault), mkdir(work)])
-  for (const [index, [source, , layout]] of approvedPages.entries()) {
+  for (const [index, [source, route, layout]] of approvedPages.entries()) {
     const absolute = path.join(vault, ...source.split("/"))
     await mkdir(path.dirname(absolute), { recursive: true })
-    await writeFile(absolute, noteFor(index, layout))
+    const note = noteFor(index, layout)
+    const navigationCapitalizationFixture = /^\/knowledge\/(?:concept|method|task)\//.test(route)
+      ? note.replaceAll(`Approved Node ${index}`, `approved Node ${index}`)
+      : /^\/knowledge\/author\//.test(route)
+        ? note.replaceAll(`Approved Node ${index}`, "patricia c. jackman")
+      : note
+    await writeFile(absolute, navigationCapitalizationFixture)
   }
   return { root, vault, work, output }
 }
@@ -540,7 +590,7 @@ test("build renders every mapped route and keeps workflow metadata private", asy
     assert.match(publicText, /data-tracer-template="support"/)
 
     const graph = /** @type {{schema_version:number,nodes:Array<{public_id:string,url:string}>,edges:Array<{source:string,target:string}>}} */ (JSON.parse(await readFile(path.join(paths.output, "graph.json"), "utf8")))
-    const search = /** @type {{schema_version:number,records:Array<{public_id:string,title:string,node_class:string,url:string,authors:string[],doi:string|null,source_tags:string[],search_text:string}>}} */ (JSON.parse(await readFile(path.join(paths.output, "search-index.json"), "utf8")))
+    const search = /** @type {{schema_version:number,records:Array<{public_id:string,title:string,node_class:string,url:string,authors:string[],year:string|null,doi:string|null,source_tags:string[],definition:string|null,search_text:string}>}} */ (JSON.parse(await readFile(path.join(paths.output, "search-index.json"), "utf8")))
     const contentIndex = /** @type {typeof search} */ (JSON.parse(await readFile(path.join(paths.output, "static", "contentIndex.json"), "utf8")))
     assert.deepEqual(Object.keys(graph), ["schema_version", "nodes", "edges"])
     assert.equal(graph.schema_version, 1)
@@ -554,27 +604,91 @@ test("build renders every mapped route and keeps workflow metadata private", asy
     assert.equal(search.records.length, graph.nodes.length)
     assert.deepEqual(search.records.map((record) => record.public_id), graph.nodes.map((node) => node.public_id))
     for (const record of search.records) {
-      assert.deepEqual(Object.keys(record), ["public_id", "title", "node_class", "url", "authors", "doi", "source_tags", "search_text"])
+      assert.deepEqual(Object.keys(record), ["public_id", "title", "node_class", "url", "authors", "year", "doi", "source_tags", "definition", "search_text"])
       assert.equal(Object.hasOwn(record, "slug"), false)
       assert.equal(Object.hasOwn(record, "content"), false)
+      if (["concept", "method", "task"].includes(record.node_class)) {
+        assert.match(record.title, /^Approved Node /, `${record.url}: search result title starts with uppercase`)
+        assert.match(record.definition ?? "", /^A synthetic public definition for approved Node /, `${record.url}: inspector receives the public Definition section`)
+      } else if (record.node_class === "author") {
+        assert.equal(record.title, "Patricia C. Jackman", `${record.url}: search result uses the canonical author name`)
+      }
     }
     assert.deepEqual(contentIndex, search)
 
     /** @param {string} html @param {string} token @returns {number} */
     const classTokenCount = (html, token) => [...html.matchAll(/\bclass="([^"]*)"/g)].filter((match) => match[1].split(/\s+/).includes(token)).length
     const css = tree.filter(([relative]) => relative.endsWith(".css")).map(([, bytes]) => bytes.toString("utf8")).join("\n")
+    const themeSource = await readFile(path.join(repoRoot, "styles", "tracer-scholarly.scss"), "utf8")
     assert.match(css, /--tyler-tracer-theme\s*:\s*warm/)
-    for (const [, route, layout] of approvedPages) {
+    const fontAssets = [
+      "newsreader-variable.woff2",
+      "newsreader-italic-variable.woff2",
+      "source-sans-3-variable.woff2",
+      "source-sans-3-italic-variable.woff2",
+    ]
+    for (const fontAsset of fontAssets) {
+      const renderedFont = tree.find(([relative]) => relative === `static/fonts/${fontAsset}`)?.[1]
+      assert.ok(renderedFont, `${fontAsset}: self-hosted font is present in the public output`)
+      assert.deepEqual(renderedFont, await readFile(path.join(repoRoot, "assets", "fonts", fontAsset)), `${fontAsset}: public font bytes match the project asset`)
+      assert.match(css, new RegExp(`static/fonts/${fontAsset.replaceAll(".", "\\.")}`), `${fontAsset}: stylesheet references the self-hosted font`)
+    }
+    assert.match(themeSource, /--font-editorial:\s*"Newsreader",\s*"Noto Serif TC",\s*Georgia,\s*ui-serif,\s*serif/, "editorial stack preserves the existing CJK serif fallback")
+    assert.match(themeSource, /--font-interface:\s*"Source Sans 3",\s*system-ui,\s*-apple-system,\s*"Segoe UI",\s*sans-serif/, "interface stack preserves the existing system fallback")
+    assert.match(themeSource, /\.page-title,[\s\S]*?font-family:\s*var\(--font-editorial\)/, "page title uses the editorial role")
+    assert.match(themeSource, /\.public-graph :is\(h1, h2, h3, h4, h5, h6\)[\s\S]*?font-family:\s*var\(--font-interface\)/, "graph headings remain interface typography")
+    assert.doesNotMatch(css, /fonts\.(?:googleapis|gstatic)\.com/i, "typography does not depend on a remote font service")
+    for (const [pageIndex, [, route, layout]] of approvedPages.entries()) {
       const html = await readFile(path.join(paths.output, ...route.slice(1).split("/"), "index.html"), "utf8")
       assert.equal((html.match(/<meta http-equiv="Content-Security-Policy"/g) ?? []).length, 1, route)
       assert.ok(html.includes(`content="${tracerCsp}"`), route)
       assert.match(html, new RegExp(`<body\\b[^>]*data-tracer-template="${layout}"`))
       assert.equal(classTokenCount(html, "explorer"), 1, `${route}: Explorer surface`)
-      assert.equal(classTokenCount(html, "public-search"), 1, `${route}: Search surface`)
+      assert.equal(classTokenCount(html, "library-backdrop"), 1, `${route}: Library backdrop`)
+      assert.equal(classTokenCount(html, "library-menu-icon"), 1, `${route}: Library menu icon`)
+      assert.equal(classTokenCount(html, "library-toggle"), 1, `${route}: all-viewport Library toggle`)
+      assert.match(html, /<svg class="library-menu-icon"/, `${route}: animated SVG menu icon`)
+      const externalAnchors = [...html.matchAll(/<a\b[^>]*href="https?:\/\/[^\"]+"[^>]*>/gi)].map((match) => match[0])
+      for (const anchor of externalAnchors) {
+        assert.match(anchor, /\btarget="_blank"/, `${route}: external link opens in a new tab`)
+        const rel = /\brel="([^"]*)"/.exec(anchor)?.[1].split(/\s+/) ?? []
+        assert.ok(rel.includes("noopener") && rel.includes("noreferrer"), `${route}: external new tab is opener-isolated`)
+      }
+      assert.equal(classTokenCount(html, "public-search"), 0, `${route}: Search remains homepage-only`)
       assert.equal(classTokenCount(html, "public-graph"), 1, `${route}: Graph surface`)
+      assert.equal(classTokenCount(html, "back-to-top"), 1, `${route}: Back-to-top control`)
+      assert.equal(classTokenCount(html, "back-to-top-row"), 1, `${route}: Back-to-top flow row`)
+      assert.equal(classTokenCount(html, "page-listing"), 0, `${route}: empty Quartz folder listing removed`)
+      assert.doesNotMatch(html, /0 items under this folder\./, `${route}: empty folder count removed`)
+      assert.doesNotMatch(html, /<\/article>(?:<\/div>)?<hr\/><div class="page-footer">/, `${route}: Knowledge Map has no trailing Quartz rule`)
+      assert.match(html, /data-back-to-top aria-label="Back to top"/, `${route}: accessible Back-to-top control`)
+      assert.ok(html.indexOf('class="public-graph"') < html.indexOf('class="back-to-top-row"'), `${route}: Back to top sits below Knowledge Map`)
       assert.equal((html.match(/data-tracer-extension="t05-search"/g) ?? []).length, 1, `${route}: Search runtime`)
       assert.equal((html.match(/data-tracer-extension="t05-graph"/g) ?? []).length, 1, `${route}: Graph runtime`)
+      assert.equal((html.match(/data-tracer-extension="t06-adaptive"/g) ?? []).length, 1, `${route}: adaptive table and fixed-navigation runtime`)
+      assert.match(html, /responsive-card-table/, `${route}: mobile table-card enhancement`)
+      assert.match(html, /min-width: 120rem/, `${route}: persistent navigation threshold`)
       assert.match(html, /class="backlinks" data-public-backlinks/)
+      assert.match(html, /class="public-home-link"[^>]*>Homepage<\/a>/, `${route}: Homepage navigation`)
+      assert.match(html, /aria-label="Open Library"/, `${route}: accessible Library trigger`)
+      assert.equal(classTokenCount(html, "toc-backdrop"), 1, `${route}: all-viewport ToC backdrop`)
+      assert.equal(classTokenCount(html, "toc-panel-title"), 1, `${route}: symmetric Table of Contents title`)
+      assert.match(html, /<h2 class="toc-panel-title">Table of Contents<\/h2>/, `${route}: full ToC heading`)
+      assert.match(html, /aria-label="Open Table of Contents"/, `${route}: accessible ToC trigger`)
+      assert.match(html, /public-class-group-toggle/, `${route}: accordion group runtime`)
+      assert.match(html, /"nodeClass":"(?:concept|method|task)"[^}]*"label":"Approved Node/, `${route}: Library concept, method, and task labels start with uppercase`)
+      assert.match(html, /library-menu-line-top/, `${route}: morphing Library menu line`)
+      assert.doesNotMatch(html, /mobile-explorer/, `${route}: Library drawer is not mobile-only`)
+      assert.doesNotMatch(html, /if\(!narrow\(\)\)return;event\.preventDefault/, `${route}: wide Library toggle is interactive`)
+      assert.match(html, /max-width: 980px/, `${route}: Editorial-compatible responsive seam`)
+      assert.doesNotMatch(html, /<h2 class="page-title">/, `${route}: duplicate homepage link removed`)
+      const breadcrumb = /<nav class="breadcrumb-container"[\s\S]*?<\/nav>/.exec(html)?.[0] ?? ""
+      assert.ok(breadcrumb, `${route}: plain breadcrumb is present`)
+      assert.doesNotMatch(breadcrumb, /<a\b/, `${route}: breadcrumb is orientation text, not navigation`)
+      if (/^\/knowledge\/(?:concept|method|task)\//.test(route)) {
+        const hierarchyLabel = route.includes("/concept/") ? "Concept" : route.includes("/method/") ? "Method" : "Task"
+        assert.match(breadcrumb, new RegExp(`<li>Home</li><li>Knowledge</li><li>${hierarchyLabel}</li><li aria-current="page">Approved Node ${pageIndex}</li>`), `${route}: breadcrumb hierarchy and current title start with uppercase`)
+      }
       const siteRoot = route.startsWith("/papers/") ? "../../" : "../../../"
       assert.ok(html.includes(`const publicSiteRoot=${JSON.stringify(siteRoot)}`), route)
       assert.doesNotMatch(html, /<(?:link|script|img|iframe|source|video|audio)\b[^>]*(?:href|src|srcset|poster)="https?:\/\//i, route)
@@ -582,14 +696,147 @@ test("build renders every mapped route and keeps workflow metadata private", asy
       assert.ok(node, route)
       assert.match(html, new RegExp(`id="public-graph-local-${node.public_id}"`), route)
       assert.match(html, new RegExp(`data-graph-root-id="${node.public_id}"`), route)
+      assert.match(html, /data-graph-filter="paper"/, `${route}: Graph type filters`)
+      assert.doesNotMatch(html, /public-graph-toolbar|public-graph-viewport-controls/, `${route}: Graph omits redundant chrome`)
+      assert.match(html, /data-graph-status role="status" aria-live="polite"/, `${route}: Graph announces filter results`)
+      assert.match(html, /data-graph-empty hidden/, `${route}: Graph exposes a zero-results message`)
+      assert.doesNotMatch(html, /Connections as text/, `${route}: Graph does not duplicate itself as a visible text interface`)
+      assert.doesNotMatch(html, /data-graph-scope-control/, `${route}: Graph scope does not add toolbar controls`)
+      if (layout === "paper") {
+        assert.ok(externalAnchors.length >= 2, `${route}: article source and DOI links are external-link fixtures`)
+        assert.equal(classTokenCount(html, "paper-masthead"), 1, `${route}: Paper masthead`)
+        assert.match(html, new RegExp(`<header class="paper-masthead">[\\s\\S]*?<h1[^>]*>The Full Approved Publication ${pageIndex}`), `${route}: masthead uses the full paper title`)
+        assert.match(breadcrumb, new RegExp(`Approved Node ${pageIndex}`), `${route}: breadcrumb uses the short paper title`)
+        assert.doesNotMatch(breadcrumb, /Synthetic Author 2024/, `${route}: breadcrumb omits author/year title prefix`)
+        assert.match(html, new RegExp(`Synthetic Author 2024 — Approved Node ${pageIndex}`), `${route}: Library paper label uses author, year, and short title`)
+        assert.equal(classTokenCount(html, "reading-progress"), 1, `${route}: Reading progress`)
+        assert.match(html, /scrollTo\(\{top:0,behavior:/, `${route}: Back-to-top interaction`)
+        assert.match(html, /data-copy-citation/, `${route}: Copy citation action`)
+        assert.match(html, /data-citation-toast/, `${route}: Copy citation toast`)
+        assert.match(html, /data-tracer-extension="t06-reading"/, `${route}: Paper interaction runtime`)
+        assert.equal(classTokenCount(html, "paper-tabs"), 1, `${route}: Paper tabs`)
+        assert.equal(classTokenCount(html, "paper-tab-panel"), 5, `${route}: five paper tab panels`)
+        assert.equal((html.match(/data-paper-tab=/g) ?? []).length, 5, `${route}: five paper tab controls`)
+        assert.equal(classTokenCount(html, "paper-tab-pill"), 1, `${route}: gliding tab indicator`)
+        assert.equal(classTokenCount(html, "paper-section-picker"), 1, `${route}: narrow-screen Section Picker`)
+        assert.equal(classTokenCount(html, "section-picker-icon"), 2, `${route}: Section Picker uses two SVG chevrons`)
+        assert.equal(classTokenCount(html, "section-picker-caret"), 1, `${route}: Section Picker uses an SVG selection chevron`)
+        assert.equal((html.match(/<polyline points="6 9 12 15 18 9"><\/polyline>/g) ?? []).length >= 3, true, `${route}: all three Section Picker controls reuse the navigation chevron geometry`)
+        assert.match(html, /<svg class="section-picker-caret"[^>]*aria-hidden="true" focusable="false">/, `${route}: selection chevron is decorative SVG`)
+        assert.doesNotMatch(html, /[⌄]/, `${route}: Section Picker selection chevron is not a text glyph`)
+        assert.doesNotMatch(html, /<span aria-hidden="true">[‹›]<\/span>/, `${route}: Section Picker does not use text glyph arrows`)
+        assert.equal((html.match(/data-section-option=/g) ?? []).length, 5, `${route}: Section Picker exposes five options`)
+        assert.match(html, /data-section-step="previous"[^>]*aria-disabled="true"[^>]*disabled/, `${route}: first section keeps a visibly disabled previous control`)
+        assert.match(html, /data-section-step="next"/, `${route}: first section exposes a next control`)
+        assert.match(html, /setStepDisabled\(previousButton,activeIndex<=0\);setStepDisabled\(nextButton,activeIndex>=tabs\.length-1\)/, `${route}: endpoint chevrons remain visible but disabled`)
+        assert.match(html, /role="listbox" aria-label="Choose paper section"/, `${route}: Section Picker list is accessible`)
+        assert.match(html, /pointerdown[\s\S]*Math\.abs\(distance\)<44/, `${route}: Section Picker supports horizontal swipe navigation`)
+        assert.match(html, /data-sticky-hidden/, `${route}: section navigation responds to scroll direction`)
+        assert.match(html, /data-paper-tab="introductions"[^>]*aria-selected="true"/, `${route}: Introductions is the default tab`)
+        assert.match(html, /data-paper-tab="methods"/, `${route}: Methods tab`)
+        assert.match(html, /data-paper-tab="results"/, `${route}: Results tab`)
+        assert.match(html, /data-paper-tab="discussion"/, `${route}: Discussion tab`)
+        assert.match(html, /data-paper-tab="others"/, `${route}: Others tab`)
+        assert.match(html, /data-paper-panel="methods"[\s\S]*?<h2 id="method"[\s\S]*?<h3 id="design-or-approach"/, `${route}: Method content is grouped in Methods`)
+        assert.match(html, /data-paper-panel="results"[\s\S]*?<h2 id="main-results"[\s\S]*?<h3 id="result-index"/, `${route}: result content is grouped in Results`)
+        assert.match(html, /data-paper-panel="discussion"[\s\S]*?<h2 id="authors-discussion"[\s\S]*?<h2 id="missing-or-unclear-information"[\s\S]*?<h2 id="critical-appraisal"/, `${route}: discussion and appraisal content stay together`)
+        assert.match(html, /data-paper-panel="others"[\s\S]*?<h2 id="relevance-to-my-research"[\s\S]*?<h2 id="connections"/, `${route}: relevance and later content are grouped in Others`)
+      } else {
+        assert.equal(classTokenCount(html, "paper-tabs"), 0, `${route}: support pages do not expose paper tabs`)
+      }
     }
     assert.equal(classTokenCount(home, "explorer"), 1)
+    assert.equal(classTokenCount(home, "library-backdrop"), 1)
     assert.equal(classTokenCount(home, "public-search"), 1)
     assert.equal(classTokenCount(home, "public-graph"), 1)
+    assert.equal(classTokenCount(home, "back-to-top"), 1)
+    assert.doesNotMatch(home, /<\/article>(?:<\/div>)?<hr\/><div class="page-footer">/, "Homepage Knowledge Map has no trailing Quartz rule")
+    assert.ok(home.indexOf('class="public-graph"') < home.indexOf('class="back-to-top-row"'))
     assert.match(home, /id="public-graph-global" data-graph-scope="global"/)
+    assert.doesNotMatch(home, /data-graph-scope-control="local"/, "Homepage omits the meaningless Local graph control")
+    assert.match(home, /data-graph-status role="status" aria-live="polite"/, "Homepage graph announces filter results")
+    assert.doesNotMatch(home, /Connections as text/, "Homepage graph does not duplicate itself as a visible text interface")
+    assert.equal(classTokenCount(home, "home-hero"), 1)
+    assert.match(home, /<h1[^>]*>Psychology Research Notes[\s\S]*?<\/h1>/, "homepage uses the new research-notes title")
+    assert.match(home, /Literature-centered notes on psychology, connected through authors, concepts, methods, and research tasks\.\s+<span lang="zh-Hant">以心理學文獻為核心的研究筆記，透過作者、構念、研究方法與實驗作業彼此串聯。<\/span>/, "homepage uses the bilingual research-notes description without a forced line break")
+    assert.doesNotMatch(home, /research tasks\.<br\/?>(?:\s*)<span lang="zh-Hant">/, "homepage description has no forced language break")
+    assert.doesNotMatch(home, /Tyler-Vault Reading Site|A paper-led reading layer connected through concepts, methods, tasks, and authors\./, "homepage omits the retired title and description")
+    assert.equal(classTokenCount(home, "node-type-card"), 4)
+    assert.equal(classTokenCount(home, "node-type-card-icon-svg"), 4)
+    for (const icon of ["lucide-network", "lucide-flask-conical", "lucide-list-checks", "lucide-users-round"]) {
+      assert.match(home, new RegExp(`data-icon="${icon}"`), `homepage includes the ${icon} legend icon`)
+    }
+    assert.equal((home.match(/<svg class="node-type-card-icon-svg"[^>]*aria-hidden="true" focusable="false">/g) ?? []).length, 4, "homepage legend icons are decorative SVGs")
+    assert.doesNotMatch(home, /class="node-type-card-icon"[^>]*>\s*[CMTA]\s*<\/span>/, "homepage legend does not use initial letters")
+    const expectedFeaturedPaperCount = Math.min(6, approvedPages.filter(([, , layout]) => layout === "paper").length)
+    assert.equal(classTokenCount(home, "paper-card"), expectedFeaturedPaperCount)
+    assert.equal(classTokenCount(home, "paper-card-title"), expectedFeaturedPaperCount)
+    assert.equal((home.match(/<a\b[^>]*class="[^"]*\bpaper-card\b[^"]*"/g) ?? []).length, expectedFeaturedPaperCount)
+    assert.equal(classTokenCount(home, "reading-path-card"), 0)
+    assert.match(home, new RegExp(`data-home-total="${approvedPages.length}"`))
+    assert.equal((home.match(/data-home-library-target=/g) ?? []).length, 4)
+    assert.doesNotMatch(home, /data-home-filter=/)
+    assert.doesNotMatch(home, /Read the note/)
+    assert.doesNotMatch(home, /Where to start/)
+    assert.match(home, /Patricia C\. Jackman/)
+    assert.match(home, /data-tracer-extension="t06-home"/)
+    assert.match(home, /class="paper-card-title">Approved Node /, "homepage cards use short paper titles")
+    assert.ok(home.indexOf('class="home-hero"') < home.indexOf('class="public-search"'))
+    assert.ok(home.indexOf('class="public-search"') < home.indexOf('class="node-type-grid"'))
+    assert.ok(home.indexOf('class="featured-paper-grid"') < home.indexOf('class="public-graph"'))
     assert.equal((home.match(/data-public-backlinks/g) ?? []).length, 0)
     assert.equal((home.match(/data-tracer-extension="t05-search"/g) ?? []).length, 1)
     assert.equal((home.match(/data-tracer-extension="t05-graph"/g) ?? []).length, 1)
+    assert.match(css, /\.page:has\(\.home-hero\)\s*>\s*#quartz-body/)
+    assert.match(themeSource, /\.page:has\(\.home-hero\)[\s\S]*?\.public-graph-heading\s*\{[^}]*border-top:\s*2px solid var\(--dark\)/s, "homepage Knowledge Map repeats the Featured papers divider")
+    assert.match(css, /\.library-backdrop/)
+    assert.match(css, /\.toc-backdrop/)
+    assert.match(css, /\.public-class-group-toggle/)
+    assert.match(css, /clip-path\s*:\s*circle/)
+    assert.match(css, /--library-item-index/)
+    assert.match(css, /scrollbar-width\s*:\s*none/)
+    assert.match(css, /max-width\s*:\s*1367px/)
+    assert.match(css, /::-webkit-scrollbar/)
+    assert.match(css, /html\.library-no-scroll/)
+    assert.match(css, /scrollbar-gutter\s*:\s*auto/)
+    assert.match(css, /\.public-graph-target/)
+    assert.doesNotMatch(css, /\.public-graph-band-surface/)
+    assert.doesNotMatch(css, /\.public-graph-list-group/)
+    assert.match(css, /\.paper-tab-pill/)
+    const homeTitleRule = /\.home-hero h1\s*\{[^}]*\}/.exec(themeSource)?.[0] ?? ""
+    assert.match(homeTitleRule, /max-width:\s*none/, "homepage title uses the available width before wrapping")
+    assert.doesNotMatch(homeTitleRule, /white-space:\s*nowrap/, "homepage title wraps naturally only when its available width is exhausted")
+    const homeIntroRule = /\.home-intro\s*\{[^}]*\}/.exec(themeSource)?.[0] ?? ""
+    assert.match(homeIntroRule, /max-width:\s*none/, "homepage description uses the available width before wrapping")
+    assert.doesNotMatch(homeIntroRule, /white-space:\s*nowrap/, "homepage description wraps naturally only when its available width is exhausted")
+    assert.match(themeSource, /@media \(max-width: 700px\)\s*\{\s*\.home-hero h1\s*\{\s*line-height: 1\.1;/, "wrapped mobile title keeps comfortable line spacing")
+    assert.match(css, /cubic-bezier\((?:0)?\.65,\s*0,\s*(?:0)?\.35,\s*1\)/)
+    assert.match(css, /max-width\s*:\s*55\.999rem/, "Section Picker replaces tabs below the measured navigation threshold")
+    assert.match(css, /\.paper-section-navigation\s*\{[^}]*position\s*:\s*sticky/s, "paper section navigation is sticky")
+    assert.match(css, /\.paper-section-picker/, "narrow layouts use the Section Picker")
+    assert.match(themeSource, /\.node-type-card-icon::before\s*\{[^}]*transform\s*:\s*rotate\(45deg\)/s, "homepage legend icons use the diamond frame")
+    assert.match(css, /grid-template-columns\s*:\s*44px minmax\(150px,\s*180px\) 44px/, "Section Picker is a compact three-part button group")
+    assert.match(themeSource, /\.paper-section-picker\s*\{[\s\S]*?height\s*:\s*44px[\s\S]*?min-height\s*:\s*44px/, "Section Picker matches the 44px navigation controls")
+    assert.match(themeSource, /\.section-picker-caret\s*\{[^}]*width\s*:\s*16px[^}]*height\s*:\s*16px/s, "Section Picker selection chevron has explicit SVG dimensions")
+    assert.match(css, /\.section-picker-step:disabled\s*\{[^}]*opacity\s*:\s*(?:0)?\.25/s, "endpoint chevrons remain visible at quarter opacity")
+    assert.doesNotMatch(css, /\.section-picker-toggle\s*\{[^}]*border-inline/s, "Section Picker has no internal divider lines")
+    assert.match(css, /table\.responsive-card-table/, "simple mobile tables use readable row cards")
+    assert.match(css, /\.responsive-cell-label/, "mobile table cards repeat column labels")
+    assert.match(css, /\.back-to-top-row/, "Back-to-top control is a flow-content row")
+    assert.match(themeSource, /\.back-to-top-row\s*\{[^}]*justify-content\s*:\s*center[^}]*background\s*:\s*transparent/s, "Back-to-top is centered without a dark band")
+    assert.match(themeSource, /\.back-to-top\s*\{[^}]*color\s*:\s*var\(--gray\)/s, "Back-to-top uses the Library child-link color")
+    assert.doesNotMatch(css, /\.back-to-top\s*\{[^}]*position\s*:\s*fixed/s, "Back-to-top is not a floating box")
+    assert.match(css, /\.wide-fixed-navigation/, "ultra-wide layout exposes a persistent navigation state")
+    assert.match(themeSource, /grid-template-columns\s*:\s*21rem minmax\(0,\s*1fr\) 22rem/, "ultra-wide sidebars remain flush with viewport edges")
+    assert.match(themeSource, /width\s*:\s*min\(100%,\s*72rem\)/, "ultra-wide layout caps the reading content at 1152px")
+    assert.match(themeSource, /\.wide-fixed-navigation \.page > #quartz-body \.page-header\s*\{[^}]*padding-top\s*:\s*var\(--control-rail-height\)/s, "ultra-wide content keeps the same top rail spacing as tablet layouts")
+    assert.match(css, /\.toc-panel-title/, "Table of Contents has a Library-symmetrical heading")
+    assert.match(themeSource, /\.explorer > \.desktop-explorer\s*\{[^}]*font-size\s*:\s*1\.125rem/s, "Library title is 18px")
+    assert.match(themeSource, /\.toc-panel-title\s*\{[^}]*font-size\s*:\s*1\.125rem/s, "Table of Contents title is 18px")
+    assert.match(themeSource, /\.explorer \.public-class-group-toggle,[\s\S]*?\.toc \.toc-content a\s*\{[^}]*font-size\s*:\s*1rem/s, "Library and ToC primary items are 16px")
+    assert.match(themeSource, /\.explorer \.public-class-group-entries a\s*\{[^}]*font-size\s*:\s*0\.875rem/s, "Library child items are 14px")
+    assert.match(css, /\.paper-tab-toc-title\s*\{[^}]*border-bottom\s*:\s*0/s, "active section uses indentation without a divider")
+    assert.doesNotMatch(css, /transition-duration\s*:\s*0s\s*!important/, "Library interaction motion must not be globally disabled")
     for (const [, bytes] of tree) {
       const text = bytes.toString("utf8")
       assert.doesNotMatch(text, /Private(?:[\\\\/]|%2F)Hidden-Neuron|PRIVATE-ZOTERO-CANARY|PHASE1_WORKFLOW_SENTINEL/i)
@@ -604,6 +851,7 @@ test("Phase 1 paper and support select real structural project-owned templates",
   const { selectProjectPageTemplate } = await import("../lib/project-page-template.mjs")
   const navigation = {
     backlinksMarkup: '<div class="backlinks" data-public-backlinks><h2 id="backlinks">Backlinks</h2></div>',
+    backToTopMarkup: '<div class="back-to-top-row"><button class="back-to-top">Back to top</button></div>',
     graphMarkup: '<section class="public-graph" data-template-structure="graph"></section>',
     runtimeScripts: '<script data-project-template-runtime></script>',
   }
