@@ -100,6 +100,15 @@ function invokeWithMap(paths, contentMap) {
 }
 
 const expectedProof = mappedRoutes.map((route) => ({ route, file: routeFile(route) }))
+const expectedUnchangedFiles = [
+  ".nojekyll",
+  "404.html",
+  ...mappedRoutes.map(routeFile),
+  "safe/data.json",
+  "safe/icon.png",
+  "safe/site.css",
+  "safe/site.js",
+].sort((left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)))
 
 test("local handoff consumes injected immutable map bytes without rereading a mutable path", async () => {
   const paths = await fixture()
@@ -172,24 +181,7 @@ test("local handoff copies the generated site, adds empty .nojekyll, and reports
         added: ["only-built.txt"],
         deleted: ["only-baseline.txt"],
         changed: ["changed.txt"],
-        unchanged: [
-          ".nojekyll",
-          "404.html",
-          "index.html",
-          "knowledge/author/patricia-c-jackman/index.html",
-          "knowledge/concept/flow/index.html",
-          "knowledge/concept/micro-action/index.html",
-          "knowledge/method/connecting-analysis/index.html",
-          "knowledge/method/event-focused-interview/index.html",
-          "knowledge/method/thematic-analysis/index.html",
-          "knowledge/task/action-recognition/index.html",
-          "papers/guo-2024-benchmarking-micro-action-recognition/index.html",
-          "papers/jackman-2021-flow-clutch-recreational-running/index.html",
-          "safe/data.json",
-          "safe/icon.png",
-          "safe/site.css",
-          "safe/site.js",
-        ],
+        unchanged: expectedUnchangedFiles,
       },
     })
     assert.equal((await readFile(path.join(paths.output, "site", ".nojekyll"))).length, 0)

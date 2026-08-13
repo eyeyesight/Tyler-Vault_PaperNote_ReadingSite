@@ -333,7 +333,11 @@ test("Phase 1 preflight accepts the current approved source/route/layout mapping
     const receipt = JSON.parse(result.stdout)
     assert.deepEqual(receipt.routes, approvedPages.map(([, route]) => route))
     assert.equal(receipt.pages, approvedPages.length)
-    assert.deepEqual(receipt.layouts, { paper: 2, support: 7 })
+    const expectedLayouts = mappedPages.reduce((counts, page) => {
+      counts[page.layout] += 1
+      return counts
+    }, { paper: 0, support: 0 })
+    assert.deepEqual(receipt.layouts, expectedLayouts)
   } finally {
     await rm(paths.root, { recursive: true, force: true })
   }
