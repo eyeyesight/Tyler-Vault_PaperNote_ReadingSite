@@ -586,3 +586,37 @@ test("real Edge smoke uses the isolated fixture and has no ordinary screenshot w
     await rm(paths.root, { recursive: true, force: true })
   }
 })
+
+test("bounded Windows runtime environment discovers a system browser from WINDIR", async (t) => {
+  if (process.platform !== "win32") {
+    t.skip("Windows-only browser discovery contract")
+    return
+  }
+  const windowsRoot = process.env.WINDIR ?? process.env.SystemRoot
+  if (!windowsRoot) throw new Error("Windows runtime root is unavailable")
+  const saved = new Map([
+    ["ProgramFiles", process.env.ProgramFiles],
+    ["ProgramFiles(x86)", process.env["ProgramFiles(x86)"]],
+    ["LOCALAPPDATA", process.env.LOCALAPPDATA],
+  ])
+  const paths = await fixture()
+  try {
+    delete process.env.ProgramFiles
+    delete process.env["ProgramFiles(x86)"]
+    delete process.env.LOCALAPPDATA
+    const result = await runHeadlessSiteQa({
+      siteRoot: paths.siteRoot,
+      basePath: "/project/",
+      routes: [{ route: "/papers/alpha/", file: "papers/alpha/index.html" }],
+      sourceDiff: { changedFiles: ["docs/README.md"] },
+    })
+    assert.equal(result.status, "pass", JSON.stringify(result))
+    assert.equal(result.error_code, null)
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})

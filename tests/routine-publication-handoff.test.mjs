@@ -129,20 +129,13 @@ function commitTree(remote, worktree, baseSha, message, updateRef, mutate, { res
   }
 }
 
-async function makeFixture({ lane = "content" } = {}) {
+async function makeFixture({ lane = "content", mapChanged = true } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "t13-06-tracer-"))
   const remote = path.join(root, "remote.git")
   const seed = path.join(root, "seed")
   const session = path.join(root, "work", "content-0123456789abcdef0123")
   const laneDirectory = lane === "content" ? "handoff" : "main-handoff"
   const candidateRoot = path.join(session, laneDirectory, "site")
-  const initialMap = Buffer.from([
-    "pages:",
-    "  - source: Existing.md",
-    "    route: /papers/existing/",
-    "    layout: paper",
-    "",
-  ].join("\n"), "utf8")
   const proposedMap = Buffer.from([
     "pages:",
     "  - source: Existing.md",
@@ -153,6 +146,15 @@ async function makeFixture({ lane = "content" } = {}) {
     "    layout: paper",
     "",
   ].join("\n"), "utf8")
+  const initialMap = mapChanged
+    ? Buffer.from([
+      "pages:",
+      "  - source: Existing.md",
+      "    route: /papers/existing/",
+      "    layout: paper",
+      "",
+    ].join("\n"), "utf8")
+    : proposedMap
   await mkdir(root, { recursive: true })
   git(["init", "--bare", remote])
   git(["init", seed])
@@ -444,6 +446,7 @@ test("approved routine publication uses exact temporary refs and provider checkp
       "provider.squash_merge",
       "provider.read_merge",
       "local.read_remote",
+      "local.read_site_candidate",
       "local.create_site_candidate",
       "local.read_site_candidate",
       "local.push_gh_pages",
@@ -475,6 +478,60 @@ test("approved routine publication uses exact temporary refs and provider checkp
       assert.deepEqual(actual.bytes, expected.bytes, `candidate commit changed ${expected.relative}`)
     }
     assert.deepEqual(await snapshot(fixture.candidateRoot), candidateBefore, "candidate source directory must remain unchanged")
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true })
+  }
+})
+
+test("an identical deployed site tree converges without a new commit, push, or deployment", async () => {
+  const fixture = await makeFixture({ mapChanged: false })
+  try {
+    const originalRead = fixture.localGit.readCandidateCommit
+    const candidateFiles = (await snapshot(fixture.candidateRoot)).map(({ relative, bytes }) => ({
+      relative: `site/${relative}`,
+      mode: "100644",
+      type: "blob",
+      bytes,
+    }))
+    fixture.localGit.readCandidateCommit = async (input) => {
+      if (input.candidate_sha === fixture.ghPagesSha) {
+        fixture.trace.push("local.read_site_candidate")
+        return { candidate_sha: fixture.ghPagesSha, files: candidateFiles }
+      }
+      return await originalRead(input)
+    }
+
+    const result = await routinePublicationHandoff(fixture.operation, {
+      provider: fixture.provider,
+      localGit: fixture.localGit,
+    })
+
+    assert.equal(result.status, "no_change", JSON.stringify(result))
+    assert.equal(result.next_action, "none")
+    assert.equal(result.error_code, null)
+    assert.deepEqual(result.identifiers, {
+      candidate_id: fixture.operation.candidate_identity.sha256,
+      site_commit: fixture.ghPagesSha,
+    })
+    assert.deepEqual(result.convergence, {
+      exact: true,
+      desired_site_sha256: fixture.operation.candidate_identity.site_sha256,
+      public_site_sha256: fixture.operation.candidate_identity.site_sha256,
+      live_site_sha256: fixture.operation.candidate_identity.site_sha256,
+      provider_site_commit: fixture.ghPagesSha,
+    })
+    assert.deepEqual(result.checks.map(({ name, outcome }) => [name, outcome]), [
+      ["approval", "pass"],
+      ["candidate", "pass"],
+      ["remote_heads", "pass"],
+      ["map_readback", "pass"],
+      ["site_convergence", "pass"],
+    ])
+    assert.deepEqual(fixture.trace, [
+      "local.read_remote",
+      "local.read_site_candidate",
+    ])
+    assert.equal(String(git(["--git-dir", fixture.remote, "rev-parse", "refs/heads/gh-pages"])).trim(), fixture.ghPagesSha)
   } finally {
     await rm(fixture.root, { recursive: true, force: true })
   }
@@ -520,6 +577,7 @@ test("non-string candidate SHA identities fail before deployment dispatch", asyn
       return { ...response, candidate_sha: [primitiveSha] }
     }
     fixture.localGit.readCandidateCommit = async ({ candidate_sha }) => {
+      if (typeof candidate_sha === "string") return await originalRead({ candidate_sha })
       const response = await originalRead({ candidate_sha: candidate_sha[0] })
       return { ...response, candidate_sha }
     }
