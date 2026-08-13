@@ -108,6 +108,80 @@ test("one-command publication records an immutable LKG after critical QA passes"
   assert.equal(records[0].site_commit, SITE_COMMIT)
 })
 
+test("exact no-change convergence runs critical QA and creates the missing first LKG without public effects", async () => {
+  const calls = []
+  const records = []
+  const result = await runSitePublication(operation(), {}, {
+    publish: async () => {
+      calls.push("publish")
+      return {
+        status: "no_change",
+        operation_id: OPERATION_ID,
+        convergence: {
+          desired_site_sha256: SITE_SHA,
+          public_site_sha256: SITE_SHA,
+          provider_site_commit: SITE_COMMIT,
+          live_site_sha256: SITE_SHA,
+          exact: true,
+        },
+      }
+    },
+    qa: async (input) => {
+      calls.push(`qa:${input.phase}`)
+      return qaPass()
+    },
+    lkg: {
+      readCurrent: async () => {
+        calls.push("lkg:read")
+        return null
+      },
+      record: async (record) => {
+        calls.push("lkg:record")
+        records.push(record)
+        return record
+      },
+    },
+    rollback: async () => assert.fail("exact no-change reconciliation must not rollback"),
+  })
+
+  assert.equal(result.status, "published")
+  assert.equal(result.live_qa.status, "pass")
+  assert.equal(result.lkg.site_commit, SITE_COMMIT)
+  assert.equal(result.lkg.site_sha256, SITE_SHA)
+  assert.deepEqual(calls, ["publish", "lkg:read", "qa:published", "lkg:record"])
+  assert.equal(records.length, 1)
+  assert.equal(records[0].site_commit, SITE_COMMIT)
+})
+
+test("exact no-change convergence preserves an existing matching LKG without QA or writes", async () => {
+  const current = lkgRecord()
+  const calls = []
+  const result = await runSitePublication(operation(), {}, {
+    publish: async () => ({
+      status: "no_change",
+      operation_id: OPERATION_ID,
+      convergence: {
+        desired_site_sha256: SITE_SHA,
+        public_site_sha256: SITE_SHA,
+        provider_site_commit: SITE_COMMIT,
+        live_site_sha256: SITE_SHA,
+        exact: true,
+      },
+    }),
+    qa: async () => assert.fail("matching LKG must not repeat QA"),
+    lkg: {
+      readCurrent: async () => {
+        calls.push("lkg:read")
+        return current
+      },
+      record: async () => assert.fail("matching LKG must not be rewritten"),
+    },
+  })
+
+  assert.equal(result.status, "no_change")
+  assert.deepEqual(calls, ["lkg:read"])
+})
+
 test("critical live QA failure rolls back exact LKG bytes and revalidates them", async () => {
   const calls = []
   let qaCalls = 0
