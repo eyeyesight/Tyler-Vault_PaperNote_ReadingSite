@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 import {
   ContentPreviewError,
   opaqueOperationId,
-  prepareContentPrivatePreview,
+  preparePublicationPrivateCandidate,
 } from "../lib/content-private-preview.mjs"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
@@ -69,7 +69,7 @@ function usageResult(error) {
 async function main() {
   try {
     const options = parseArgs(process.argv.slice(2))
-    const result = await prepareContentPrivatePreview(options)
+    const result = await preparePublicationPrivateCandidate(options)
     process.stdout.write(`${JSON.stringify(result)}\n`)
     if (result.status === "needs_attention") process.exitCode = 1
   } catch (error) {

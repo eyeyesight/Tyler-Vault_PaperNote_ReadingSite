@@ -86,7 +86,7 @@ test("prepare CLI starts a real temporary Git/Vault fixture without an operation
   await writeFile(map, await readFile(path.join(repoRoot, "site-content.yml")))
   try {
     await populateVault({ root, vault }, true)
-    const refs = await makeFixture(root, map, vault, true)
+    const refs = await makePresentationFixture(root, map, vault, false)
     const result = spawnSync(process.execPath, [
       prepareCli,
       "--vault-root", vault,
@@ -542,6 +542,49 @@ test("content lane creates one complete private preview from Vault plus temporar
     assert.equal(removal.next_action, "request_manual_review")
     assert.equal(removal.candidate_identity, null)
     assert.equal(await exists(path.join(root, "removal-work", removal.operation_id)), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("publication preparation preserves an exact deployed candidate for LKG reconciliation", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-publication-reconciliation-"))
+  const vault = path.join(root, "vault")
+  const map = path.join(root, "map.yml")
+  const ordinaryWork = path.join(root, "ordinary-work")
+  const reconciliationWork = path.join(root, "publication-work")
+  await mkdir(vault, { recursive: true })
+  await writeFile(map, await readFile(path.join(repoRoot, "site-content.yml")))
+  await populateVault({ root, vault }, false)
+  const refs = await makePresentationFixture(root, map, vault, false)
+  const options = {
+    vaultRoot: vault,
+    gitRoot: refs.repo,
+    mainRef: "refs/heads/main",
+    ghPagesRef: "refs/heads/gh-pages",
+  }
+  try {
+    const ordinary = await prepareContentPrivatePreview({ ...options, workRoot: ordinaryWork })
+    assert.equal(ordinary.status, "no_change")
+    assert.equal(ordinary.candidate_identity, null)
+    assert.equal(await exists(path.join(ordinaryWork, ordinary.operation_id)), false)
+
+    assert.equal(typeof contentPreview.preparePublicationPrivateCandidate, "function")
+    const reconciliation = await contentPreview.preparePublicationPrivateCandidate({
+      ...options,
+      workRoot: reconciliationWork,
+    })
+    assert.equal(reconciliation.status, "ready_for_review", JSON.stringify(reconciliation))
+    assert.equal(reconciliation.next_action, "approve_content")
+    assert.deepEqual(reconciliation.added_routes, [])
+    assert.deepEqual(reconciliation.changed_routes, [])
+    assert.deepEqual(reconciliation.removed_routes, [])
+    assert.deepEqual(reconciliation.checks.filter(({ name }) => name === "publication_reconciliation"), [
+      { name: "publication_reconciliation", outcome: "pass" },
+    ])
+    assert.ok(reconciliation.candidate_identity)
+    assert.equal(reconciliation.candidate_identity.base_gh_pages_sha, refs.ghPagesSha)
+    assert.equal(await exists(path.join(reconciliationWork, reconciliation.operation_id, "handoff", "site")), true)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
