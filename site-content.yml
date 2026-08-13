@@ -34,3 +34,23 @@ pages:
   - source: "Knowledge/Tasks/Action Recognition.md"
     route: "/knowledge/task/action-recognition/"
     layout: support
+
+  - source: "Literature/Notes/Lima et al. 2020 — Neurobehavioural signatures in race car driving.md"
+    route: "/papers/lima-2020-neurobehavioural-signatures-in-race-car-driving/"
+    layout: paper
+
+  - source: "Knowledge/Methods/Multimodal Sensor Synchronization in Moving Vehicles.md"
+    route: "/knowledge/method/multimodal-sensor-synchronization-in-moving-vehicles/"
+    layout: support
+
+  - source: "Knowledge/Tasks/Car Racing.md"
+    route: "/knowledge/task/car-racing/"
+    layout: support
+
+  - source: "Literature/Reviews & Maps/Mobile EEG in Real-World Sport and Driving.md"
+    route: "/knowledge/map/mobile-eeg-in-real-world-sport-and-driving/"
+    layout: support
+
+  - source: "Literature/Syntheses/Neurophysiological Signatures of Driving Expertise.md"
+    route: "/knowledge/synthesis/neurophysiological-signatures-of-driving-expertise/"
+    layout: support
