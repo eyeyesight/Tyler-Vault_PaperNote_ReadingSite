@@ -275,10 +275,19 @@ export function createProductionRollback(adapter) {
     const remoteGhPages = exactSha(authority?.gh_pages_sha, "ROLLBACK_REMOTE_INVALID")
     if (remoteGhPages !== failedCommit) throw cliError("ROLLBACK_REMOTE_DRIFT")
 
-    await adapter.localGit.pushGhPages({ candidate_sha: lkgCommit, expected_old_sha: failedCommit })
-    if (exactSha(await adapter.localGit.readGhPagesHead({}), "ROLLBACK_PUSH_UNCERTAIN") !== lkgCommit) throw cliError("ROLLBACK_PUSH_UNCERTAIN")
+    const rollbackCandidate = await adapter.localGit.createGhPagesRollback({
+      failed_sha: failedCommit,
+      lkg_sha: lkgCommit,
+    })
+    const rollbackCommit = exactSha(rollbackCandidate?.rollback_sha, "ROLLBACK_IDENTITY_INVALID")
+    if (exactSha(rollbackCandidate?.parent_sha, "ROLLBACK_IDENTITY_INVALID") !== failedCommit
+      || exactSha(rollbackCandidate?.restored_lkg_sha, "ROLLBACK_IDENTITY_INVALID") !== lkgCommit
+      || rollbackCommit === failedCommit || rollbackCommit === lkgCommit) throw cliError("ROLLBACK_IDENTITY_INVALID")
 
-    const runName = `Deploy GitHub Pages ${lkgCommit} (${DEPLOY_MODE})`
+    await adapter.localGit.pushGhPages({ candidate_sha: rollbackCommit, expected_old_sha: failedCommit })
+    if (exactSha(await adapter.localGit.readGhPagesHead({}), "ROLLBACK_PUSH_UNCERTAIN") !== rollbackCommit) throw cliError("ROLLBACK_PUSH_UNCERTAIN")
+
+    const runName = `Deploy GitHub Pages ${rollbackCommit} (${DEPLOY_MODE})`
     const runQuery = { workflow: DEPLOY_WORKFLOW, ref: DEPLOY_REF, run_name: runName, head_sha: mainSha }
     const before = exactRunIds(await adapter.provider.listMatchingDeploymentRuns(runQuery))
     await adapter.provider.dispatchDeployment({
@@ -286,7 +295,7 @@ export function createProductionRollback(adapter) {
       ref: DEPLOY_REF,
       run_name: runName,
       expected_head_sha: mainSha,
-      inputs: { site_commit: lkgCommit, publication_mode: DEPLOY_MODE },
+      inputs: { site_commit: rollbackCommit, publication_mode: DEPLOY_MODE },
     })
     let after = []
     let newRuns = []
@@ -302,14 +311,14 @@ export function createProductionRollback(adapter) {
     const runId = newRuns[0]
     await waitForProviderRead(async () => await adapter.provider.readDeploymentRun({
       id: runId,
-      site_commit: lkgCommit,
+      site_commit: rollbackCommit,
       publication_mode: DEPLOY_MODE,
       workflow: DEPLOY_WORKFLOW,
       ref: DEPLOY_REF,
       head_sha: mainSha,
     }))
-    const pages = await waitForProviderRead(async () => await adapter.provider.readPagesDeployment({ run_id: runId, site_commit: lkgCommit }))
-    if (!isPlainObject(pages) || pages.site_commit !== lkgCommit || pages.status !== "success") throw cliError("ROLLBACK_PAGES_FAILED")
+    const pages = await waitForProviderRead(async () => await adapter.provider.readPagesDeployment({ run_id: runId, site_commit: rollbackCommit }))
+    if (!isPlainObject(pages) || pages.site_commit !== rollbackCommit || pages.status !== "success") throw cliError("ROLLBACK_PAGES_FAILED")
     const smoke = await waitForProviderRead(async () => await adapter.provider.anonymousSmoke({
       target: pages,
       routes: ["/"],
@@ -325,7 +334,7 @@ export function createProductionRollback(adapter) {
         ? settings.candidate_site_root
         : undefined
     return {
-      rollback_commit: lkgCommit,
+      rollback_commit: rollbackCommit,
       restored_lkg_commit: lkgCommit,
       site_sha256: lkg.site_sha256,
       revalidation: {

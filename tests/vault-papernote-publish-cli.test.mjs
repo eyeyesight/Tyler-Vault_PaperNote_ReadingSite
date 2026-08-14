@@ -288,7 +288,7 @@ test("publication handoff stable failures retain their exact terminal code", asy
   assert.deepEqual(result.checks.at(-1), { name: "mapping_pr", outcome: "fail" })
 })
 
-test("default production rollback restores the exact LKG and deploys it through existing seams", async () => {
+test("default production rollback creates a fast-forward child with the exact LKG tree", async () => {
   const calls = []
   const failedCommit = "8".repeat(40)
   const lkg = lkgRecord()
@@ -296,11 +296,19 @@ test("default production rollback restores the exact LKG and deploys it through 
   const adapter = {
     localGit: {
       readRemoteAuthority: async () => ({ main_sha: mainSha, gh_pages_sha: failedCommit, map_bytes: Buffer.from("map") }),
+      createGhPagesRollback: async (input) => {
+        calls.push(["create", input])
+        return {
+          rollback_sha: ROLLBACK_COMMIT,
+          parent_sha: failedCommit,
+          restored_lkg_sha: lkg.site_commit,
+        }
+      },
       pushGhPages: async (input) => {
         calls.push(["push", input])
         return { pushed: true }
       },
-      readGhPagesHead: async () => lkg.site_commit,
+      readGhPagesHead: async () => ROLLBACK_COMMIT,
     },
     provider: {
       listMatchingDeploymentRuns: async () => {
@@ -334,7 +342,7 @@ test("default production rollback restores the exact LKG and deploys it through 
   })
 
   assert.deepEqual(result, {
-    rollback_commit: lkg.site_commit,
+    rollback_commit: ROLLBACK_COMMIT,
     restored_lkg_commit: lkg.site_commit,
     site_sha256: lkg.site_sha256,
     revalidation: {
@@ -344,8 +352,11 @@ test("default production rollback restores the exact LKG and deploys it through 
     },
     site_root: "C:/immutable/lkg/site",
   })
-  assert.deepEqual(calls.map(([name]) => name), ["push", "list", "dispatch", "list", "workflow", "pages", "smoke"])
-  assert.deepEqual(calls[0][1], { candidate_sha: lkg.site_commit, expected_old_sha: failedCommit })
+  assert.deepEqual(calls.map(([name]) => name), ["create", "push", "list", "dispatch", "list", "workflow", "pages", "smoke"])
+  assert.deepEqual(calls[0][1], { failed_sha: failedCommit, lkg_sha: lkg.site_commit })
+  assert.deepEqual(calls[1][1], { candidate_sha: ROLLBACK_COMMIT, expected_old_sha: failedCommit })
+  assert.equal(calls[3][1].inputs.site_commit, ROLLBACK_COMMIT)
+  assert.equal(calls[6][1].site_commit, ROLLBACK_COMMIT)
 })
 
 test("LKG records are readable and immutable by exact site commit", async () => {

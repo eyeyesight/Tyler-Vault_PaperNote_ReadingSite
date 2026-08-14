@@ -1912,6 +1912,7 @@ test("local-Git capabilities are a plain object with the exact consumer methods"
     assert.equal(Object.getPrototypeOf(capabilities), Object.prototype)
     assert.deepEqual(Object.keys(capabilities).sort(), [
       "createGhPagesCandidate",
+      "createGhPagesRollback",
       "createMappingBranch",
       "pushGhPages",
       "readCandidateCommit",
@@ -1980,7 +1981,7 @@ async function makeGitFixture() {
     await writeFile(absolute, bytes)
   }
   git(["-C", gitRoot, "add", "."])
-  git(["-C", gitRoot, "commit", "-m", "gh-pages baseline"])
+  git(["-C", gitRoot, "commit", "-m", "gh-pages baseline", "-m", `Renderer-Main-SHA: ${mainSha}`])
   git(["-C", gitRoot, "push", "origin", "gh-pages"])
   const ghPagesSha = String(git(["-C", gitRoot, "rev-parse", "HEAD"])).trim()
   for (const [relative, bytes] of [
@@ -2015,6 +2016,112 @@ test("gh-pages candidate authority is separate from the isolated Git scratch roo
     })
     assert.equal(String(git(["-C", fixture.gitRoot, "rev-parse", `${candidate.candidate_sha}^`])).trim(), fixture.ghPagesSha)
     assert.deepEqual((await readdir(fixture.operationRoot)).filter((name) => name.startsWith(".t13-git-")), [])
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true })
+  }
+})
+
+test("rollback candidate is a new child of the failed head with the exact immutable LKG tree", async () => {
+  const fixture = await makeGitFixture()
+  try {
+    const config = {
+      gitRoot: fixture.gitRoot,
+      gitExecutable: GIT_EXECUTABLE,
+      remote: "origin",
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      operationRoot: fixture.operationRoot,
+      candidateRoot: fixture.candidateRoot,
+    }
+    const localGit = createRoutinePublicationLocalGitCapabilities(config)
+    const failed = await localGit.createGhPagesCandidate({
+      base_sha: fixture.ghPagesSha,
+      candidate_path: fixture.candidatePath,
+      renderer_main_sha: fixture.mainSha,
+    })
+    await localGit.pushGhPages({ candidate_sha: failed.candidate_sha, expected_old_sha: fixture.ghPagesSha })
+
+    const rollback = await localGit.createGhPagesRollback({
+      failed_sha: failed.candidate_sha,
+      lkg_sha: fixture.ghPagesSha,
+    })
+
+    assert.equal(rollback.parent_sha, failed.candidate_sha)
+    assert.equal(rollback.restored_lkg_sha, fixture.ghPagesSha)
+    assert.notEqual(rollback.rollback_sha, failed.candidate_sha)
+    assert.notEqual(rollback.rollback_sha, fixture.ghPagesSha)
+    assert.equal(String(git(["-C", fixture.gitRoot, "rev-parse", `${rollback.rollback_sha}^`])).trim(), failed.candidate_sha)
+    assert.equal(
+      String(git(["-C", fixture.gitRoot, "rev-parse", `${rollback.rollback_sha}^{tree}`])).trim(),
+      String(git(["-C", fixture.gitRoot, "rev-parse", `${fixture.ghPagesSha}^{tree}`])).trim(),
+    )
+    assert.equal(await localGit.readGhPagesHead({}), failed.candidate_sha)
+
+    assert.deepEqual(
+      await localGit.pushGhPages({ candidate_sha: rollback.rollback_sha, expected_old_sha: failed.candidate_sha }),
+      { remote_sha: rollback.rollback_sha },
+    )
+    assert.equal(await localGit.readGhPagesHead({}), rollback.rollback_sha)
+    assert.deepEqual((await readdir(fixture.operationRoot)).filter((name) => name.startsWith(".t13-git-")), [])
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true })
+  }
+})
+
+test("gh-pages push rejects a remote rollback between authority read and mutation", async () => {
+  const fixture = await makeGitFixture()
+  try {
+    const config = {
+      gitRoot: fixture.gitRoot,
+      gitExecutable: GIT_EXECUTABLE,
+      remote: "origin",
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      operationRoot: fixture.operationRoot,
+      candidateRoot: fixture.candidateRoot,
+    }
+    const localGit = createRoutinePublicationLocalGitCapabilities(config)
+    const failed = await localGit.createGhPagesCandidate({
+      base_sha: fixture.ghPagesSha,
+      candidate_path: fixture.candidatePath,
+      renderer_main_sha: fixture.mainSha,
+    })
+    await localGit.pushGhPages({ candidate_sha: failed.candidate_sha, expected_old_sha: fixture.ghPagesSha })
+    const rollback = await localGit.createGhPagesRollback({
+      failed_sha: failed.candidate_sha,
+      lkg_sha: fixture.ghPagesSha,
+    })
+
+    let raced = false
+    const commandTransport = {
+      async run(request) {
+        if (!raced && request.argv.includes("push")) {
+          git(["--git-dir", fixture.remote, "update-ref", "refs/heads/gh-pages", fixture.ghPagesSha])
+          raced = true
+        }
+        const result = spawnSync(request.argv[0], request.argv.slice(1), {
+          cwd: request.cwd,
+          env: request.env,
+          input: request.input,
+          encoding: null,
+          timeout: request.timeoutMs,
+          windowsHide: true,
+        })
+        return {
+          status: result.status,
+          stdout: result.stdout ?? Buffer.alloc(0),
+          stderr: result.stderr ?? Buffer.alloc(0),
+        }
+      },
+    }
+    const racedLocalGit = createRoutinePublicationLocalGitCapabilities(config, { commandTransport })
+
+    await assert.rejects(
+      racedLocalGit.pushGhPages({ candidate_sha: rollback.rollback_sha, expected_old_sha: failed.candidate_sha }),
+      (error) => error?.code === "push_failed",
+    )
+    assert.equal(raced, true)
+    assert.equal(await racedLocalGit.readGhPagesHead({}), fixture.ghPagesSha)
   } finally {
     await rm(fixture.root, { recursive: true, force: true })
   }
@@ -2279,12 +2386,13 @@ async function assertDefaultTransportStopsOwnedTree(mode, expectedCode) {
       shell: false,
       timeoutMs: mode === "overflow" ? 5_000 : 150,
     })
-    record = await waitForJsonFile(pidFile)
-    const before = await waitForSentinel(sentinelFile)
-    await assert.rejects(run, (error) => {
+    const rejected = assert.rejects(run, (error) => {
       assert.equal(error?.code, expectedCode)
       return true
     })
+    record = await waitForJsonFile(pidFile)
+    const before = await waitForSentinel(sentinelFile)
+    await rejected
     const settled = await readFile(sentinelFile)
     assert.ok(settled.length >= before.length)
     await sleep(150)
@@ -2400,6 +2508,9 @@ test("local-Git retains operation custody when termination cannot be proven", as
         const command = request.argv[1]
         if (command === "ls-remote") {
           return { status: 0, stdout: Buffer.from(`${fixture.mainSha}\trefs/heads/main\n`), stderr: Buffer.alloc(0) }
+        }
+        if (command === "cat-file") {
+          return { status: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }
         }
         if (command === "show") {
           return { status: 0, stdout: Buffer.from(fixture.initialMap), stderr: Buffer.alloc(0) }
