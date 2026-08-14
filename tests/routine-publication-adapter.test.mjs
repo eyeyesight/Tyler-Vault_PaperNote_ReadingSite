@@ -2024,7 +2024,7 @@ test("gh-pages candidate authority is separate from the isolated Git scratch roo
 test("rollback candidate is a new child of the failed head with the exact immutable LKG tree", async () => {
   const fixture = await makeGitFixture()
   try {
-    const localGit = createRoutinePublicationLocalGitCapabilities({
+    const config = {
       gitRoot: fixture.gitRoot,
       gitExecutable: GIT_EXECUTABLE,
       remote: "origin",
@@ -2032,7 +2032,8 @@ test("rollback candidate is a new child of the failed head with the exact immuta
       ghPagesRef: "refs/heads/gh-pages",
       operationRoot: fixture.operationRoot,
       candidateRoot: fixture.candidateRoot,
-    })
+    }
+    const localGit = createRoutinePublicationLocalGitCapabilities(config)
     const failed = await localGit.createGhPagesCandidate({
       base_sha: fixture.ghPagesSha,
       candidate_path: fixture.candidatePath,
@@ -2062,6 +2063,65 @@ test("rollback candidate is a new child of the failed head with the exact immuta
     )
     assert.equal(await localGit.readGhPagesHead({}), rollback.rollback_sha)
     assert.deepEqual((await readdir(fixture.operationRoot)).filter((name) => name.startsWith(".t13-git-")), [])
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true })
+  }
+})
+
+test("gh-pages push rejects a remote rollback between authority read and mutation", async () => {
+  const fixture = await makeGitFixture()
+  try {
+    const config = {
+      gitRoot: fixture.gitRoot,
+      gitExecutable: GIT_EXECUTABLE,
+      remote: "origin",
+      mainRef: "refs/heads/main",
+      ghPagesRef: "refs/heads/gh-pages",
+      operationRoot: fixture.operationRoot,
+      candidateRoot: fixture.candidateRoot,
+    }
+    const localGit = createRoutinePublicationLocalGitCapabilities(config)
+    const failed = await localGit.createGhPagesCandidate({
+      base_sha: fixture.ghPagesSha,
+      candidate_path: fixture.candidatePath,
+      renderer_main_sha: fixture.mainSha,
+    })
+    await localGit.pushGhPages({ candidate_sha: failed.candidate_sha, expected_old_sha: fixture.ghPagesSha })
+    const rollback = await localGit.createGhPagesRollback({
+      failed_sha: failed.candidate_sha,
+      lkg_sha: fixture.ghPagesSha,
+    })
+
+    let raced = false
+    const commandTransport = {
+      async run(request) {
+        if (!raced && request.argv.includes("push")) {
+          git(["--git-dir", fixture.remote, "update-ref", "refs/heads/gh-pages", fixture.ghPagesSha])
+          raced = true
+        }
+        const result = spawnSync(request.argv[0], request.argv.slice(1), {
+          cwd: request.cwd,
+          env: request.env,
+          input: request.input,
+          encoding: null,
+          timeout: request.timeoutMs,
+          windowsHide: true,
+        })
+        return {
+          status: result.status,
+          stdout: result.stdout ?? Buffer.alloc(0),
+          stderr: result.stderr ?? Buffer.alloc(0),
+        }
+      },
+    }
+    const racedLocalGit = createRoutinePublicationLocalGitCapabilities(config, { commandTransport })
+
+    await assert.rejects(
+      racedLocalGit.pushGhPages({ candidate_sha: rollback.rollback_sha, expected_old_sha: failed.candidate_sha }),
+      (error) => error?.code === "push_failed",
+    )
+    assert.equal(raced, true)
+    assert.equal(await racedLocalGit.readGhPagesHead({}), fixture.ghPagesSha)
   } finally {
     await rm(fixture.root, { recursive: true, force: true })
   }
@@ -2326,12 +2386,13 @@ async function assertDefaultTransportStopsOwnedTree(mode, expectedCode) {
       shell: false,
       timeoutMs: mode === "overflow" ? 5_000 : 150,
     })
-    record = await waitForJsonFile(pidFile)
-    const before = await waitForSentinel(sentinelFile)
-    await assert.rejects(run, (error) => {
+    const rejected = assert.rejects(run, (error) => {
       assert.equal(error?.code, expectedCode)
       return true
     })
+    record = await waitForJsonFile(pidFile)
+    const before = await waitForSentinel(sentinelFile)
+    await rejected
     const settled = await readFile(sentinelFile)
     assert.ok(settled.length >= before.length)
     await sleep(150)
