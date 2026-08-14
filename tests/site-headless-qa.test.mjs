@@ -92,6 +92,27 @@ test("local QA serves sorted mapped routes, loopback assets, and custom 404 with
   }
 })
 
+test("production QA defaults to a bounded one-mebibyte browser output budget", async () => {
+  const paths = await fixture()
+  let observedMaxOutputBytes = null
+  try {
+    const result = await runHeadlessSiteQaForTest({
+      siteRoot: paths.siteRoot,
+      basePath: "/project/",
+      routes: [],
+    }, {
+      browserRunner: async (context) => {
+        observedMaxOutputBytes = context.maxOutputBytes
+        return { ok: true }
+      },
+    })
+    assert.equal(result.status, "pass")
+    assert.equal(observedMaxOutputBytes, 1024 * 1024)
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
 test("visual diff classification is pure and triggers every visual source class plus anomalies", () => {
   const cases = [
     ["css", "styles/site.css"],
@@ -391,59 +412,81 @@ test("server cleanup failure remains visible after a browser failure", async () 
   }
 })
 
-test("failed own-PID termination returns a stable redacted code for timeout and output overflow", async () => {
-  const cases = [
-    ["timeout", 25, 128 * 1024, () => {
-      const child = new EventEmitter()
-      child.pid = 5252
-      child.stdout = new EventEmitter()
-      child.stderr = new EventEmitter()
-      return child
-    }],
-    ["output", 500, 1, () => {
-      const child = new EventEmitter()
-      child.pid = 6363
-      child.stdout = new EventEmitter()
-      child.stderr = new EventEmitter()
-      queueMicrotask(() => {
-        child.stdout.emit("data", Buffer.from("overflow"))
-        child.emit("close", 0, null)
-      })
-      return child
-    }],
-  ]
-  for (const [name, timeoutMs, maxOutputBytes, spawn] of cases) {
-    const paths = await fixture()
-    const taskkills = []
-    try {
-      const result = await runHeadlessSiteQaForTest({
-        siteRoot: paths.siteRoot,
-        basePath: "/project/",
-        routes: [],
-        timeoutMs,
-        maxOutputBytes,
-      }, {
-        platform: "win32",
-        browserExecutable: "fixture-browser",
-        spawn,
-        execFile: (file, args, options, callback) => {
-          taskkills.push({ file, args, options })
-          callback(new Error(`taskkill C:\\\\private\\\\${paths.root}`))
-        },
-      })
-      assert.equal(result.status, "fail", name)
-      assert.equal(result.error_code, "QA_BROWSER_TERMINATION_FAILED", name)
-      assert.deepEqual(result.checks.at(-1), { name: "browser_termination", outcome: "fail" }, name)
-      assert.deepEqual(taskkills, [{
-        file: "taskkill",
-        args: ["/PID", name === "timeout" ? "5252" : "6363", "/T", "/F"],
-        options: { windowsHide: true },
-      }], name)
-      assert.equal(JSON.stringify(result).includes(paths.root), false, name)
-      assert.equal(JSON.stringify(result).includes("taskkill"), false, name)
-    } finally {
-      await rm(paths.root, { recursive: true, force: true })
-    }
+test("failed own-PID termination after timeout returns a stable redacted code", async () => {
+  const paths = await fixture()
+  const taskkills = []
+  try {
+    const result = await runHeadlessSiteQaForTest({
+      siteRoot: paths.siteRoot,
+      basePath: "/project/",
+      routes: [],
+      timeoutMs: 25,
+    }, {
+      platform: "win32",
+      browserExecutable: "fixture-browser",
+      spawn: () => {
+        const child = new EventEmitter()
+        child.pid = 5252
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        return child
+      },
+      execFile: (file, args, options, callback) => {
+        taskkills.push({ file, args, options })
+        callback(new Error(`taskkill C:\\\\private\\\\${paths.root}`))
+      },
+    })
+    assert.equal(result.status, "fail")
+    assert.equal(result.error_code, "QA_BROWSER_TERMINATION_FAILED")
+    assert.deepEqual(result.checks.at(-1), { name: "browser_termination", outcome: "fail" })
+    assert.deepEqual(taskkills, [{
+      file: "taskkill",
+      args: ["/PID", "5252", "/T", "/F"],
+      options: { windowsHide: true },
+    }])
+    assert.equal(JSON.stringify(result).includes(paths.root), false)
+    assert.equal(JSON.stringify(result).includes("taskkill"), false)
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
+test("output overflow after a verified normal close preserves the output-limit result without taskkill", async () => {
+  const paths = await fixture()
+  const taskkills = []
+  try {
+    const result = await runHeadlessSiteQaForTest({
+      siteRoot: paths.siteRoot,
+      basePath: "/project/",
+      routes: [],
+      timeoutMs: 500,
+      maxOutputBytes: 1,
+    }, {
+      platform: "win32",
+      browserExecutable: "fixture-browser",
+      spawn: () => {
+        const child = new EventEmitter()
+        child.pid = 6363
+        child.stdout = new EventEmitter()
+        child.stderr = new EventEmitter()
+        queueMicrotask(() => {
+          child.stdout.emit("data", Buffer.from("overflow"))
+          child.emit("close", 0, null)
+        })
+        return child
+      },
+      execFile: (file, args, options, callback) => {
+        taskkills.push({ file, args, options })
+        callback(new Error(`taskkill C:\\\\private\\\\${paths.root}`))
+      },
+    })
+    assert.equal(result.status, "fail")
+    assert.equal(result.error_code, "QA_BROWSER_OUTPUT_LIMIT")
+    assert.deepEqual(result.checks.at(-1), { name: "browser_routes", outcome: "fail" })
+    assert.deepEqual(taskkills, [])
+    assert.equal(JSON.stringify(result).includes(paths.root), false)
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
   }
 })
 
