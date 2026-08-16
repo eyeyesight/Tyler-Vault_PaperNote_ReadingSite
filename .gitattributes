@@ -16,6 +16,4 @@
 *.toml text eol=lf
 
 # These are byte-level contract fixtures; never normalize them.
-specs/fixtures/zotero-marker-lf.* -text -diff
-specs/fixtures/zotero-marker-crlf.* -text -diff
 tests/fixtures/zotero-delta/paper-*.md -text -diff
