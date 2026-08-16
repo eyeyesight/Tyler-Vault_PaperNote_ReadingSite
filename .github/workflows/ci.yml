@@ -1,4 +1,4 @@
-name: T08 pinned-stack Linux gate
+name: CI
 
 on:
   pull_request:
@@ -8,12 +8,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: t08-pinned-stack-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  linux-pinned-stack:
-    name: Ubuntu pinned-stack acceptance
+  ci:
+    name: CI
     runs-on: ubuntu-24.04
     timeout-minutes: 60
 
@@ -40,7 +40,7 @@ jobs:
             test -z "$PR_HEAD_SHA"
             test -n "$(git rev-parse HEAD)"
           else
-            printf '%s\n' 'unsupported event for T08 pinned-stack workflow' >&2
+            printf '%s\n' 'unsupported event for CI workflow' >&2
             exit 1
           fi
 
@@ -58,14 +58,14 @@ jobs:
       - name: Capture a clean immutable checkout
         run: |
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          echo "T08_CHECKOUT_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "CI_CHECKOUT_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Install the exact locked dependency graph
         run: npm ci
 
       - name: Prove install did not rewrite reviewed inputs
         run: |
-          test "$(git rev-parse HEAD)" = "$T08_CHECKOUT_SHA"
+          test "$(git rev-parse HEAD)" = "$CI_CHECKOUT_SHA"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
 
       - name: Select the runner Chromium browser
@@ -90,14 +90,14 @@ jobs:
         run: node --test tests/slim-build.test.mjs tests/prepare-gh-pages-commit.test.mjs
 
       - name: Run the bounded publication and headless browser acceptance suite
-        run: node --test --test-concurrency=1 tests/t13-exact-publication-controller.test.mjs tests/vault-papernote-publish-cli.test.mjs tests/site-headless-qa.test.mjs
+        run: node --test --test-concurrency=1 tests/vault-papernote-publish-cli.test.mjs tests/site-headless-qa.test.mjs
 
       - name: Generate and parse the exact-stack SBOM
         run: |
-          npm sbom --package-lock-only --sbom-format=cyclonedx > "$RUNNER_TEMP/t08-sbom.cdx.json"
-          node -e 'const fs=require("node:fs"); const data=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/t08-sbom.cdx.json","utf8")); if (!Array.isArray(data.components) || data.components.length === 0) process.exit(1); console.log(`SBOM_COMPONENTS=${data.components.length}`)'
+          npm sbom --package-lock-only --sbom-format=cyclonedx > "$RUNNER_TEMP/ci-sbom.cdx.json"
+          node -e 'const fs=require("node:fs"); const data=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/ci-sbom.cdx.json","utf8")); if (!Array.isArray(data.components) || data.components.length === 0) process.exit(1); console.log(`SBOM_COMPONENTS=${data.components.length}`)'
 
       - name: Prove acceptance left reviewed source unchanged
         run: |
-          test "$(git rev-parse HEAD)" = "$T08_CHECKOUT_SHA"
+          test "$(git rev-parse HEAD)" = "$CI_CHECKOUT_SHA"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"

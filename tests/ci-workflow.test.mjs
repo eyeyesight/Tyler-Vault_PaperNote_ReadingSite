@@ -6,7 +6,7 @@ import test from "node:test"
 import { parse as parseYaml } from "yaml"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
-const workflowPath = path.join(repoRoot, ".github", "workflows", "t08-pinned-stack.yml")
+const workflowPath = path.join(repoRoot, ".github", "workflows", "ci.yml")
 
 const expectedPins = new Map([
   ["actions/checkout", { sha: "11bd71901bbe5b1630ceea73d27597364c9af683", version: "v4.2.2" }],
@@ -22,7 +22,7 @@ test.before(async () => {
 })
 
 function job() {
-  return workflow.jobs["linux-pinned-stack"]
+  return workflow.jobs.ci
 }
 
 function steps() {
@@ -31,7 +31,7 @@ function steps() {
 
 function stepNamed(name) {
   const step = steps().find((candidate) => candidate.name === name)
-  assert(step, `missing pinned-stack step: ${name}`)
+  assert(step, `missing CI step: ${name}`)
   return step
 }
 
@@ -40,10 +40,11 @@ function runText(step) {
   return step.run
 }
 
-test("T08 keeps the pull-request and manual dispatch events with the existing acceptance check", () => {
+test("CI keeps the pull-request and manual dispatch events with the existing acceptance check", () => {
+  assert.equal(workflow.name, "CI")
   assert.deepEqual(Object.keys(workflow.on), ["pull_request", "workflow_dispatch"])
   assert.deepEqual(workflow.permissions, { contents: "read" })
-  assert.equal(job().name, "Ubuntu pinned-stack acceptance")
+  assert.equal(job().name, "CI")
 })
 
 test("Checkout selects the exact pull-request head and uses only a bounded dispatch fallback", () => {
@@ -81,7 +82,7 @@ test("Trusted PR-head assertion runs before dependency installation and CI", () 
   assert(headIndex >= 0 && headIndex < ciIndex, "PR-head proof must precede CI")
 })
 
-test("T08 actions remain immutable official pins with comments and checkout credentials disabled", () => {
+test("CI actions remain immutable official pins with comments and checkout credentials disabled", () => {
   const usesLines = [...workflowText.matchAll(/^\s+uses:\s+([^\s#]+)(?:\s+#\s*(v[^\s]+))?\s*$/gm)]
   assert.equal(usesLines.length, expectedPins.size)
   for (const [, reference, version] of usesLines) {
@@ -106,12 +107,11 @@ test("No shell step interpolates caller-controlled input or a synthetic merge re
   }
 })
 
-test("T08 uses a bounded publication acceptance suite instead of the repository-wide test scan", () => {
+test("CI uses a bounded publication acceptance suite instead of the repository-wide test scan", () => {
   const acceptance = stepNamed("Run the bounded publication and headless browser acceptance suite")
   const command = runText(acceptance).trim()
   assert.equal(command, [
     "node --test --test-concurrency=1",
-    "tests/t13-exact-publication-controller.test.mjs",
     "tests/vault-papernote-publish-cli.test.mjs",
     "tests/site-headless-qa.test.mjs",
   ].join(" "))

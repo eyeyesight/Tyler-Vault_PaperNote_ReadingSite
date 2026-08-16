@@ -300,7 +300,7 @@ async function makeFixture({ lane = "content", mapChanged = true } = {}) {
     },
     async readRequiredCi(input) {
       trace.push("provider.read_ci")
-      assert.deepEqual(input, { head_sha: mapping.headSha, workflow: "t08-pinned-stack.yml", job: "Ubuntu pinned-stack acceptance" })
+      assert.deepEqual(input, { head_sha: mapping.headSha, workflow: "ci.yml", job: "CI" })
       return { head_sha: mapping.headSha, workflow: input.workflow, job: input.job, status: "completed", conclusion: "success" }
     },
     async squashMergeMappingPr(input) {
@@ -926,15 +926,15 @@ test("zero or multiple merged objects after loss fail without push or dispatch",
   }
 })
 
-test("named pinned CI failure stops before merge, push, or dispatch", async () => {
+test("named CI failure stops before merge, push, or dispatch", async () => {
   const fixture = await makeFixture()
   try {
     fixture.provider.readRequiredCi = async (input) => {
       fixture.trace.push("provider.read_ci_failure")
       assert.deepEqual(Object.keys(input).sort(), ["head_sha", "job", "workflow"])
       assert.match(input.head_sha, /^[0-9a-f]{40}$/u)
-      assert.equal(input.workflow, "t08-pinned-stack.yml")
-      assert.equal(input.job, "Ubuntu pinned-stack acceptance")
+      assert.equal(input.workflow, "ci.yml")
+      assert.equal(input.job, "CI")
       return { head_sha: input.head_sha, workflow: input.workflow, job: input.job, status: "completed", conclusion: "failure" }
     }
     const result = await routinePublicationHandoff(fixture.operation, { provider: fixture.provider, localGit: fixture.localGit })
