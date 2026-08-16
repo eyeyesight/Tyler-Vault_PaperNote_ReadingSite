@@ -1,4 +1,4 @@
-# ADR 0003 — Temporary Project-Owned Pinned-Stack Bridge
+# ADR 0003 — Dependency Compatibility Decision
 
 - Status: Accepted
 - Date: 2026-07-30
@@ -58,4 +58,4 @@ Remove or stop the affected bridge component when:
 
 ## Consequences
 
-The project gets an exact patched graph without waiting for upstream, while accepting explicit temporary maintenance work. Every dependency or boundary change must re-prove the bridge. Failure of any gate keeps public rehearsal and deployment blocked. T08 remains in progress until all ticket acceptance evidence, including non-local prerequisites and independent review, is complete.
+The project gets an exact patched graph without waiting for upstream, while accepting explicit temporary maintenance work. Every dependency or boundary change must re-prove the bridge. Failure of any gate keeps public rehearsal and deployment blocked. CI must continue to verify the dependency compatibility and security checks on Linux before changes are merged.

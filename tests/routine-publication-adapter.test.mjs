@@ -209,11 +209,11 @@ test("bounded provider transport constructs the final safe environment once and 
   const harness = await makeProviderHarness(async (request) => {
     const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
-    if (endpoint.startsWith("/repos/owner/repository/actions/workflows/t08-pinned-stack.yml/runs?")) return {
+    if (endpoint.startsWith("/repos/owner/repository/actions/workflows/ci.yml/runs?")) return {
       status: 0,
       stdout: Buffer.from(JSON.stringify({ total_count: 1, workflow_runs: [{
         id: 77,
-        path: ".github/workflows/t08-pinned-stack.yml",
+        path: ".github/workflows/ci.yml",
         head_sha: headSha,
       }] })),
       stderr: Buffer.alloc(0),
@@ -221,7 +221,7 @@ test("bounded provider transport constructs the final safe environment once and 
     if (endpoint.startsWith("/repos/owner/repository/actions/runs/77/jobs?")) return {
       status: 0,
       stdout: Buffer.from(JSON.stringify({ total_count: 1, jobs: [{
-        name: "Ubuntu pinned-stack acceptance",
+        name: "CI",
         status: "completed",
         conclusion: "success",
       }] })),
@@ -232,13 +232,13 @@ test("bounded provider transport constructs the final safe environment once and 
   try {
     const result = await harness.provider.readRequiredCi({
       head_sha: headSha,
-      workflow: "t08-pinned-stack.yml",
-      job: "Ubuntu pinned-stack acceptance",
+      workflow: "ci.yml",
+      job: "CI",
     })
     assert.deepEqual(result, {
       head_sha: headSha,
-      workflow: "t08-pinned-stack.yml",
-      job: "Ubuntu pinned-stack acceptance",
+      workflow: "ci.yml",
+      job: "CI",
       status: "completed",
       conclusion: "success",
     })
@@ -263,7 +263,7 @@ test("bounded provider status failures map 401 and rate limit to stable errors w
     const harness = await makeProviderHarness(async (request) => {
       const endpoint = request.argv[2]
       if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
-      if (endpoint.startsWith("/repos/owner/repository/actions/workflows/t08-pinned-stack.yml/runs?")) return {
+      if (endpoint.startsWith("/repos/owner/repository/actions/workflows/ci.yml/runs?")) return {
         status,
         stdout: Buffer.alloc(0),
         stderr: Buffer.from(diagnostic, "utf8"),
@@ -272,7 +272,7 @@ test("bounded provider status failures map 401 and rate limit to stable errors w
     }, { bounded: true })
     try {
       await assert.rejects(
-        harness.provider.readRequiredCi({ head_sha: headSha, workflow: "t08-pinned-stack.yml", job: "Ubuntu pinned-stack acceptance" }),
+        harness.provider.readRequiredCi({ head_sha: headSha, workflow: "ci.yml", job: "CI" }),
         (error) => {
           assert.equal(error?.code, expectedCode)
           assert.equal(error?.message, expectedCode)
@@ -708,29 +708,29 @@ test("mapping PR projection reads every page and proves the exact file and map b
   }
 })
 
-test("pinned CI fails closed when a paginated workflow response contains malformed data", async () => {
+test("CI fails closed when a paginated workflow response contains malformed data", async () => {
   const headSha = "c".repeat(40)
   const harness = await makeProviderHarness(async (request) => {
     const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
-    if (endpoint.startsWith("/repos/owner/repository/actions/workflows/t08-pinned-stack.yml/runs?")) return {
+    if (endpoint.startsWith("/repos/owner/repository/actions/workflows/ci.yml/runs?")) return {
       status: 0,
       stdout: Buffer.from(JSON.stringify({ total_count: 2, workflow_runs: [
         {},
-        { id: 77, path: ".github/workflows/t08-pinned-stack.yml", head_sha: headSha },
+        { id: 77, path: ".github/workflows/ci.yml", head_sha: headSha },
       ] })),
       stderr: Buffer.alloc(0),
     }
     if (endpoint.startsWith("/repos/owner/repository/actions/runs/77/jobs?")) return {
       status: 0,
-      stdout: Buffer.from(JSON.stringify({ total_count: 1, jobs: [{ name: "Ubuntu pinned-stack acceptance", status: "completed", conclusion: "success" }] })),
+      stdout: Buffer.from(JSON.stringify({ total_count: 1, jobs: [{ name: "CI", status: "completed", conclusion: "success" }] })),
       stderr: Buffer.alloc(0),
     }
     throw new Error(`unexpected fake CI endpoint: ${endpoint}`)
   })
   try {
     await assert.rejects(
-      harness.provider.readRequiredCi({ head_sha: headSha, workflow: "t08-pinned-stack.yml", job: "Ubuntu pinned-stack acceptance" }),
+      harness.provider.readRequiredCi({ head_sha: headSha, workflow: "ci.yml", job: "CI" }),
       (error) => {
         assert.equal(error?.code, "ci_failed")
         return true
@@ -741,19 +741,19 @@ test("pinned CI fails closed when a paginated workflow response contains malform
   }
 })
 
-test("pinned CI reads one exact workflow run and required successful job projection", async () => {
+test("CI reads one exact workflow run and required successful job projection", async () => {
   const headSha = "9".repeat(40)
   const harness = await makeProviderHarness(async (request) => {
     const endpoint = request.argv[2]
     if (endpoint === "/user") return { status: 0, stdout: Buffer.from("actor\n"), stderr: Buffer.alloc(0) }
-    if (endpoint === `/repos/owner/repository/actions/workflows/t08-pinned-stack.yml/runs?head_sha=${headSha}&per_page=100&page=1`) return {
+    if (endpoint === `/repos/owner/repository/actions/workflows/ci.yml/runs?head_sha=${headSha}&per_page=100&page=1`) return {
       status: 0,
-      stdout: Buffer.from(JSON.stringify({ total_count: 1, workflow_runs: [{ id: "run-ci-1", path: ".github/workflows/t08-pinned-stack.yml", head_sha: headSha }] })),
+      stdout: Buffer.from(JSON.stringify({ total_count: 1, workflow_runs: [{ id: "run-ci-1", path: ".github/workflows/ci.yml", head_sha: headSha }] })),
       stderr: Buffer.alloc(0),
     }
     if (endpoint === "/repos/owner/repository/actions/runs/run-ci-1/jobs?per_page=100&page=1") return {
       status: 0,
-      stdout: Buffer.from(JSON.stringify({ total_count: 1, jobs: [{ name: "Ubuntu pinned-stack acceptance", status: "completed", conclusion: "success" }] })),
+      stdout: Buffer.from(JSON.stringify({ total_count: 1, jobs: [{ name: "CI", status: "completed", conclusion: "success" }] })),
       stderr: Buffer.alloc(0),
     }
     throw new Error(`unexpected exact CI endpoint: ${endpoint}`)
@@ -761,18 +761,18 @@ test("pinned CI reads one exact workflow run and required successful job project
   try {
     assert.deepEqual(await harness.provider.readRequiredCi({
       head_sha: headSha,
-      workflow: "t08-pinned-stack.yml",
-      job: "Ubuntu pinned-stack acceptance",
+      workflow: "ci.yml",
+      job: "CI",
     }), {
       head_sha: headSha,
-      workflow: "t08-pinned-stack.yml",
-      job: "Ubuntu pinned-stack acceptance",
+      workflow: "ci.yml",
+      job: "CI",
       status: "completed",
       conclusion: "success",
     })
     assert.deepEqual(harness.commandRequests.map(({ argv }) => argv[2]), [
       "/user",
-      `/repos/owner/repository/actions/workflows/t08-pinned-stack.yml/runs?head_sha=${headSha}&per_page=100&page=1`,
+      `/repos/owner/repository/actions/workflows/ci.yml/runs?head_sha=${headSha}&per_page=100&page=1`,
       "/repos/owner/repository/actions/runs/run-ci-1/jobs?per_page=100&page=1",
     ])
   } finally {

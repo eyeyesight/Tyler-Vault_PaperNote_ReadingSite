@@ -60,7 +60,7 @@
         "npm": "10.9.8",
         "full": {
           "command": "npm audit --package-lock-only --json",
-          "artifact": "security/t08-audit-full.json",
+          "artifact": "security/audit-full.json",
           "sha256": "0e19045ab1f4932f15220277b32aeeb51970c1166b34df431ba493eeea9de3e2",
           "dependencies": {
             "prod": 304,
@@ -73,7 +73,7 @@
         },
         "production": {
           "command": "npm audit --package-lock-only --omit=dev --json",
-          "artifact": "security/t08-audit-production.json",
+          "artifact": "security/audit-production.json",
           "sha256": "0e19045ab1f4932f15220277b32aeeb51970c1166b34df431ba493eeea9de3e2",
           "dependencies": {
             "prod": 304,
@@ -335,7 +335,7 @@
         "npm": "10.9.8",
         "full": {
           "command": "npm audit --package-lock-only --json",
-          "artifact": "security/t08-audit-full.json",
+          "artifact": "security/audit-full.json",
           "sha256": "0e19045ab1f4932f15220277b32aeeb51970c1166b34df431ba493eeea9de3e2",
           "dependencies": {
             "prod": 304,
@@ -348,7 +348,7 @@
         },
         "production": {
           "command": "npm audit --package-lock-only --omit=dev --json",
-          "artifact": "security/t08-audit-production.json",
+          "artifact": "security/audit-production.json",
           "sha256": "0e19045ab1f4932f15220277b32aeeb51970c1166b34df431ba493eeea9de3e2",
           "dependencies": {
             "prod": 304,

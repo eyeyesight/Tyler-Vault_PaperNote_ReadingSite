@@ -13,7 +13,7 @@ const repoRoot = path.resolve(import.meta.dirname, "..")
 const packageJson = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"))
 const lock = JSON.parse(await readFile(path.join(repoRoot, "package-lock.json"), "utf8"))
 const metadata = JSON.parse(await readFile(path.join(repoRoot, "config", "quartz-toolchain.json"), "utf8"))
-const baseline = JSON.parse(await readFile(path.join(repoRoot, "security", "t08-advisory-baseline.json"), "utf8"))
+const baseline = JSON.parse(await readFile(path.join(repoRoot, "security", "advisory-baseline.json"), "utf8"))
 const require = createRequire(import.meta.url)
 
 const quartzCommit = "507ad7f3d4601d83482f61930fccf1c77f42a072"
@@ -80,7 +80,7 @@ function compareVersions(left, right) {
   return 0
 }
 
-test("T08 advisory baseline preserves historical remediation and separates current revalidation", () => {
+test("CI advisory baseline preserves historical remediation and separates current revalidation", () => {
   assert.equal(baseline.schema_version, 2)
   assert.equal(baseline.checked_at, "2026-08-04")
 
@@ -142,7 +142,7 @@ test("T08 advisory baseline preserves historical remediation and separates curre
   }
 })
 
-test("T08 final lock, audit artifacts, and canonical CycloneDX evidence remain bound", async () => {
+test("CI final lock, audit artifacts, and canonical CycloneDX evidence remain bound", async () => {
   const lockBytes = await readFile(path.join(repoRoot, "package-lock.json"))
   const currentAfter = baseline.current_revalidation.after
   assert.equal(sha256(lockBytes), currentAfter.package_lock_sha256)
@@ -168,8 +168,8 @@ test("T08 final lock, audit artifacts, and canonical CycloneDX evidence remain b
   }
 
   const checkoutRoots = await Promise.all([
-    mkdtemp(path.join(os.tmpdir(), "t08-sbom-checkout-a-")),
-    mkdtemp(path.join(os.tmpdir(), "t08-sbom-checkout-b-longer-name-")),
+    mkdtemp(path.join(os.tmpdir(), "ci-sbom-checkout-a-")),
+    mkdtemp(path.join(os.tmpdir(), "ci-sbom-checkout-b-longer-name-")),
   ])
   assert.notEqual(path.basename(checkoutRoots[0]), path.basename(checkoutRoots[1]))
   const packageBytes = await readFile(path.join(repoRoot, "package.json"))
@@ -213,7 +213,7 @@ test("T08 final lock, audit artifacts, and canonical CycloneDX evidence remain b
   }
 })
 
-test("T08 root stack uses only exact reviewed Quartz and transitive source pins", () => {
+test("CI root stack uses only exact reviewed Quartz and transitive source pins", () => {
   assert.equal(packageJson.dependencies["@jackyzha0/quartz"], quartzTarball)
   assert.equal(packageJson.dependencies["brace-expansion"], compatibilitySpec)
   assert.deepEqual(packageJson.overrides, {
@@ -226,7 +226,7 @@ test("T08 root stack uses only exact reviewed Quartz and transitive source pins"
   assert.match(lock.packages["node_modules/@jackyzha0/quartz"].integrity, /^sha512-/)
 })
 
-test("T08 records project ownership because Quartz does not natively support the overridden Sharp line", async () => {
+test("CI records project ownership because Quartz does not natively support the overridden Sharp line", async () => {
   const sharpRange = lock.packages["node_modules/@jackyzha0/quartz"].dependencies.sharp
   assert.equal(sharpRange, "^0.34.5")
   assert.equal(compareVersions(sharpOverride, "0.35.0") >= 0, true)
@@ -243,7 +243,7 @@ test("T08 records project ownership because Quartz does not natively support the
   assert.equal(initialResolution.sharp_override.version, sharpOverride)
   assert.equal(initialResolution.removal_triggers.length >= 3, true)
 
-  const adr = await readFile(path.join(repoRoot, "docs", "adr", "0003-temporary-pinned-stack-bridge.md"), "utf8")
+  const adr = await readFile(path.join(repoRoot, "docs", "adr", "0003-dependency-compatibility.md"), "utf8")
   assert.match(adr, /Status:\s*Accepted/i)
   assert.match(adr, /Accepted by:\s*Tyler/i)
   assert.match(adr, /not upstream-supported/i)
@@ -252,7 +252,7 @@ test("T08 records project ownership because Quartz does not natively support the
   assert.match(adr, /5\.0\.8/)
 })
 
-test("T08 lock graph contains exact patched image, brace, and URI primitives", async () => {
+test("CI lock graph contains exact patched image, brace, and URI primitives", async () => {
   assert.equal(lock.packages["node_modules/sharp"].version, "0.35.3")
   assert.match(lock.packages["node_modules/sharp"].integrity, /^sha512-/)
   assert.equal(lock.packages["node_modules/serve-handler"].version, "6.1.7")
@@ -300,7 +300,7 @@ test("T08 lock graph contains exact patched image, brace, and URI primitives", a
   }
 })
 
-test("T08 Sharp processes only the pinned favicon path into a 48x48 PNG", async () => {
+test("CI Sharp processes only the pinned favicon path into a 48x48 PNG", async () => {
   const iconPath = path.join(repoRoot, "node_modules", "@jackyzha0", "quartz", "quartz", "static", "icon.png")
   const iconBytes = await readFile(iconPath)
   assert.equal(sha256(iconBytes), metadata.defaultIconSha256)
@@ -323,7 +323,7 @@ test("T08 Sharp processes only the pinned favicon path into a 48x48 PNG", async 
   assert.equal(outputMetadata.height, 48)
 })
 
-test("T08 patched brace adapter supports Quartz minimatch ESM imports", async () => {
+test("CI patched brace adapter supports Quartz minimatch ESM imports", async () => {
   const importedAdapter = /** @type {unknown} */ (await import("brace-expansion"))
   const braceExpansion = /** @type {{ expand: (pattern: string) => string[] }} */ (importedAdapter)
   assert.equal(typeof braceExpansion.expand, "function")
@@ -333,12 +333,12 @@ test("T08 patched brace adapter supports Quartz minimatch ESM imports", async ()
   assert.equal(minimatchModule.minimatch("notes/paper.md", "**/*.md"), true)
 })
 
-test("T08 exact serve-handler replacement satisfies its real minimatch call contract", async (t) => {
+test("CI exact serve-handler replacement satisfies its real minimatch call contract", async (t) => {
   const serveHandler = /** @type {(request: import("node:http").IncomingMessage, response: import("node:http").ServerResponse, options: { public: string, rewrites: Array<{ source: string, destination: string }> }) => Promise<void>} */ (
     require(/** @type {string} */ ("serve-handler"))
   )
-  const root = await mkdtemp(path.join(os.tmpdir(), "t08-serve-handler-"))
-  await writeFile(path.join(root, "index.html"), "T08 compatibility spike\n")
+  const root = await mkdtemp(path.join(os.tmpdir(), "ci-serve-handler-"))
+  await writeFile(path.join(root, "index.html"), "CI compatibility check\n")
   t.after(() => rm(root, { recursive: true, force: true }))
   const server = createServer((request, response) => serveHandler(request, response, {
     public: root,
@@ -355,10 +355,10 @@ test("T08 exact serve-handler replacement satisfies its real minimatch call cont
   }
   const response = await fetch(`http://127.0.0.1:${address.port}/nested/path`)
   assert.equal(response.status, 200)
-  assert.equal(await response.text(), "T08 compatibility spike\n")
+  assert.equal(await response.text(), "CI compatibility check\n")
 })
 
-test("T08 toolchain receipt is rebound to the reviewed Quartz commit and complete executable trees", () => {
+test("CI toolchain receipt is rebound to the reviewed Quartz commit and complete executable trees", () => {
   assert.equal(metadata.version, "5.0.0")
   assert.equal(metadata.commit, quartzCommit)
   assert.match(metadata.defaultIconSha256, /^[0-9a-f]{64}$/)
