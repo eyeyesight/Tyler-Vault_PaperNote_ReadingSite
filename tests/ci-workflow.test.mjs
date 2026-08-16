@@ -107,6 +107,17 @@ test("No shell step interpolates caller-controlled input or a synthetic merge re
   }
 })
 
+test("CI runs the retained Pages workflow contract inside the bounded site suite", () => {
+  const site = stepNamed("Build and verify the slim production site")
+  const command = runText(site).trim()
+  assert.equal(command, [
+    "node --test",
+    "tests/slim-build.test.mjs",
+    "tests/prepare-gh-pages-commit.test.mjs",
+    "tests/github-pages-workflow.test.mjs",
+  ].join(" "))
+})
+
 test("CI uses a bounded publication acceptance suite instead of the repository-wide test scan", () => {
   const acceptance = stepNamed("Run the bounded publication and headless browser acceptance suite")
   const command = runText(acceptance).trim()
@@ -114,6 +125,7 @@ test("CI uses a bounded publication acceptance suite instead of the repository-w
     "node --test --test-concurrency=1",
     "tests/vault-papernote-publish-cli.test.mjs",
     "tests/site-headless-qa.test.mjs",
+    "tests/vault-papernote-site-cli.test.mjs",
   ].join(" "))
   assert.doesNotMatch(command, /\bnpm test\b|node --test(?:\s+--test-concurrency=1)?\s*$/)
 })
