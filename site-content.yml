@@ -1,3 +1,4 @@
+# Public site content registry.
 pages:
   - source: "Literature/Notes/Guo et al. 2024 — Benchmarking Micro-action Recognition.md"
     route: "/papers/guo-2024-benchmarking-micro-action-recognition/"
