@@ -41,7 +41,7 @@ function source(title) {
 }
 
 test("content map snapshot preflight accepts a non-nine page proposal through the public seam", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-map-red-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-map-red-"))
   const vault = path.join(root, "vault")
   const work = path.join(root, "work")
   const output = path.join(root, "output")
@@ -79,7 +79,7 @@ test("content map snapshot preflight accepts a non-nine page proposal through th
 const mappedPages = parseYaml(await readFile(path.join(repoRoot, "site-content.yml"), "utf8")).pages
 
 test("prepare CLI starts a real temporary Git/Vault fixture without an operation id", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-publish-cli-red-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-publish-cli-red-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   await mkdir(vault, { recursive: true })
@@ -125,7 +125,7 @@ test("prepare CLI starts a real temporary Git/Vault fixture without an operation
 })
 
 test("prepare CLI rejects unsupported caller authority flags without path leakage", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-publish-flags-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-publish-flags-"))
   try {
     for (const [flag, value] of [["--content-map", path.join(root, "private-input")], ["--baseline-site", path.join(root, "private-input")], ["--cleanup", "true"]]) {
       const result = spawnSync(process.execPath, [
@@ -146,7 +146,7 @@ test("prepare CLI rejects unsupported caller authority flags without path leakag
 })
 
 test("controller rejects caller output overrides before reading mutable authority", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-output-override-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-output-override-"))
   try {
     const result = await prepareContentPrivatePreview({
       vaultRoot: path.join(root, "vault"),
@@ -257,7 +257,7 @@ async function makeFixture(root, mapPath, vault, buildBaseline) {
   }
   git(fixture.repo, ["init", "-b", "main"])
   git(fixture.repo, ["config", "user.email", "fixture@example.invalid"])
-  git(fixture.repo, ["config", "user.name", "T13 Fixture"])
+  git(fixture.repo, ["config", "user.name", "Publication Fixture"])
   await put(fixture.repo, "site-content.yml", await readFile(fixture.mainMap))
   git(fixture.repo, ["add", "site-content.yml"])
   git(fixture.repo, ["commit", "-m", "fixture main"])
@@ -308,7 +308,7 @@ async function makePresentationFixture(root, mapPath, vault, mutateMain = true) 
   await put(fixture.baseline, ".nojekyll", Buffer.alloc(0))
   git(fixture.repo, ["init", "-b", "main"])
   git(fixture.repo, ["config", "user.email", "fixture@example.invalid"])
-  git(fixture.repo, ["config", "user.name", "T13 Presentation Fixture"])
+  git(fixture.repo, ["config", "user.name", "Publication Presentation Fixture"])
   for (const relative of git(repoRoot, ["ls-files"]).split(/\r?\n/u).filter(Boolean)) {
     const sourcePath = path.join(repoRoot, ...relative.split("/"))
     const destination = path.join(fixture.repo, ...relative.split("/"))
@@ -368,7 +368,7 @@ test("renderer file dependencies reject outside and untracked targets before res
     { name: "untracked", spec: "file:node_modules/yaml" },
   ]
   for (const current of cases) {
-    const root = await mkdtemp(path.join(os.tmpdir(), `tyrs-t13-renderer-file-${current.name}-`))
+    const root = await mkdtemp(path.join(os.tmpdir(), `tyrs-pub-renderer-file-${current.name}-`))
     const vault = path.join(root, "vault")
     const map = path.join(root, "map.yml")
     await mkdir(vault, { recursive: true })
@@ -395,7 +395,7 @@ test("renderer file dependencies reject outside and untracked targets before res
 })
 
 test("content discovery includes direct formal Literature and Knowledge support pages", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-content-direct-support-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-content-direct-support-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   await mkdir(vault, { recursive: true })
@@ -434,7 +434,7 @@ test("content discovery includes direct formal Literature and Knowledge support 
 })
 
 test("content lane creates one complete private preview from Vault plus temporary Git refs", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-content-e2e-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-content-e2e-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   await mkdir(vault, { recursive: true })
@@ -548,7 +548,7 @@ test("content lane creates one complete private preview from Vault plus temporar
 })
 
 test("publication preparation preserves an exact deployed candidate for LKG reconciliation", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-publication-reconciliation-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-publication-reconciliation-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   const ordinaryWork = path.join(root, "ordinary-work")
@@ -591,7 +591,7 @@ test("publication preparation preserves an exact deployed candidate for LKG reco
 })
 
 test("site exact live verification returns no_change and cleans its session", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-exact-unchanged-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-site-exact-unchanged-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   const workRoot = path.join(root, "site-work")
@@ -623,7 +623,7 @@ test("site exact live verification returns no_change and cleans its session", as
 })
 
 test("site exact live verification reuses an explicit operation id only after successful cleanup", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-exact-reuse-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-site-exact-reuse-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   const workRoot = path.join(root, "site-work")
@@ -656,7 +656,7 @@ test("site exact live verification reuses an explicit operation id only after su
 })
 
 test("site exact live verification reports mapped Vault content changes without a candidate", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-exact-mapped-change-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-site-exact-mapped-change-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   const workRoot = path.join(root, "site-work")
@@ -695,7 +695,7 @@ test("site exact live verification reports mapped Vault content changes without 
 })
 
 test("site exact verification reports a proposal and leaves the public content candidate isolated", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-exact-proposal-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-site-exact-proposal-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   const siteWorkRoot = path.join(root, "site-work")
@@ -740,7 +740,7 @@ test("site exact verification reports a proposal and leaves the public content c
 })
 
 test("content candidate uses current main renderer while retaining deployed renderer provenance", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-content-main-renderer-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-content-main-renderer-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   const workRoot = path.join(root, "content-work")
@@ -778,7 +778,7 @@ test("content candidate uses current main renderer while retaining deployed rend
 })
 
 test("site exact verification keeps route removal as manual review", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-route-removal-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-site-route-removal-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   const workRoot = path.join(root, "site-work")
@@ -816,7 +816,7 @@ test("site exact verification keeps route removal as manual review", async () =>
 })
 
 test("site presentation materializes current main once, runs QA, and persists bounded screenshots", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-presentation-ready-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-site-presentation-ready-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   const workRoot = path.join(root, "site-work")
@@ -894,7 +894,7 @@ test("site presentation materializes current main once, runs QA, and persists bo
 })
 
 test("site presentation exposes a stable QA failure and removes its session", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-presentation-qa-failure-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-site-presentation-qa-failure-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   const workRoot = path.join(root, "site-work")
@@ -924,7 +924,7 @@ test("site presentation exposes a stable QA failure and removes its session", as
 })
 
 test("site presentation returns no_change without a second renderer install when main equals live", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-presentation-no-change-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-site-presentation-no-change-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   const workRoot = path.join(root, "site-work")
@@ -953,7 +953,7 @@ test("site presentation returns no_change without a second renderer install when
 })
 
 test("site presentation stops for pending content before current-main materialization or QA", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-presentation-pending-content-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-site-presentation-pending-content-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   const workRoot = path.join(root, "site-work")
@@ -987,7 +987,7 @@ test("site presentation stops for pending content before current-main materializ
 })
 
 test("route-removal result is exact, sorted, and redacted before renderer work", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-route-removal-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-route-removal-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   await mkdir(vault, { recursive: true })
@@ -1077,7 +1077,7 @@ test("content lane fails closed for collision, unresolved one-hop target, privac
     },
   ]
   for (const current of cases) {
-    const root = await mkdtemp(path.join(os.tmpdir(), `tyrs-t13-${current.name}-`))
+    const root = await mkdtemp(path.join(os.tmpdir(), `tyrs-pub-${current.name}-`))
     const vault = path.join(root, "vault")
     const map = path.join(root, "map.yml")
     await mkdir(vault, { recursive: true })
@@ -1101,7 +1101,7 @@ test("content lane fails closed for collision, unresolved one-hop target, privac
     }
   }
 
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-renderer-drift-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-renderer-drift-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   await mkdir(vault, { recursive: true })
@@ -1125,7 +1125,7 @@ test("content lane fails closed for collision, unresolved one-hop target, privac
 })
 
 test("operation IDs are opaque and failed attempts never delete traversal or reused sentinels", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-operation-id-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-operation-id-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   const workRoot = path.join(root, "work")
@@ -1174,7 +1174,7 @@ test("operation IDs are opaque and failed attempts never delete traversal or reu
 })
 
 test("Git authority accepts only immutable safe refs and rejects revision expressions", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-git-ref-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-git-ref-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   await mkdir(vault, { recursive: true })
@@ -1201,7 +1201,7 @@ test("Git authority accepts only immutable safe refs and rejects revision expres
 
 test("malformed and wrong deployed renderer provenance fail closed before build", async () => {
   for (const mode of ["missing", "ambiguous", "malformed", "wrong"]) {
-    const root = await mkdtemp(path.join(os.tmpdir(), `tyrs-t13-provenance-${mode}-`))
+    const root = await mkdtemp(path.join(os.tmpdir(), `tyrs-pub-provenance-${mode}-`))
     const vault = path.join(root, "vault")
     const map = path.join(root, "map.yml")
     await mkdir(vault, { recursive: true })
@@ -1241,7 +1241,7 @@ test("malformed and wrong deployed renderer provenance fail closed before build"
 })
 
 test("cleanup failure is visible through an internal controller seam without exposing paths", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-cleanup-failure-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-cleanup-failure-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   const workRoot = path.join(root, "work")
@@ -1278,7 +1278,7 @@ test("cleanup failure is visible through an internal controller seam without exp
 })
 
 test("site verification cleanup failure is visible and never returns a candidate", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-t13-site-cleanup-failure-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "tyrs-pub-site-cleanup-failure-"))
   const vault = path.join(root, "vault")
   const map = path.join(root, "map.yml")
   const workRoot = path.join(root, "work")
