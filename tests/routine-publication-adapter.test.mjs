@@ -38,7 +38,7 @@ const SAFE_INPUT_BYTES = 16 * 1024 * 1024
 const gitBlobSha = (bytes) => createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex")
 
 async function makeProviderHarness(commandHandler, { actor = "actor", repository = "owner/repository", projectUrl, bounded = false } = {}) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-provider-fake-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-provider-fake-"))
   const ghExecutable = path.join(root, process.platform === "win32" ? "gh.exe" : "gh")
   const ghConfigDir = path.join(root, "gh-config")
   await writeFile(ghExecutable, "fake gh")
@@ -86,7 +86,7 @@ test("exports the production GitHub provider constructor", async () => {
 })
 
 test("the final factory returns exactly plain localGit and provider capability seams", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-adapter-factory-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-adapter-factory-"))
   const gitRoot = path.join(root, "git")
   const operationRoot = path.join(root, "operation")
   const ghConfigDir = path.join(root, "gh-config")
@@ -153,7 +153,7 @@ test("the final factory returns exactly plain localGit and provider capability s
 })
 
 test("GitHub provider capabilities are an authenticated plain object with exact own methods", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-provider-shape-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-provider-shape-"))
   const ghExecutable = path.join(root, process.platform === "win32" ? "gh.exe" : "gh")
   const ghConfigDir = path.join(root, "gh-config")
   await writeFile(ghExecutable, "fake gh")
@@ -288,7 +288,7 @@ test("bounded provider status failures map 401 and rate limit to stable errors w
 })
 
 test("bounded local-Git nonzero status maps to git_command_failed after bounded execution", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-adapter-git-status-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-adapter-git-status-"))
   const gitRoot = path.join(root, "git")
   const operationRoot = path.join(root, "operation")
   await mkdir(gitRoot)
@@ -322,7 +322,7 @@ test("bounded local-Git nonzero status maps to git_command_failed after bounded 
 })
 
 test("provider actor mismatch is auth_failed with a stable public error", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-provider-auth-mismatch-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-provider-auth-mismatch-"))
   const ghExecutable = path.join(root, process.platform === "win32" ? "gh.exe" : "gh")
   const ghConfigDir = path.join(root, "gh-config")
   await writeFile(ghExecutable, "fake gh")
@@ -422,7 +422,7 @@ test("deployment run invalid input maps to workflow_failed rather than dispatch_
 
 test("createMappingPr sends one exact POST mutation body and returns the provider PR id", async () => {
   const mapBytes = Buffer.from("pages:\n  - source: Existing.md\n    route: /papers/existing/\n    layout: paper\n", "utf8")
-  const branch = "t13/map/content-0123456789abcdef0123"
+  const branch = "publication/map/content-0123456789abcdef0123"
   const input = {
     base: "main",
     branch,
@@ -463,7 +463,7 @@ test("createMappingPr timeout or nonzero failure is stable pr_failed with no ret
     const mapBytes = Buffer.from("pages:\n  - source: Existing.md\n    route: /papers/existing/\n    layout: paper\n", "utf8")
     const input = {
       base: "main",
-      branch: "t13/map/content-0123456789abcdef0123",
+      branch: "publication/map/content-0123456789abcdef0123",
       file_set: ["site-content.yml"],
       head_sha: "b".repeat(40),
       map_blob_sha: gitBlobSha(mapBytes),
@@ -494,7 +494,7 @@ test("mapping PR projection reads the exact open PR, file set, and map blob byte
   const mapBytes = Buffer.from("pages:\n  - source: Existing.md\n    route: /papers/existing/\n    layout: paper\n", "utf8")
   const input = {
     base: "main",
-    branch: "t13/map/content-0123456789abcdef0123",
+    branch: "publication/map/content-0123456789abcdef0123",
     file_set: ["site-content.yml"],
     head_sha: "c".repeat(40),
     map_blob_sha: gitBlobSha(mapBytes),
@@ -554,7 +554,7 @@ test("mapping PR projection rejects duplicate file names and byte drift before r
   const mapBytes = Buffer.from("pages:\n  - source: Existing.md\n    route: /papers/existing/\n    layout: paper\n", "utf8")
   const input = {
     base: "main",
-    branch: "t13/map/content-0123456789abcdef0123",
+    branch: "publication/map/content-0123456789abcdef0123",
     file_set: ["site-content.yml"],
     head_sha: "d".repeat(40),
     map_blob_sha: gitBlobSha(mapBytes),
@@ -591,7 +591,7 @@ test("listMatchingMappingPrs fails closed on malformed candidate summaries", asy
   const mapBytes = Buffer.from("pages:\n  - source: Existing.md\n    route: /papers/existing/\n    layout: paper\n", "utf8")
   const input = {
     base: "main",
-    branch: "t13/map/content-0123456789abcdef0123",
+    branch: "publication/map/content-0123456789abcdef0123",
     file_set: ["site-content.yml"],
     head_sha: "e".repeat(40),
     map_blob_sha: gitBlobSha(mapBytes),
@@ -627,7 +627,7 @@ test("mapping PR projection reads every page and proves the exact file and map b
   const mapBytes = Buffer.from("pages:\n  - source: Existing.md\n    route: /papers/existing/\n    layout: paper\n", "utf8")
   const expected = {
     base: "main",
-    branch: "t13/map/content-0123456789abcdef0123",
+    branch: "publication/map/content-0123456789abcdef0123",
     file_set: ["site-content.yml"],
     head_sha: "a".repeat(40),
     map_blob_sha: gitBlobSha(mapBytes),
@@ -794,7 +794,7 @@ test("merged mapping PR projections prove PR number, base, head, and merge SHA w
       stdout: Buffer.from(JSON.stringify({
         number: 101,
         base: { ref: "main" },
-        head: { ref: "t13/map/content-0123456789abcdef0123", sha: expectedHeadSha },
+        head: { ref: "publication/map/content-0123456789abcdef0123", sha: expectedHeadSha },
         merged_at: merged ? "2026-08-10T00:00:00Z" : null,
         merge_commit_sha: merged ? mergeSha : null,
       })),
@@ -1470,7 +1470,7 @@ test("bounded HTTP transport rejects credentials, query/hash, non-GET, invalid b
 })
 
 test("provider config locks the project URL to the canonical owner-lowercase GitHub Pages URL", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-provider-url-lock-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-provider-url-lock-"))
   const ghExecutable = path.join(root, process.platform === "win32" ? "gh.exe" : "gh")
   const ghConfigDir = path.join(root, "gh-config")
   await writeFile(ghExecutable, "fake gh")
@@ -1495,7 +1495,7 @@ test("provider config locks the project URL to the canonical owner-lowercase Git
 })
 
 test("provider dependencies construct the bounded HTTP default without invoking HTTP during constructor auth", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-provider-http-default-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-provider-http-default-"))
   const ghExecutable = path.join(root, process.platform === "win32" ? "gh.exe" : "gh")
   const ghConfigDir = path.join(root, "gh-config")
   const commandRequests = []
@@ -1530,7 +1530,7 @@ test("anonymousSmoke preserves homepage, route, asset, and custom-404 order with
     url: "https://owner.github.io/repository/",
   }
   const statuses = [200, 200, 200, 200, 200, 404]
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-provider-smoke-order-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-provider-smoke-order-"))
   const ghExecutable = path.join(root, process.platform === "win32" ? "gh.exe" : "gh")
   const ghConfigDir = path.join(root, "gh-config")
   const httpRequests = []
@@ -1555,7 +1555,7 @@ test("anonymousSmoke preserves homepage, route, asset, and custom-404 order with
   try {
     const routes = ["/", "/papers/first/"]
     const assets = ["styles/site.css", "scripts/site.js"]
-    const result = await provider.anonymousSmoke({ target, routes, assets, not_found: { path: "/__t13_missing__", expected_status: 404 } })
+    const result = await provider.anonymousSmoke({ target, routes, assets, not_found: { path: "/__publication_missing__", expected_status: 404 } })
     assert.deepEqual(result, {
       target,
       homepage_status: 200,
@@ -1569,7 +1569,7 @@ test("anonymousSmoke preserves homepage, route, asset, and custom-404 order with
       "https://owner.github.io/repository/papers/first/",
       "https://owner.github.io/repository/styles/site.css",
       "https://owner.github.io/repository/scripts/site.js",
-      "https://owner.github.io/repository/__t13_missing__",
+      "https://owner.github.io/repository/__publication_missing__",
     ])
     assert.ok(httpRequests.every((request) => Object.keys(request).sort().join("|") === "maxResponseBytes|method|timeoutMs|url"))
     assert.ok(httpRequests.every((request) => request.method === "GET" && request.maxResponseBytes === 1 && request.timeoutMs === 10_000))
@@ -1588,17 +1588,17 @@ test("anonymousSmoke validates every input and request bound before the first GE
     url: "https://owner.github.io/repository/",
   }
   const variants = [
-    { target: { ...target, url: "https://evil.example/" }, routes: ["/ok/"], assets: [], not_found: { path: "/__t13_missing__", expected_status: 404 } },
-    { target, routes: ["/bad?token=secret"], assets: [], not_found: { path: "/__t13_missing__", expected_status: 404 } },
-    { target, routes: ["/ok/./normalized/"], assets: [], not_found: { path: "/__t13_missing__", expected_status: 404 } },
-    { target, routes: ["/ok/%2e%2e/escaped/"], assets: [], not_found: { path: "/__t13_missing__", expected_status: 404 } },
-    { target, routes: ["/ok/"], assets: ["../secret.js"], not_found: { path: "/__t13_missing__", expected_status: 404 } },
-    { target, routes: ["/ok/"], assets: ["safe%2e%2e.js"], not_found: { path: "/__t13_missing__", expected_status: 404 } },
+    { target: { ...target, url: "https://evil.example/" }, routes: ["/ok/"], assets: [], not_found: { path: "/__publication_missing__", expected_status: 404 } },
+    { target, routes: ["/bad?token=secret"], assets: [], not_found: { path: "/__publication_missing__", expected_status: 404 } },
+    { target, routes: ["/ok/./normalized/"], assets: [], not_found: { path: "/__publication_missing__", expected_status: 404 } },
+    { target, routes: ["/ok/%2e%2e/escaped/"], assets: [], not_found: { path: "/__publication_missing__", expected_status: 404 } },
+    { target, routes: ["/ok/"], assets: ["../secret.js"], not_found: { path: "/__publication_missing__", expected_status: 404 } },
+    { target, routes: ["/ok/"], assets: ["safe%2e%2e.js"], not_found: { path: "/__publication_missing__", expected_status: 404 } },
     { target, routes: ["/ok/"], assets: [], not_found: { path: "/wrong/", expected_status: 404 } },
-    { target, routes: Array.from({ length: 511 }, () => "/ok/"), assets: [], not_found: { path: "/__t13_missing__", expected_status: 404 } },
+    { target, routes: Array.from({ length: 511 }, () => "/ok/"), assets: [], not_found: { path: "/__publication_missing__", expected_status: 404 } },
   ]
   for (const [index, input] of variants.entries()) {
-    const root = await mkdtemp(path.join(os.tmpdir(), `t13-provider-smoke-input-${index}-`))
+    const root = await mkdtemp(path.join(os.tmpdir(), `pub-provider-smoke-input-${index}-`))
     const ghExecutable = path.join(root, process.platform === "win32" ? "gh.exe" : "gh")
     const ghConfigDir = path.join(root, "gh-config")
     const httpRequests = []
@@ -1643,7 +1643,7 @@ test("anonymousSmoke maps status, final URL, and transport failures to stable re
     { error: new Error("HTTP 401 Unauthorized Bearer secret-token C:\\\\private\\\\body-path") },
   ]
   for (const [index, variant] of variants.entries()) {
-    const root = await mkdtemp(path.join(os.tmpdir(), `t13-provider-smoke-status-${index}-`))
+    const root = await mkdtemp(path.join(os.tmpdir(), `pub-provider-smoke-status-${index}-`))
     const ghExecutable = path.join(root, process.platform === "win32" ? "gh.exe" : "gh")
     const ghConfigDir = path.join(root, "gh-config")
     await writeFile(ghExecutable, "fake gh")
@@ -1663,7 +1663,7 @@ test("anonymousSmoke maps status, final URL, and transport failures to stable re
       } },
     })
     try {
-      await assert.rejects(provider.anonymousSmoke({ target, routes: [], assets: [], not_found: { path: "/__t13_missing__", expected_status: 404 } }), (error) => {
+      await assert.rejects(provider.anonymousSmoke({ target, routes: [], assets: [], not_found: { path: "/__publication_missing__", expected_status: 404 } }), (error) => {
         assert.equal(error?.code, "smoke_failed", `variant ${index}`)
         assert.equal(error?.message, "smoke_failed")
         assert.doesNotMatch(String(error), /secret-token|private\\\\body-path|evil\.example/u)
@@ -1676,7 +1676,7 @@ test("anonymousSmoke maps status, final URL, and transport failures to stable re
 })
 
 test("local-Git configuration requires a verified absolute Git executable", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-adapter-config-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-adapter-config-"))
   const operationRoot = path.join(root, "operation")
   const gitRoot = path.join(root, "git")
   await mkdir(operationRoot)
@@ -1763,7 +1763,7 @@ test("bounded transport rejects every supplied environment key outside the inter
 })
 
 test("bounded transport permits GH_CONFIG_DIR only for an absolute ordinary gh executable and rejects it for Git", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-adapter-gh-config-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-adapter-gh-config-"))
   const ghExecutable = path.join(root, process.platform === "win32" ? "gh.exe" : "gh")
   const ghConfigDir = path.join(root, "gh-config")
   await writeFile(ghExecutable, "fake gh")
@@ -1807,7 +1807,7 @@ test("bounded transport permits GH_CONFIG_DIR only for an absolute ordinary gh e
 })
 
 test("local-Git transport uses the exact configured executable and excludes ambient Git and secret authority", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-adapter-env-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-adapter-env-"))
   const operationRoot = path.join(root, "operation")
   const gitRoot = path.join(root, "git")
   await mkdir(operationRoot)
@@ -1893,7 +1893,7 @@ test("local-Git transport uses the exact configured executable and excludes ambi
 })
 
 test("local-Git capabilities are a plain object with the exact consumer methods", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-adapter-shape-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-adapter-shape-"))
   const operationRoot = path.join(root, "operation")
   const gitRoot = path.join(root, "git")
   await mkdir(operationRoot)
@@ -1942,7 +1942,7 @@ function git(args, options = {}) {
 }
 
 async function makeGitFixture() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-adapter-git-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-adapter-git-"))
   const remote = path.join(root, "remote.git")
   const gitRoot = path.join(root, "source")
   const operationRoot = path.join(root, "operation")
@@ -1952,7 +1952,7 @@ async function makeGitFixture() {
   await mkdir(candidateRoot)
   git(["init", "--bare", remote])
   git(["init", gitRoot])
-  git(["-C", gitRoot, "config", "user.name", "T13 adapter fixture"])
+  git(["-C", gitRoot, "config", "user.name", "Publication adapter fixture"])
   git(["-C", gitRoot, "config", "user.email", "fixture@example.invalid"])
   const initialMap = Buffer.from([
     "pages:",
@@ -2015,7 +2015,7 @@ test("gh-pages candidate authority is separate from the isolated Git scratch roo
       renderer_main_sha: fixture.mainSha,
     })
     assert.equal(String(git(["-C", fixture.gitRoot, "rev-parse", `${candidate.candidate_sha}^`])).trim(), fixture.ghPagesSha)
-    assert.deepEqual((await readdir(fixture.operationRoot)).filter((name) => name.startsWith(".t13-git-")), [])
+    assert.deepEqual((await readdir(fixture.operationRoot)).filter((name) => name.startsWith(".pub-git-")), [])
   } finally {
     await rm(fixture.root, { recursive: true, force: true })
   }
@@ -2062,7 +2062,7 @@ test("rollback candidate is a new child of the failed head with the exact immuta
       { remote_sha: rollback.rollback_sha },
     )
     assert.equal(await localGit.readGhPagesHead({}), rollback.rollback_sha)
-    assert.deepEqual((await readdir(fixture.operationRoot)).filter((name) => name.startsWith(".t13-git-")), [])
+    assert.deepEqual((await readdir(fixture.operationRoot)).filter((name) => name.startsWith(".pub-git-")), [])
   } finally {
     await rm(fixture.root, { recursive: true, force: true })
   }
@@ -2132,7 +2132,7 @@ test("remote authority fetches an exact remote-only main commit without moving t
   const peer = path.join(fixture.root, "peer")
   try {
     git(["clone", "--branch", "main", fixture.remote, peer])
-    git(["-C", peer, "config", "user.name", "T13 remote fixture"])
+    git(["-C", peer, "config", "user.name", "Publication remote fixture"])
     git(["-C", peer, "config", "user.email", "remote@example.invalid"])
     const mergedMap = Buffer.from([
       "pages:",
@@ -2203,7 +2203,7 @@ test("local-Git capabilities use isolated plumbing for exact refs, commits, tree
       "    layout: paper",
       "",
     ].join("\n"), "utf8")
-    const branch = "t13/map/content-0123456789abcdef0123"
+    const branch = "publication/map/content-0123456789abcdef0123"
     const mapping = await localGit.createMappingBranch({
       base_ref: "main",
       base_sha: fixture.mainSha,
@@ -2246,7 +2246,7 @@ test("local-Git capabilities use isolated plumbing for exact refs, commits, tree
     assert.equal(await localGit.readGhPagesHead({}), candidate.candidate_sha)
     assert.equal(String(git(["-C", fixture.gitRoot, "rev-parse", "HEAD"])).trim(), beforeHead)
     assert.equal(String(git(["-C", fixture.gitRoot, "status", "--porcelain"])).trim(), beforeStatus)
-    assert.deepEqual((await readdir(fixture.operationRoot)).filter((name) => name.startsWith(".t13-git-")), [])
+    assert.deepEqual((await readdir(fixture.operationRoot)).filter((name) => name.startsWith(".pub-git-")), [])
     assert.deepEqual(await readFile(path.join(fixture.candidatePath, "papers", "new", "index.html")), Buffer.from("<html>new</html>\n"))
   } finally {
     await rm(fixture.root, { recursive: true, force: true })
@@ -2373,7 +2373,7 @@ function cleanupProcessTree(record) {
 }
 
 async function assertDefaultTransportStopsOwnedTree(mode, expectedCode) {
-  const root = await mkdtemp(path.join(os.tmpdir(), `t13-adapter-tree-${mode}-`))
+  const root = await mkdtemp(path.join(os.tmpdir(), `pub-adapter-tree-${mode}-`))
   const pidFile = path.join(root, "pids.json")
   const sentinelFile = path.join(root, "sentinel.log")
   let record
@@ -2416,7 +2416,7 @@ test("default bounded transport proves the owned process tree is gone after stdo
 })
 
 test("default bounded transport reports early stdin failure without uncaught EPIPE or a live child", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-adapter-input-failure-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-adapter-input-failure-"))
   const pidFile = path.join(root, "pid.txt")
   let pid
   const uncaught = []
@@ -2454,7 +2454,7 @@ test("default bounded transport reports early stdin failure without uncaught EPI
 })
 
 test("default bounded transport preserves undefined and empty input success", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-adapter-empty-input-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-adapter-empty-input-"))
   try {
     for (const input of [undefined, Buffer.alloc(0)]) {
       const result = await createBoundedCommandTransport().run({
@@ -2474,7 +2474,7 @@ test("default bounded transport preserves undefined and empty input success", as
 })
 
 test("default bounded transport preserves stdout and stderr for finite nonzero exit status", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-adapter-nonzero-status-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-adapter-nonzero-status-"))
   try {
     const result = await createBoundedCommandTransport().run({
       argv: [process.execPath, "-e", "process.stdout.write('out'); process.stderr.write('err'); process.exit(23)"],
@@ -2533,7 +2533,7 @@ test("local-Git retains operation custody when termination cannot be proven", as
       localGit.createMappingBranch({
         base_ref: "main",
         base_sha: fixture.mainSha,
-        branch: "t13/map/content-fedcba9876543210fedc",
+        branch: "publication/map/content-fedcba9876543210fedc",
         map_bytes: Buffer.from("version: 1\nitems: []\n"),
       }),
       (error) => {
@@ -2541,7 +2541,7 @@ test("local-Git retains operation custody when termination cannot be proven", as
         return true
       },
     )
-    const retained = (await readdir(fixture.operationRoot)).filter((name) => name.startsWith(".t13-git-"))
+    const retained = (await readdir(fixture.operationRoot)).filter((name) => name.startsWith(".pub-git-"))
     assert.equal(retained.length, 1)
   } finally {
     await rm(fixture.root, { recursive: true, force: true })

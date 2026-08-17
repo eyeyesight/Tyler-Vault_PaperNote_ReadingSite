@@ -58,7 +58,7 @@ function siteDigest(files) {
 
 function openPr(input, overrides = {}) {
   return {
-    pr_id: "pr-t13-06",
+    pr_id: "pr-pub-06",
     base: input.base,
     branch: input.branch,
     head_sha: input.head_sha,
@@ -111,7 +111,7 @@ async function commitEntries(remote, commit) {
 
 function commitTree(remote, worktree, baseSha, message, updateRef, mutate, { resetWorktree = true } = {}) {
   const index = path.join(path.dirname(worktree), `.index-${process.pid}-${Math.random().toString(16).slice(2)}`)
-  const env = { GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: "T13 fixture", GIT_AUTHOR_EMAIL: "t13@example.test", GIT_COMMITTER_NAME: "T13 fixture", GIT_COMMITTER_EMAIL: "t13@example.test" }
+  const env = { GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: "Publication fixture", GIT_AUTHOR_EMAIL: "publication@example.test", GIT_COMMITTER_NAME: "Publication fixture", GIT_COMMITTER_EMAIL: "publication@example.test" }
   try {
     git(["--git-dir", remote, "read-tree", ...(baseSha ? [baseSha] : ["--empty"])], { env })
     if (baseSha && resetWorktree) git(["--git-dir", remote, "--work-tree", worktree, "read-tree", "-u", "--reset", baseSha], { env })
@@ -123,14 +123,14 @@ function commitTree(remote, worktree, baseSha, message, updateRef, mutate, { res
     if (updateRef) git(["--git-dir", remote, "update-ref", updateRef, commit])
     return commit
   } finally {
-    try { git(["--git-dir", remote, "update-ref", `refs/t13-fixture/noop-${path.basename(index)}`, "0000000000000000000000000000000000000000"]) } catch {}
+    try { git(["--git-dir", remote, "update-ref", `refs/pub-fixture/noop-${path.basename(index)}`, "0000000000000000000000000000000000000000"]) } catch {}
     // The temporary index is outside the repository and is intentionally best-effort cleaned.
     try { rmSync(index, { force: true }) } catch {}
   }
 }
 
 async function makeFixture({ lane = "content", mapChanged = true } = {}) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-06-tracer-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-06-tracer-"))
   const remote = path.join(root, "remote.git")
   const seed = path.join(root, "seed")
   const session = path.join(root, "work", "content-0123456789abcdef0123")
@@ -158,8 +158,8 @@ async function makeFixture({ lane = "content", mapChanged = true } = {}) {
   await mkdir(root, { recursive: true })
   git(["init", "--bare", remote])
   git(["init", seed])
-  git(["-C", seed, "config", "user.name", "T13 fixture"])
-  git(["-C", seed, "config", "user.email", "t13@example.test"])
+  git(["-C", seed, "config", "user.name", "Publication fixture"])
+  git(["-C", seed, "config", "user.email", "publication@example.test"])
   await writeFile(path.join(seed, "site-content.yml"), initialMap)
   await writeFile(path.join(seed, "README.md"), "fixture main\n")
   git(["-C", seed, "add", "."])
@@ -188,7 +188,7 @@ async function makeFixture({ lane = "content", mapChanged = true } = {}) {
     ["papers/existing/index.html", Buffer.from("<html>existing candidate</html>\n")],
     ["papers/new/index.html", Buffer.from("<html>new candidate</html>\n")],
     ["assets/app.css", Buffer.from("body{color:black}\n")],
-    ["assets/app.js", Buffer.from("window.t13=true\n")],
+    ["assets/app.js", Buffer.from("window.publication=true\n")],
   ]) await put(candidateRoot, relative, bytes)
   const candidateFiles = await snapshot(candidateRoot)
   const siteSha = siteDigest(candidateFiles)
@@ -216,7 +216,7 @@ async function makeFixture({ lane = "content", mapChanged = true } = {}) {
     ].join("\n"), "utf8"))
   const expectedRendererSha = lane === "content" ? rendererSha : mainSha
   const trace = []
-  const mapping = { branch: "", headSha: "", prId: "pr-t13-06", mergeSha: "" }
+  const mapping = { branch: "", headSha: "", prId: "pr-pub-06", mergeSha: "" }
   const runs = []
   const localGit = {
     async readRemoteAuthority() {
@@ -235,7 +235,7 @@ async function makeFixture({ lane = "content", mapChanged = true } = {}) {
       const branch = input.branch
       const worktree = path.join(root, "map-work")
       await mkdir(worktree, { recursive: true })
-      mapping.headSha = commitTree(remote, worktree, input.base_sha, "T13 map proposal", `refs/heads/${branch}`, () => writeFileSync(path.join(worktree, "site-content.yml"), input.map_bytes))
+      mapping.headSha = commitTree(remote, worktree, input.base_sha, "Publication map proposal", `refs/heads/${branch}`, () => writeFileSync(path.join(worktree, "site-content.yml"), input.map_bytes))
       mapping.branch = branch
       return { branch, head_sha: mapping.headSha, base_sha: input.base_sha, map_bytes: Buffer.from(input.map_bytes) }
     },
@@ -244,7 +244,7 @@ async function makeFixture({ lane = "content", mapChanged = true } = {}) {
       assert.deepEqual(Object.keys(input).sort(), ["base_sha", "candidate_path", "renderer_main_sha"])
       assert.equal(input.base_sha, ghPagesSha)
       assert.equal(input.renderer_main_sha, expectedRendererSha)
-      const candidateSha = commitTree(remote, path.dirname(candidateRoot), input.base_sha, `T13 candidate\n\nRenderer-Main-SHA: ${input.renderer_main_sha}`, null, () => {}, { resetWorktree: false })
+      const candidateSha = commitTree(remote, path.dirname(candidateRoot), input.base_sha, `Publication candidate\n\nRenderer-Main-SHA: ${input.renderer_main_sha}`, null, () => {}, { resetWorktree: false })
       const message = String(git(["--git-dir", remote, "show", "-s", "--format=%B", candidateSha]))
       return { candidate_sha: candidateSha, parent_sha: input.base_sha, renderer_main_sha: input.renderer_main_sha, message }
     },
@@ -311,9 +311,9 @@ async function makeFixture({ lane = "content", mapChanged = true } = {}) {
       await mkdir(worktree, { recursive: true })
       const branchTree = String(git(["--git-dir", remote, "rev-parse", `${mapping.headSha}^{tree}`])).trim()
       const index = path.join(worktree, "merge-index")
-      const env = { GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: "T13 fixture", GIT_AUTHOR_EMAIL: "t13@example.test", GIT_COMMITTER_NAME: "T13 fixture", GIT_COMMITTER_EMAIL: "t13@example.test" }
+      const env = { GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: "Publication fixture", GIT_AUTHOR_EMAIL: "publication@example.test", GIT_COMMITTER_NAME: "Publication fixture", GIT_COMMITTER_EMAIL: "publication@example.test" }
       git(["--git-dir", remote, "read-tree", branchTree], { env })
-      const mergeSha = String(git(["--git-dir", remote, "commit-tree", branchTree, "-p", currentMain], { env, input: "T13 squash map merge\n" })).trim()
+      const mergeSha = String(git(["--git-dir", remote, "commit-tree", branchTree, "-p", currentMain], { env, input: "Publication squash map merge\n" })).trim()
       git(["--git-dir", remote, "update-ref", "refs/heads/main", mergeSha, currentMain])
       mapping.mergeSha = mergeSha
       return { merge_sha: mergeSha, expected_head_sha: input.expected_head_sha }
@@ -343,25 +343,25 @@ async function makeFixture({ lane = "content", mapChanged = true } = {}) {
       assert.match(input.expected_head_sha, /^[0-9a-f]{40}$/u)
       assert.deepEqual(input.inputs, { site_commit: input.inputs.site_commit, publication_mode: "routine" })
       assert.match(input.run_name, new RegExp(`${input.inputs.site_commit}.*routine`))
-      runs.push({ id: "run-t13-06", workflow: input.workflow, ref: input.ref, head_sha: input.expected_head_sha, run_name: input.run_name, inputs: input.inputs })
+      runs.push({ id: "run-pub-06", workflow: input.workflow, ref: input.ref, head_sha: input.expected_head_sha, run_name: input.run_name, inputs: input.inputs })
       return { accepted: true }
     },
     async readDeploymentRun(input) {
       trace.push("provider.read_run")
-      assert.deepEqual(input, { id: "run-t13-06", site_commit: input.site_commit, publication_mode: "routine", workflow: "deploy-pages.yml", ref: "main", head_sha: input.head_sha })
+      assert.deepEqual(input, { id: "run-pub-06", site_commit: input.site_commit, publication_mode: "routine", workflow: "deploy-pages.yml", ref: "main", head_sha: input.head_sha })
       return { id: input.id, workflow: input.workflow, ref: input.ref, head_sha: input.head_sha, run_name: runs.at(-1).run_name, inputs: { site_commit: input.site_commit, publication_mode: "routine" }, status: "completed", conclusion: "success" }
     },
     async readPagesDeployment(input) {
       trace.push("provider.read_pages")
-      assert.deepEqual(input, { run_id: "run-t13-06", site_commit: input.site_commit })
-      return { deployment_id: "deployment-t13-06", run_id: input.run_id, site_commit: input.site_commit, status: "success", url: "https://pages.example.test/Tyler-Vault_PaperNote_ReadingSite/" }
+      assert.deepEqual(input, { run_id: "run-pub-06", site_commit: input.site_commit })
+      return { deployment_id: "deployment-pub-06", run_id: input.run_id, site_commit: input.site_commit, status: "success", url: "https://pages.example.test/Tyler-Vault_PaperNote_ReadingSite/" }
     },
     async anonymousSmoke(input) {
       trace.push("provider.smoke")
       assert.deepEqual(input.routes, ["/", "/papers/existing/", "/papers/new/"])
       assert.deepEqual(input.assets, ["assets/app.css", "assets/app.js"])
-      assert.deepEqual(input.not_found, { path: "/__t13_missing__", expected_status: 404 })
-      assert.deepEqual(input.target, { deployment_id: "deployment-t13-06", run_id: "run-t13-06", site_commit: input.target.site_commit, url: "https://pages.example.test/Tyler-Vault_PaperNote_ReadingSite/" })
+      assert.deepEqual(input.not_found, { path: "/__publication_missing__", expected_status: 404 })
+      assert.deepEqual(input.target, { deployment_id: "deployment-pub-06", run_id: "run-pub-06", site_commit: input.target.site_commit, url: "https://pages.example.test/Tyler-Vault_PaperNote_ReadingSite/" })
       return { target: input.target, homepage_status: 200, route_statuses: input.routes.map(() => 200), asset_statuses: input.assets.map(() => 200), not_found_status: 404 }
     },
   }
@@ -458,7 +458,7 @@ test("approved routine publication uses exact temporary refs and provider checkp
       "provider.read_pages",
       "provider.smoke",
     ])
-    const mapBranch = String(git(["--git-dir", fixture.remote, "rev-parse", "refs/heads/t13/map/content-0123456789abcdef0123"])).trim()
+    const mapBranch = String(git(["--git-dir", fixture.remote, "rev-parse", "refs/heads/publication/map/content-0123456789abcdef0123"])).trim()
     assert.match(mapBranch, /^[0-9a-f]{40}$/u)
     assert.deepEqual(String(git(["--git-dir", fixture.remote, "diff", "--name-only", `${fixture.mainSha}..${mapBranch}`])).trim().split(/\r?\n/u), ["site-content.yml"])
     const mergedMain = String(git(["--git-dir", fixture.remote, "rev-parse", "refs/heads/main"])).trim()
@@ -666,7 +666,7 @@ test("mapping publication adopts one exact open PR before any create", async () 
       fixture.trace.push("provider.list_prs")
       assert.deepEqual(Object.keys(input).sort(), ["base", "branch", "file_set", "head_sha", "map_blob_sha", "map_bytes"])
       return [{
-        pr_id: "pr-t13-06",
+        pr_id: "pr-pub-06",
         base: "main",
         branch: input.branch,
         head_sha: input.head_sha,
@@ -695,7 +695,7 @@ test("multiple exact open mapping PRs fail closed without create or public mutat
   const fixture = await makeFixture()
   try {
     let createCalls = 0
-    fixture.provider.listMatchingMappingPrs = async (input) => [openPr(input), openPr(input, { pr_id: "pr-t13-06-second" })]
+    fixture.provider.listMatchingMappingPrs = async (input) => [openPr(input), openPr(input, { pr_id: "pr-pub-06-second" })]
     fixture.provider.createMappingPr = async () => {
       createCalls += 1
       throw new Error("create must not run when adoption is ambiguous")
@@ -1014,7 +1014,7 @@ test("lost or thrown dispatch response reconciles one new run and never redispat
       const result = await routinePublicationHandoff(fixture.operation, { provider: fixture.provider, localGit: fixture.localGit })
       assert.equal(result.status, "deployed", `${mode}: ${JSON.stringify(result)}`)
       assert.equal(result.error_code, null)
-      assert.equal(result.identifiers.workflow_run_id, "run-t13-06")
+      assert.equal(result.identifiers.workflow_run_id, "run-pub-06")
       assert.equal(listCalls, 2)
       assert.equal(dispatchCalls, 1)
     } finally {
@@ -1051,7 +1051,7 @@ test("zero or multiple new deployment runs yield dispatch_uncertain without a se
 test("deployment workflow terminal, unreadable, and identity failures stop before Pages or smoke", async () => {
   const variants = [
     ["terminal failure", (response) => ({ ...response, conclusion: "failure" })],
-    ["readback shape", () => ({ id: "run-t13-06", status: "completed" })],
+    ["readback shape", () => ({ id: "run-pub-06", status: "completed" })],
     ["wrong run id", (response) => ({ ...response, id: "run-other" })],
     ["wrong workflow", (response) => ({ ...response, workflow: "other.yml" })],
     ["wrong ref", (response) => ({ ...response, ref: "release" })],
@@ -1084,7 +1084,7 @@ test("Pages readback failures stop before anonymous smoke", async () => {
     ["wrong site commit", (response) => ({ ...response, site_commit: "f".repeat(40) })],
     ["wrong deployment URL", (response) => ({ ...response, url: "https://pages.example.test/wrong/" })],
     ["failed status", (response) => ({ ...response, status: "failure" })],
-    ["malformed readback", () => ({ run_id: "run-t13-06", site_commit: "0".repeat(40) })],
+    ["malformed readback", () => ({ run_id: "run-pub-06", site_commit: "0".repeat(40) })],
   ]
   for (const [label, mutate] of variants) {
     const fixture = await makeFixture()
@@ -1121,7 +1121,7 @@ test("anonymous smoke supplies every approved route, CSS or JS asset, and custom
       fixture.provider.anonymousSmoke = async (input) => {
         assert.deepEqual(input.routes, ["/", "/papers/existing/", "/papers/new/"], `${label}: route request drift`)
         assert.deepEqual(input.assets, ["assets/app.css", "assets/app.js"], `${label}: asset request drift`)
-        assert.deepEqual(input.not_found, { path: "/__t13_missing__", expected_status: 404 }, `${label}: 404 request drift`)
+        assert.deepEqual(input.not_found, { path: "/__publication_missing__", expected_status: 404 }, `${label}: 404 request drift`)
         return mutate(await originalSmoke(input), input)
       }
       const result = await routinePublicationHandoff(fixture.operation, { provider: fixture.provider, localGit: fixture.localGit })
@@ -1396,7 +1396,7 @@ test("valid PR create ID with lost read falls back to one exact list match", asy
   for (const matches of [
     ["one", (input) => [openPr(input)]],
     ["zero", () => []],
-    ["multiple", (input) => [openPr(input), openPr(input, { pr_id: "pr-t13-06-second" })]],
+    ["multiple", (input) => [openPr(input), openPr(input, { pr_id: "pr-pub-06-second" })]],
   ]) {
     const [label, makeMatches] = matches
     const fixture = await makeFixture()

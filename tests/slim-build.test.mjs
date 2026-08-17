@@ -917,7 +917,7 @@ test("Phase 5 Slice 1 keeps the parser and privacy error on slim-owned seams", a
   )
 })
 
-test("T13-07 Windows renderer scratch stays below the native Sharp path limit", { skip: process.platform !== "win32" }, async () => {
+test("Windows renderer scratch stays below the native Sharp path limit", { skip: process.platform !== "win32" }, async () => {
   const paths = await fixture()
   try {
     await rm(paths.work, { recursive: true, force: true })

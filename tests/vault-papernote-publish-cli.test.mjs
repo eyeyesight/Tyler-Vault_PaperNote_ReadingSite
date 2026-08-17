@@ -360,7 +360,7 @@ test("default production rollback creates a fast-forward child with the exact LK
 })
 
 test("LKG records are readable and immutable by exact site commit", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "t13-lkg-"))
+  const root = await mkdtemp(path.join(os.tmpdir(), "pub-lkg-"))
   try {
     const store = createImmutableLkgStore(root)
     const record = lkgRecord()

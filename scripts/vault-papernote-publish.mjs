@@ -323,7 +323,7 @@ export function createProductionRollback(adapter) {
       target: pages,
       routes: ["/"],
       assets: [],
-      not_found: { path: "/__t13_missing__", expected_status: 404 },
+      not_found: { path: "/__publication_missing__", expected_status: 404 },
     }))
     if (!isPlainObject(smoke) || smoke.homepage_status !== 200 || smoke.not_found_status !== 404
       || !Array.isArray(smoke.route_statuses) || smoke.route_statuses.length !== 1 || smoke.route_statuses[0] !== 200

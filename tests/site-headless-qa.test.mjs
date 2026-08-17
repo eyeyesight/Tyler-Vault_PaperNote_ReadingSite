@@ -85,7 +85,7 @@ test("local QA serves sorted mapped routes, loopback assets, and custom 404 with
     assert.deepEqual(result.screenshots, [])
     assert.equal(result.error_code, null)
     assert.equal(visited.length, 6)
-    assert.equal(visited.at(-1).endsWith("/__t13_qa_not_found__/"), true)
+    assert.equal(visited.at(-1).endsWith("/__publication_qa_not_found__/"), true)
     await assert.rejects(access(profileDirectory))
   } finally {
     await rm(paths.root, { recursive: true, force: true })
