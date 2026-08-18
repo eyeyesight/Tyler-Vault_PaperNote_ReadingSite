@@ -468,6 +468,42 @@ test("build projects an unlisted wikilink without a manual alias to safe basenam
   }
 })
 
+test("build suppresses an unlisted inline-code Vault path without rewriting unrelated slash code", async () => {
+  const paths = await fixture()
+  try {
+    const support = pageForLayout("support")
+    await replaceMappedSource(paths, support.source, `${noteFor(93, "support")}\nA private inline target is \`Ideas/Private Hidden Plan\`; metric \`F1micro/Acc-Top1\`.\n`)
+
+    const result = invoke(paths, "build")
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const publicText = (await outputTree(paths.output)).map(([, bytes]) => bytes.toString("utf8")).join("\n")
+    assert.match(publicText, /A private inline target is Private Hidden Plan; metric/)
+    assert.doesNotMatch(publicText, /Ideas\/Private Hidden Plan/)
+    assert.match(publicText, /<code>F1micro\/Acc-Top1<\/code>/)
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
+test("build maps a published inline-code Vault path to its public site route", async () => {
+  const paths = await fixture()
+  try {
+    const support = pageForLayout("support")
+    const mappedTarget = mappedPages.find((page) => page.source === "Knowledge/Concepts/Flow.md")
+    assert.ok(mappedTarget)
+    assert.notEqual(support.source, mappedTarget.source)
+    await replaceMappedSource(paths, support.source, `${noteFor(94, "support")}\nA mapped inline target is \`Knowledge/Concepts/Flow.md\`.\n`)
+
+    const result = invoke(paths, "build")
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const html = await readFile(path.join(paths.output, ...support.route.slice(1).split("/"), "index.html"), "utf8")
+    assert.match(html, /A mapped inline target is <a\b[^>]*href="[^"]*knowledge\/concept\/flow\/?"[^>]*>Flow<\/a>\./)
+    assert.doesNotMatch(html, /Knowledge\/Concepts\/Flow(?:\.md)?/)
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
 test("build still rejects malformed integration markers and arbitrary HTML comments", async () => {
   const cases = [
     "<!-- candidate-integration:start -->\n\nApproved content without an end marker.\n",
