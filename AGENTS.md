@@ -19,6 +19,7 @@
 - `site-content.yml`記錄公開source、route與layout。頁面數量是data-driven，沒有固定上限。
 - 正式Literature notes、Syntheses、Reviews & Maps及直接連結的Knowledge support pages可進入publication。
 - 未公開wikilink應投影為安全文字，不要求作者為每個link補manual alias。
+- Public projection中的inline-code Vault路徑：已列入`site-content.yml`者投影成對應public route連結；未列入者只保留安全basename；其他slash-bearing code保持原樣。
 - 合法workflow boundaries與Zotero managed metadata應在public projection中自動剝除。
 
 ## 必要護欄

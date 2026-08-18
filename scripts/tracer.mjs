@@ -351,6 +351,21 @@ function aliasKey(value) {
   return value.trim().replace(/\\/g, "/").replace(/^\.\//, "").replace(/\.md$/i, "").toLowerCase()
 }
 
+const vaultInlinePathRoots = new Set(["Automation", "Directory", "Ideas", "Inbox", "Knowledge", "Literature", "Logs", "Projects"])
+
+/** Recognize only canonical Vault-relative paths inside inline code. Ordinary
+ * slash-bearing code such as ratios, metrics, and commands remains untouched.
+ * @param {string} value */
+function inlineVaultPath(value) {
+  const target = value.trim().replace(/\\/g, "/")
+  const parts = target.split("/")
+  if (target !== value.trim() || parts.length < 2 || !vaultInlinePathRoots.has(parts[0])
+    || target.startsWith("/") || /^[A-Za-z]:/u.test(target) || target.includes("//")
+    || parts.some((part) => !part || part === "." || part === "..")) return null
+  const display = path.posix.basename(target).replace(/\.md$/i, "")
+  return display ? { target, display } : null
+}
+
 /** @param {string} value */
 function markdownText(value) {
   return value.replace(/[\\`*_[\]<>]/g, (character) => `\\${character}`).replace(/[\r\n]+/g, " ").trim()
@@ -424,6 +439,8 @@ function analyzeMarkdown(markdown) {
     if (!tree || tree.type !== "root" || !Array.isArray(tree.children)) throw new Error("invalid MDAST root")
     /** @type {Array<{whole:string,target:string,display:string,explicit:boolean,start:number,end:number}>} */
     const links = []
+    /** @type {Array<{target:string,display:string,start:number,end:number}>} */
+    const inlineVaultPaths = []
     /** @type {Map<string,string>} */
     const definitions = new Map()
     /** @type {any[]} */
@@ -439,6 +456,14 @@ function analyzeMarkdown(markdown) {
         definitionNodes.push(node)
       }
       if (node.type === "link" || node.type === "linkReference") linkNodes.push(node)
+      if (node.type === "inlineCode") {
+        const vaultPath = inlineVaultPath(String(node.value ?? ""))
+        if (vaultPath) {
+          const { start, end } = nodeOffsets(node)
+          if (end > markdown.length) throw new Error("MDAST offset escaped source")
+          inlineVaultPaths.push({ ...vaultPath, start, end })
+        }
+      }
       if (node.type === "text" && !ancestors.some((type) => excluded.has(type))) {
         const { start, end } = nodeOffsets(node)
         if (end > markdown.length) throw new Error("MDAST offset escaped source")
@@ -468,7 +493,7 @@ function analyzeMarkdown(markdown) {
     })
     const markdownUrls = markdownUrlNodes.map(({ url }) => url)
     const zoteroManaged = zoteroManagedRange(markdown, tree)
-    return { tree, links, tokens: allWikiLinkTokens(markdown), connections, markdownUrls, markdownUrlNodes, zoteroManaged }
+    return { tree, links, tokens: allWikiLinkTokens(markdown), inlineVaultPaths, connections, markdownUrls, markdownUrlNodes, zoteroManaged }
   } catch (error) {
     if (error instanceof TracerError || error instanceof SlimContentError) throw error
     throw new TracerError("SOURCE_MARKDOWN_INVALID", "source Markdown could not be parsed with stable MDAST offsets")
@@ -677,6 +702,22 @@ function projectContent(records) {
       suppressedTargetKeys.add(aliasKey(link.target))
       const value = unlistedDisplay(link)
       replacements.push({ start: link.start, end: link.end, value, searchValue: value })
+    }
+    for (const inlinePath of record.analysis.inlineVaultPaths) {
+      const targetId = aliasOwners.get(aliasKey(inlinePath.target))
+      let value
+      if (targetId) {
+        const target = records.get(targetId)
+        if (!target) throw new TracerError("UNEXPECTED_GRAPH_STATE", "resolved inline Vault target record is missing")
+        resolvedTargets.add(targetId)
+        value = `[${markdownText(inlinePath.display)}](${target.route})`
+      } else {
+        const variants = suppressedDisclosureVariants(inlinePath.target)
+        for (const variant of variants) suppressedTargets.add(variant)
+        suppressedTargetKeys.add(aliasKey(inlinePath.target))
+        value = markdownText(inlinePath.display)
+      }
+      replacements.push({ start: inlinePath.start, end: inlinePath.end, value, searchValue: value })
     }
     const orderedReplacements = replacements.sort((left, right) => right.start - left.start)
     for (let index = 1; index < orderedReplacements.length; index += 1) {
