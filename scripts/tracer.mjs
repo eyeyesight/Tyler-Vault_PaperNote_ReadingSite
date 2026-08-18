@@ -49,6 +49,8 @@ const secretRulesPath = path.join(repoRoot, "config", "public-secret-rules.toml"
 const scholarlyThemePath = path.join(repoRoot, "styles", "tracer-scholarly.scss")
 const projectFontStylesPath = path.join(repoRoot, "styles", "tracer-fonts.css")
 const projectFontAssetPath = path.join(repoRoot, "assets", "fonts")
+const projectSiteIconPath = path.join(repoRoot, "assets", "site-icon.png")
+const projectSiteIconSha256 = "d0996d7737c07ac76c9f48d335c29aacaa42a330568d26d2600cf3eb6b1a81f3"
 /** @type {Readonly<Record<string,string>>} */
 const projectFontAssetHashes = Object.freeze({
   "newsreader-variable.woff2": "1faa3380ac0e87e057b180e03fd94bd708a612afb67d2590677be4508909fae9",
@@ -81,6 +83,21 @@ class TracerError extends Error {
 /** @param {Buffer} bytes */
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex")
+}
+
+/** Authenticate reviewed project-owned binary assets before exempting their
+ * opaque bytes from text-shaped disclosure scanning. Unknown assets remain
+ * subject to the complete candidate gate. @param {string} relative @param {Buffer} bytes */
+function authenticateProjectAsset(relative, bytes) {
+  if (relative === "static/icon.png") {
+    if (sha256(bytes) !== projectSiteIconSha256) throw new TracerError("PROJECT_SITE_ICON_MISMATCH", "candidate site icon does not match the reviewed asset")
+    return true
+  }
+  const fontAsset = /^static\/fonts\/([^/]+\.woff2)$/.exec(relative)?.[1]
+  if (!fontAsset) return false
+  const pinnedFontHash = projectFontAssetHashes[fontAsset]
+  if (!pinnedFontHash || sha256(bytes) !== pinnedFontHash) throw new TracerError("PROJECT_TYPOGRAPHY_ASSET_INVALID", "candidate font is not an authenticated project asset")
+  return true
 }
 
 function utf8Order(/** @type {string} */ left, /** @type {string} */ right) {
@@ -801,6 +818,27 @@ function publicMarkdownSectionText(/** @type {string} */ markdown, /** @type {st
   return section.length > 0 ? section.join(" ") : null
 }
 
+/** Read the description convention used by public knowledge notes: the first
+ * blockquote immediately following the level-one title. Content later in the
+ * document is never promoted into the graph sidebar. */
+function publicMarkdownLeadQuoteText(/** @type {string} */ markdown) {
+  let tree = fromMarkdown(markdown)
+  const managed = zoteroManagedRange(markdown, tree)
+  if (managed) {
+    markdown = `${markdown.slice(0, managed.start)}${markdown.slice(managed.end)}`
+    tree = fromMarkdown(markdown)
+  }
+  const title = tree.children.findIndex((node) => node.type === "heading" && node.depth === 1)
+  if (title < 0) return null
+  for (const node of tree.children.slice(title + 1)) {
+    if (node.type === "html" || node.type === "definition") continue
+    if (node.type === "heading" || node.type !== "blockquote") return null
+    const text = collapseUnicodeWhitespace(visibleNodeText(node))
+    return text || null
+  }
+  return null
+}
+
 /** @param {Map<string,any>} records @param {Map<string,Set<string>>} outgoing @param {Map<string,string>} searchableBodies */
 function publicContracts(records, outgoing, searchableBodies) {
   const compare = (/** @type {string} */ left, /** @type {string} */ right) => Buffer.compare(Buffer.from(left), Buffer.from(right))
@@ -808,7 +846,7 @@ function publicContracts(records, outgoing, searchableBodies) {
   const displayTitle = (/** @type {string} */ publicId, /** @type {any} */ record) => {
     const title = collapseUnicodeWhitespace(String(record.frontmatter.title ?? publicId))
     if (record.node.node_class === "author") return path.posix.basename(record.node.path, ".md")
-    return ["concept", "method", "task"].includes(record.node.node_class)
+    return ["concept", "method", "task", "synthesis", "map"].includes(record.node.node_class)
       ? title.replace(/^./u, (character) => character.toLocaleUpperCase("en-US"))
       : title
   }
@@ -835,6 +873,8 @@ function publicContracts(records, outgoing, searchableBodies) {
     const doiValue = typeof record.frontmatter.doi === "string" ? collapseUnicodeWhitespace(record.frontmatter.doi) : ""
     const sourceTags = [...new Set((Array.isArray(record.frontmatter.tags) ? record.frontmatter.tags : []).map((/** @type {string} */ value) => collapseUnicodeWhitespace(String(value))).filter(Boolean))].sort(compare)
     const segments = searchableMarkdownSegments(searchableBodies.get(publicId) ?? "")
+    const searchableBody = searchableBodies.get(publicId) ?? ""
+    const nodeClass = record.node.node_class
     const searchSegments = [
       collapseUnicodeWhitespace(String(record.frontmatter.title ?? publicId)),
       collapseUnicodeWhitespace(authors.join(" ")),
@@ -852,7 +892,9 @@ function publicContracts(records, outgoing, searchableBodies) {
       year: yearValue || null,
       doi: doiValue || null,
       source_tags: sourceTags,
-      definition: ["concept", "method", "task"].includes(record.node.node_class) ? publicMarkdownSectionText(searchableBodies.get(publicId) ?? "", "Definition") : null,
+      definition: nodeClass === "paper"
+        ? null
+        : publicMarkdownLeadQuoteText(searchableBody) ?? (["concept", "method", "task"].includes(nodeClass) ? publicMarkdownSectionText(searchableBody, "Definition") : null),
       search_text: searchSegments.join("\n"),
     }
   })
@@ -1072,6 +1114,8 @@ const homeNodeClasses = Object.freeze([
   Object.freeze({ nodeClass: "method", label: "Methods", description: "Approaches used to collect, connect, and interpret evidence. 用來蒐集、連結與解讀證據的研究方法。" }),
   Object.freeze({ nodeClass: "task", label: "Tasks", description: "Research problems that organize the public literature. 組織公開文獻與研究問題的任務脈絡。" }),
   Object.freeze({ nodeClass: "author", label: "Authors", description: "Researchers connected to the mapped papers and methods. 與目前論文及方法相連的研究者。" }),
+  Object.freeze({ nodeClass: "synthesis", label: "Syntheses", description: "Integrated interpretations that connect evidence across papers. 跨越多篇論文整合證據與詮釋的研究綜整。" }),
+  Object.freeze({ nodeClass: "map", label: "Maps", description: "Structured overviews of literature, themes, and relationships. 組織文獻、主題與關係的研究地圖。" }),
 ])
 // Lucide outline icons sourced through Iconstack's public SVG API. Keeping the
 // paths inline makes this navigation deterministic and removes a runtime fetch.
@@ -1093,12 +1137,18 @@ const homeNodeIcons = Object.freeze({
     id: "lucide-users-round",
     body: '<path d="M18 21a8 8 0 0 0-16 0"/><circle cx="10" cy="8" r="5"/><path d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3"/>',
   }),
+  synthesis: Object.freeze({
+    id: "lucide-layers-3",
+    body: '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="m22 12.5-9.17 4.17a2 2 0 0 1-1.66 0L2 12.5"/><path d="m22 17.5-9.17 4.17a2 2 0 0 1-1.66 0L2 17.5"/>',
+  }),
+  map: Object.freeze({
+    id: "lucide-map",
+    body: '<path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.618v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.382V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z"/><path d="M15 5.764v15"/><path d="M9 3.236v15"/>',
+  }),
 })
 const homeStatClasses = Object.freeze([
   Object.freeze({ nodeClass: "paper", label: "Papers" }),
   ...homeNodeClasses.map(({ nodeClass, label }) => Object.freeze({ nodeClass, label })),
-  Object.freeze({ nodeClass: "synthesis", label: "Syntheses" }),
-  Object.freeze({ nodeClass: "map", label: "Maps" }),
 ])
 
 /** @param {string} markdown @param {string} fallback */
@@ -1142,6 +1192,7 @@ function homePageMarkdown(records, outgoing, searchableBodies) {
     return grouped.length === 0 ? [] : [`<article class="node-type-card node-type-${nodeClass}" data-home-node-class="${nodeClass}"><span class="node-type-card-icon" aria-hidden="true">${homeNodeIconSvg(nodeClass)}</span><div><p class="node-type-card-count">${grouped.length} ${htmlText(label)}</p><h3>${htmlText(label)}</h3><p>${htmlText(description)}</p><button type="button" data-home-library-target="${nodeClass}">View ${htmlText(label.toLowerCase())} <span aria-hidden="true">→</span></button></div></article>`]
   }).join("")
   const papers = (byClass.get("paper") ?? []).slice(0, 6)
+  const paperCount = byClass.get("paper")?.length ?? 0
   const paperCards = papers.map(([publicId, record]) => {
     const authors = Array.isArray(record.frontmatter.authors) ? record.frontmatter.authors.join(", ") : ""
     const year = record.frontmatter.year ? String(record.frontmatter.year) : ""
@@ -1150,7 +1201,8 @@ function homePageMarkdown(records, outgoing, searchableBodies) {
     const title = shortPaperTitle(searchableBodies.get(publicId) ?? "", titleOf(record))
     return `<a class="paper-card" href="${publicHref(record.route)}" aria-label="Read ${htmlText(title)}"><p class="paper-card-kicker">Paper${year ? ` · ${htmlText(year)}` : ""}</p><p class="paper-card-title">${htmlText(title)}</p>${authors ? `<p class="paper-card-authors">${htmlText(authors)}</p>` : ""}<p class="paper-card-summary">${htmlText(markdownSectionSummary(searchableBodies.get(publicId) ?? "", "One-sentence Takeaway"))}</p>${tags ? `<div class="paper-card-tags">${tags}</div>` : ""}</a>`
   }).join("")
-  return `---\ntitle: "Psychology Research Notes"\n---\n\n<section class="home-hero reveal-on-entry" data-home-total="${entries.length}"><p class="home-eyebrow">Public research reading layer</p><h1>Psychology Research Notes</h1><p class="home-intro">Literature-centered notes on psychology, connected through authors, concepts, methods, and research tasks. <span lang="zh-Hant">以心理學文獻為核心的研究筆記，透過作者、構念、研究方法與實驗作業彼此串聯。</span></p><div class="home-search-slot"></div><ul class="home-stats" aria-label="Public collection totals">${stats}</ul></section>\n\n<section class="home-section reveal-on-entry" aria-labelledby="browse-heading"><div class="home-section-heading"><p class="home-eyebrow">Browse the library</p><h2 id="browse-heading">Choose a research lens</h2></div><div class="node-type-grid">${nodeCards}</div></section>\n\n<section class="home-section reveal-on-entry" aria-labelledby="featured-heading"><div class="home-section-heading"><p class="home-eyebrow">Featured papers</p><h2 id="featured-heading">Start with the evidence</h2></div><div class="featured-paper-grid">${paperCards}</div></section>\n`
+  const paperCta = paperCount > 6 ? `<div class="featured-papers-more"><button type="button" data-home-library-target="paper">View papers <span aria-hidden="true">→</span></button></div>` : ""
+  return `---\ntitle: "Psychology Research Notes"\n---\n\n<section class="home-hero reveal-on-entry" data-home-total="${entries.length}"><p class="home-eyebrow">Public research reading layer</p><h1>Psychology Research Notes</h1><p class="home-intro">Literature-centered notes on psychology, connected through authors, concepts, methods, and research tasks. <span lang="zh-Hant">以心理學文獻為核心的研究筆記，透過作者、構念、研究方法與實驗作業彼此串聯。</span></p><div class="home-search-slot"></div><ul class="home-stats" aria-label="Public collection totals">${stats}</ul></section>\n\n<section class="home-section reveal-on-entry" aria-labelledby="browse-heading"><div class="home-section-heading"><p class="home-eyebrow">Research lenses</p><h2 id="browse-heading">Explore through knowledge nodes</h2></div><div class="node-type-grid">${nodeCards}</div></section>\n\n<section class="home-section reveal-on-entry" aria-labelledby="featured-heading"><div class="home-section-heading"><p class="home-eyebrow">Featured papers</p><h2 id="featured-heading">Browse reviewed papers</h2></div><div class="featured-paper-grid">${paperCards}</div>${paperCta}</section>\n`
 }
 
 const paperTabs = Object.freeze([
@@ -1569,6 +1621,30 @@ function setHtmlTagAttribute(tag, name, value) {
   return attribute.test(tag)
     ? tag.replace(attribute, ` ${name}="${value}"`)
     : tag.replace(/>$/, ` ${name}="${value}">`)
+}
+
+/** Give the reviewed favicon a content-derived cache key while retaining the
+ * same immutable public asset. @param {string} html */
+function versionProjectSiteIconReference(html) {
+  let iconLinks = 0
+  const versioned = html.replace(/<link\b[^>]*>/gi, (tag) => {
+    const attributes = new Map(parseTagAttributes(tag.slice(5, -1)).map((attribute) => [attribute.name, attribute.value]))
+    const rel = new Set((attributes.get("rel") ?? "").toLowerCase().split(/\s+/).filter(Boolean))
+    const href = attributes.get("href") ?? ""
+    if (!rel.has("icon") || !/(?:^|\/)static\/icon\.png$/.test(href)) return tag
+    iconLinks += 1
+    return setHtmlTagAttribute(tag, "href", `${href}?v=${projectSiteIconSha256}`)
+  })
+  if (iconLinks !== 1) throw new TracerError("PROJECT_SITE_ICON_LINK_INVALID", "candidate page lacks the exact project favicon link")
+  return versioned
+}
+
+/** @param {string} candidate @param {string} run */
+async function versionProjectSiteIcon(candidate, run) {
+  for (const file of await listRegularTree(candidate, run)) {
+    if (!file.relative.endsWith(".html")) continue
+    await writeFile(file.absolute, versionProjectSiteIconReference(file.bytes.toString("utf8")))
+  }
 }
 
 /** Keep public-site navigation in the current tab while opening actual
@@ -2231,10 +2307,8 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
       || /(?:^|\/)(?:runtime|work)(?:[._-][^/]*)?$/i.test(file.relative)) {
       throw new TracerError("CANDIDATE_FORBIDDEN_FILE", "candidate contains a forbidden public file")
     }
-    const fontAsset = /^static\/fonts\/([^/]+\.woff2)$/.exec(file.relative)?.[1]
-    const pinnedFontHash = fontAsset ? projectFontAssetHashes[fontAsset] : undefined
-    if (fontAsset && (!pinnedFontHash || sha256(file.bytes) !== pinnedFontHash)) throw new TracerError("PROJECT_TYPOGRAPHY_ASSET_INVALID", "candidate font is not an authenticated project asset")
-    if (!pinnedFontHash) {
+    const authenticatedProjectAsset = authenticateProjectAsset(file.relative, file.bytes)
+    if (!authenticatedProjectAsset) {
       if (containsZoteroSchemeDisclosure(file.bytes.toString("utf8"))) throw new TracerError("CANDIDATE_UNSAFE_SCHEME", "candidate contains a Zotero local URL disclosure", { file: file.relative })
       const finding = secretFinding(file.bytes, file.relative, secretRules, privatePaths)
       if (finding === "absolute-path") throw new TracerError("CANDIDATE_ABSOLUTE_PATH_DISCLOSURE", "candidate contains an absolute local path")
@@ -2271,8 +2345,7 @@ async function gateCandidate(candidate, run, records, suppressedTargets, private
   const actualManifest = files.map((file) => ({ relative: file.relative, fileClass: "regular-file", sha256: sha256(file.bytes) }))
   if (JSON.stringify(actualManifest) !== JSON.stringify(expectedFinal)) throw new TracerError("CANDIDATE_FILE_MANIFEST_MISMATCH", "candidate files differ from the immutable post-Quartz baseline")
   for (const file of files) {
-    const fontAsset = /^static\/fonts\/([^/]+\.woff2)$/.exec(file.relative)?.[1]
-    if (fontAsset && projectFontAssetHashes[fontAsset] === sha256(file.bytes)) continue
+    if (authenticateProjectAsset(file.relative, file.bytes)) continue
     const text = file.bytes.toString("utf8")
     const forbiddenDisclosure = file.relative.endsWith(".html") ? /\.md\b|\.pdf\b/i.exec(text) : null
     if (forbiddenDisclosure) throw new TracerError("CANDIDATE_FORBIDDEN_DISCLOSURE", "candidate contains forbidden source metadata", { file: file.relative, token: forbiddenDisclosure[0].toLowerCase() })
@@ -2319,6 +2392,8 @@ async function runRendererPipeline(safe) {
     const content = path.join(run, "content")
     const toolchain = path.join(run, "toolchain")
     const candidate = path.join(run, "candidate")
+    const projectSiteIcon = await readFile(projectSiteIconPath)
+    if (sha256(projectSiteIcon) !== projectSiteIconSha256) throw new TracerError("PROJECT_SITE_ICON_MISMATCH", "project site icon does not match the reviewed asset")
     await Promise.all([mkdir(raw), mkdir(content), mkdir(toolchain)])
     for (const [id, record] of safe.records) {
       const rawPath = path.join(raw, ...record.node.path.split("/"))
@@ -2341,6 +2416,7 @@ async function runRendererPipeline(safe) {
     await Promise.all([
       writeFile(path.join(toolchain, "quartz.config.yaml"), quartzConfig, { flag: "wx" }),
       writeFile(path.join(toolchain, "quartz", "styles", "custom.scss"), customTheme),
+      writeFile(path.join(toolchain, "quartz", "static", "icon.png"), projectSiteIcon),
     ])
     const executable = path.join(toolchain, "quartz", "bootstrap-cli.mjs")
     const quartz = /** @type {{code:number,logs:string}} */ (await spawnCaptured(executable, ["build", "--directory", content, "--output", candidate, "--concurrency", "1"], toolchain))
@@ -2350,6 +2426,7 @@ async function runRendererPipeline(safe) {
     if (quartzHtmlCase) await injectQuartzHtmlRegression(candidate, run, quartzHtmlCase)
     await normalizeBreadcrumbRoutes(candidate, run, safe.records, safe.outgoing, safe.searchableBodies, safe.deploymentFiles)
     await normalizeCustom404BasePath(candidate, run, safe.deploymentFiles)
+    await versionProjectSiteIcon(candidate, run)
     await repairTocAccessibility(candidate, run)
     await installNetworkCsp(candidate, run)
     await writePublicDataAssets(candidate, run, safe.contracts)
@@ -2393,7 +2470,9 @@ async function runRendererPipeline(safe) {
 
 export {
   analyzeMarkdown,
+  authenticateProjectAsset,
   decodeMarkdown,
+  homePageMarkdown,
   normalizePaperMasthead,
   parseFrontmatter,
   projectIntegrationBoundaries,
@@ -2407,4 +2486,5 @@ export {
   tracerQuartzConfig,
   validateMarkdownSafety,
   validateSemanticTemplates,
+  versionProjectSiteIconReference,
 }
