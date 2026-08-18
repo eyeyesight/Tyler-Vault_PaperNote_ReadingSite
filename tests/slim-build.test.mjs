@@ -174,7 +174,7 @@ async function fixture() {
     const absolute = path.join(vault, ...source.split("/"))
     await mkdir(path.dirname(absolute), { recursive: true })
     const note = noteFor(index, layout)
-    const navigationCapitalizationFixture = /^\/knowledge\/(?:concept|method|task)\//.test(route)
+    const navigationCapitalizationFixture = /^\/knowledge\/(?:concept|method|task|synthesis|map)\//.test(route)
       ? note.replaceAll(`Approved Node ${index}`, `approved Node ${index}`)
       : /^\/knowledge\/author\//.test(route)
         ? note.replaceAll(`Approved Node ${index}`, "patricia c. jackman")
@@ -468,6 +468,22 @@ test("build projects an unlisted wikilink without a manual alias to safe basenam
   }
 })
 
+test("build projects an inline Vault Markdown path to safe basename text", async () => {
+  const paths = await fixture()
+  try {
+    const support = pageForLayout("support")
+    await replaceMappedSource(paths, support.source, `${noteFor(93, "support")}\nThis node remains at \`Knowledge/Tasks/Car Racing.md\` for route compatibility.\n`)
+
+    const result = invoke(paths, "build")
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+    const publicText = (await outputTree(paths.output)).map(([, bytes]) => bytes.toString("utf8")).join("\n")
+    assert.match(publicText, /This node remains at Car Racing for route compatibility\./)
+    assert.doesNotMatch(publicText, /Knowledge\/Tasks|Car Racing\.md/)
+  } finally {
+    await rm(paths.root, { recursive: true, force: true })
+  }
+})
+
 test("build still rejects malformed integration markers and arbitrary HTML comments", async () => {
   const cases = [
     "<!-- candidate-integration:start -->\n\nApproved content without an end marker.\n",
@@ -636,7 +652,7 @@ test("build renders every mapped route and keeps workflow metadata private", asy
     assert.match(themeSource, /--font-editorial:\s*"Newsreader",\s*"Noto Serif TC",\s*Georgia,\s*ui-serif,\s*serif/, "editorial stack preserves the existing CJK serif fallback")
     assert.match(themeSource, /--font-interface:\s*"Source Sans 3",\s*system-ui,\s*-apple-system,\s*"Segoe UI",\s*sans-serif/, "interface stack preserves the existing system fallback")
     assert.match(themeSource, /\.page-title,[\s\S]*?font-family:\s*var\(--font-editorial\)/, "page title uses the editorial role")
-    assert.match(themeSource, /\.public-graph :is\(h1, h2, h3, h4, h5, h6\)[\s\S]*?font-family:\s*var\(--font-interface\)/, "graph headings remain interface typography")
+    assert.match(themeSource, /\.public-graph \.public-graph-heading h2\s*\{[^}]*font-family:\s*var\(--font-editorial\)/s, "graph section heading uses the homepage editorial typography")
     assert.doesNotMatch(css, /fonts\.(?:googleapis|gstatic)\.com/i, "typography does not depend on a remote font service")
     for (const [pageIndex, [, route, layout]] of approvedPages.entries()) {
       const html = await readFile(path.join(paths.output, ...route.slice(1).split("/"), "index.html"), "utf8")
@@ -677,6 +693,8 @@ test("build renders every mapped route and keeps workflow metadata private", asy
       assert.match(html, /aria-label="Open Table of Contents"/, `${route}: accessible ToC trigger`)
       assert.match(html, /public-class-group-toggle/, `${route}: accordion group runtime`)
       assert.match(html, /"nodeClass":"(?:concept|method|task)"[^}]*"label":"Approved Node/, `${route}: Library concept, method, and task labels start with uppercase`)
+      assert.match(html, /"nodeClass":"synthesis"[^}]*"label":"Approved Node/, `${route}: Library synthesis labels start with uppercase`)
+      assert.match(html, /"nodeClass":"map"[^}]*"label":"Approved Node/, `${route}: Library map labels start with uppercase`)
       assert.match(html, /library-menu-line-top/, `${route}: morphing Library menu line`)
       assert.doesNotMatch(html, /mobile-explorer/, `${route}: Library drawer is not mobile-only`)
       assert.doesNotMatch(html, /if\(!narrow\(\)\)return;event\.preventDefault/, `${route}: wide Library toggle is interactive`)
@@ -697,6 +715,13 @@ test("build renders every mapped route and keeps workflow metadata private", asy
       assert.match(html, new RegExp(`id="public-graph-local-${node.public_id}"`), route)
       assert.match(html, new RegExp(`data-graph-root-id="${node.public_id}"`), route)
       assert.match(html, /data-graph-filter="paper"/, `${route}: Graph type filters`)
+      assert.match(html, /data-graph-filter="paper"[^>]*aria-label="Papers"[^>]*title="Papers"/, `${route}: icon-only Graph filters keep accessible labels and tooltips`)
+      assert.equal(classTokenCount(html, "public-graph-window-toggle"), 1, `${route}: Graph exposes one window-sized mode control`)
+      assert.match(html, /data-graph-action="toggle-window"[^>]*aria-label="Expand graph to window"[^>]*aria-pressed="false"/, `${route}: Graph window control starts accessible and collapsed`)
+      assert.match(html, /data-icon="lucide-expand"/, `${route}: Graph window control uses the outward-arrow icon`)
+      assert.match(html, /data-icon="lucide-shrink"/, `${route}: Graph window control uses the inward-arrow icon`)
+      assert.match(html, /public-graph-paper-nodes/, `${route}: Paper cards have a dedicated top rendering layer`)
+      assert.match(html, /viewport\.append\(edgeLayer,nodeLayer,paperLayer\)/, `${route}: Paper cards render above edges and other nodes`)
       assert.doesNotMatch(html, /public-graph-toolbar|public-graph-viewport-controls/, `${route}: Graph omits redundant chrome`)
       assert.match(html, /data-graph-status role="status" aria-live="polite"/, `${route}: Graph announces filter results`)
       assert.match(html, /data-graph-empty hidden/, `${route}: Graph exposes a zero-results message`)
@@ -761,20 +786,27 @@ test("build renders every mapped route and keeps workflow metadata private", asy
     assert.match(home, /Literature-centered notes on psychology, connected through authors, concepts, methods, and research tasks\.\s+<span lang="zh-Hant">以心理學文獻為核心的研究筆記，透過作者、構念、研究方法與實驗作業彼此串聯。<\/span>/, "homepage uses the bilingual research-notes description without a forced line break")
     assert.doesNotMatch(home, /research tasks\.<br\/?>(?:\s*)<span lang="zh-Hant">/, "homepage description has no forced language break")
     assert.doesNotMatch(home, /Tyler-Vault Reading Site|A paper-led reading layer connected through concepts, methods, tasks, and authors\./, "homepage omits the retired title and description")
-    assert.equal(classTokenCount(home, "node-type-card"), 4)
-    assert.equal(classTokenCount(home, "node-type-card-icon-svg"), 4)
-    for (const icon of ["lucide-network", "lucide-flask-conical", "lucide-list-checks", "lucide-users-round"]) {
+    assert.equal(classTokenCount(home, "node-type-card"), 6)
+    assert.equal(classTokenCount(home, "node-type-card-icon-svg"), 6)
+    for (const icon of ["lucide-network", "lucide-flask-conical", "lucide-list-checks", "lucide-users-round", "lucide-layers-3", "lucide-map"]) {
       assert.match(home, new RegExp(`data-icon="${icon}"`), `homepage includes the ${icon} legend icon`)
     }
-    assert.equal((home.match(/<svg class="node-type-card-icon-svg"[^>]*aria-hidden="true" focusable="false">/g) ?? []).length, 4, "homepage legend icons are decorative SVGs")
+    assert.equal((home.match(/<svg class="node-type-card-icon-svg"[^>]*aria-hidden="true" focusable="false">/g) ?? []).length, 6, "homepage legend icons are decorative SVGs")
     assert.doesNotMatch(home, /class="node-type-card-icon"[^>]*>\s*[CMTA]\s*<\/span>/, "homepage legend does not use initial letters")
-    const expectedFeaturedPaperCount = Math.min(6, approvedPages.filter(([, , layout]) => layout === "paper").length)
+    const totalPaperCount = approvedPages.filter(([, , layout]) => layout === "paper").length
+    const expectedFeaturedPaperCount = Math.min(6, totalPaperCount)
     assert.equal(classTokenCount(home, "paper-card"), expectedFeaturedPaperCount)
     assert.equal(classTokenCount(home, "paper-card-title"), expectedFeaturedPaperCount)
     assert.equal((home.match(/<a\b[^>]*class="[^"]*\bpaper-card\b[^"]*"/g) ?? []).length, expectedFeaturedPaperCount)
     assert.equal(classTokenCount(home, "reading-path-card"), 0)
     assert.match(home, new RegExp(`data-home-total="${approvedPages.length}"`))
-    assert.equal((home.match(/data-home-library-target=/g) ?? []).length, 4)
+    assert.equal((home.match(/data-home-library-target=/g) ?? []).length, 6 + Number(totalPaperCount > 6))
+    assert.equal(classTokenCount(home, "featured-papers-more"), Number(totalPaperCount > 6))
+    assert.match(home, /data-home-library-target="synthesis"/, "homepage Browse section opens the Syntheses Library group")
+    assert.match(home, /data-home-library-target="map"/, "homepage Browse section opens the Maps Library group")
+    assert.match(home, /<p class="home-eyebrow">Research lenses<\/p><h2 id="browse-heading">Explore through knowledge nodes/, "homepage introduces the research lenses")
+    assert.match(home, /<p class="home-eyebrow">Featured papers<\/p><h2 id="featured-heading">Browse reviewed papers/, "homepage introduces the reviewed papers")
+    assert.match(home, /<p class="public-graph-kicker">Knowledge map<\/p>\s*<h2 data-graph-title>Trace connections in the global graph/, "homepage introduces the global knowledge map")
     assert.doesNotMatch(home, /data-home-filter=/)
     assert.doesNotMatch(home, /Read the note/)
     assert.doesNotMatch(home, /Where to start/)
@@ -798,8 +830,12 @@ test("build renders every mapped route and keeps workflow metadata private", asy
     assert.match(css, /max-width\s*:\s*1367px/)
     assert.match(css, /::-webkit-scrollbar/)
     assert.match(css, /html\.library-no-scroll/)
+    assert.match(themeSource, /html\.library-no-scroll:has\(\.sidebar\.left\.library-open\):not\(:has\(\.sidebar\.right\.toc-open\)\)\s*\{[^}]*overflow:\s*auto/s, "an open Library leaves the center page scrollable")
     assert.match(css, /scrollbar-gutter\s*:\s*auto/)
     assert.match(css, /\.public-graph-target/)
+    assert.match(themeSource, /\.public-graph\[data-layout-ready\]\[data-layout-ready\] \.public-graph-filters :is\(\.public-graph-swatch, \[data-graph-filter-label\], \[data-graph-filter-count\]\)\s*\{[^}]*display:\s*none/s, "all graph layouts use icon-only type filters")
+    assert.match(themeSource, /\.public-graph\[data-layout-ready\]\[data-layout-ready\]\[data-graph-window="expanded"\]\s*\{[^}]*position:\s*fixed[^}]*height:\s*100dvh/s, "expanded graph fills the current browser window without the Fullscreen API")
+    assert.match(themeSource, /\[data-graph-window="expanded"\][\s\S]*?\.public-graph-canvas\s*\{[^}]*touch-action:\s*none/s, "window-sized graph owns touch gestures without changing the rest of the site")
     assert.doesNotMatch(css, /\.public-graph-band-surface/)
     assert.doesNotMatch(css, /\.public-graph-list-group/)
     assert.match(css, /\.paper-tab-pill/)

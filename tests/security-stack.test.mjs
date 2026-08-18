@@ -323,6 +323,48 @@ test("CI Sharp processes only the pinned favicon path into a 48x48 PNG", async (
   assert.equal(outputMetadata.height, 48)
 })
 
+test("project favicon source is the reviewed square PNG used by the build toolchain", async () => {
+  const iconPath = path.join(repoRoot, "assets", "site-icon.png")
+  const iconBytes = await readFile(iconPath)
+  assert.equal(sha256(iconBytes), "d0996d7737c07ac76c9f48d335c29aacaa42a330568d26d2600cf3eb6b1a81f3")
+
+  const { default: sharp } = await import("sharp")
+  const sourceMetadata = await sharp(iconBytes).metadata()
+  assert.equal(sourceMetadata.format, "png")
+  assert.equal(sourceMetadata.width, 1254)
+  assert.equal(sourceMetadata.height, 1254)
+  assert.equal(sourceMetadata.hasAlpha, true)
+
+  const { data, info } = await sharp(iconBytes).resize(48, 48).png().toBuffer({ resolveWithObject: true })
+  assert.equal(data.length > 0, true)
+  assert.equal(info.format, "png")
+  assert.equal(info.width, 48)
+  assert.equal(info.height, 48)
+
+  const tracerSource = await readFile(path.join(repoRoot, "scripts", "tracer.mjs"), "utf8")
+  assert.match(tracerSource, /writeFile\(path\.join\(toolchain, "quartz", "static", "icon\.png"\), projectSiteIcon\)/)
+})
+
+test("authenticated project favicon bypasses textual secret scanning without admitting changed bytes", async () => {
+  const tracer = await import("../scripts/tracer.mjs")
+  const iconBytes = await readFile(path.join(repoRoot, "assets", "site-icon.png"))
+  assert.equal(tracer.authenticateProjectAsset("static/icon.png", iconBytes), true)
+  assert.throws(
+    () => tracer.authenticateProjectAsset("static/icon.png", Buffer.concat([iconBytes, Buffer.from([0])])),
+    (error) => (/** @type {{code?:string}} */ (error)).code === "PROJECT_SITE_ICON_MISMATCH",
+  )
+  assert.equal(tracer.authenticateProjectAsset("static/unexpected.png", iconBytes), false)
+})
+
+test("project favicon link uses its content hash as a browser cache key", async () => {
+  const tracer = await import("../scripts/tracer.mjs")
+  const html = '<!doctype html><head><link rel="icon" href="./static/icon.png"/></head>'
+  assert.equal(
+    tracer.versionProjectSiteIconReference(html),
+    '<!doctype html><head><link rel="icon" href="./static/icon.png?v=d0996d7737c07ac76c9f48d335c29aacaa42a330568d26d2600cf3eb6b1a81f3"/></head>',
+  )
+})
+
 test("CI patched brace adapter supports Quartz minimatch ESM imports", async () => {
   const importedAdapter = /** @type {unknown} */ (await import("brace-expansion"))
   const braceExpansion = /** @type {{ expand: (pattern: string) => string[] }} */ (importedAdapter)

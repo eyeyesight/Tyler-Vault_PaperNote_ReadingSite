@@ -16,6 +16,8 @@
   --method-node: #a36d2d;
   --task-node: #78658a;
   --author-node: #8a5d5d;
+  --synthesis-node: #3f7c7a;
+  --map-node: #8a7048;
   --surface: #fffcf7;
   --surface-2: #f1ede5;
   --font-editorial: "Newsreader", "Noto Serif TC", Georgia, ui-serif, serif;
@@ -161,6 +163,17 @@
   border: 2px solid var(--author-node);
 }
 
+.public-graph[data-layout-ready][data-layout-ready] .public-graph-swatch[data-node-class="synthesis"] {
+  background: var(--synthesis-node);
+  border-radius: 2px;
+}
+
+.public-graph[data-layout-ready][data-layout-ready] .public-graph-swatch[data-node-class="map"] {
+  background: transparent;
+  border: 2px solid var(--map-node);
+  border-radius: 2px;
+}
+
 .public-graph[data-layout-ready][data-layout-ready] .public-graph-inspector {
   display: none;
   min-width: 0;
@@ -199,10 +212,24 @@
 .public-graph[data-layout-ready][data-layout-ready] .public-graph-definition > p {
   margin: 0 0 0.45rem;
   color: var(--secondary);
+  font-family: var(--font-interface);
   font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.09em;
   text-transform: uppercase;
+}
+
+.public-graph[data-layout-ready][data-layout-ready] :is(
+  [data-graph-inspector-title],
+  [data-graph-inspector-meta],
+  [data-graph-inspector-definition-text]
+) {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 .public-graph[data-layout-ready][data-layout-ready] .public-graph-inspector-heading {
@@ -254,6 +281,7 @@
 .public-graph[data-layout-ready][data-layout-ready] .public-graph-relations > p {
   margin: 0 0 0.75rem;
   color: var(--secondary);
+  font-family: var(--font-interface);
   font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.09em;
@@ -261,6 +289,7 @@
 }
 
 .public-graph[data-layout-ready][data-layout-ready] .public-graph-relations button {
+  display: -webkit-box;
   width: 100%;
   min-height: 0;
   padding: 0.38rem 0.35rem;
@@ -270,9 +299,15 @@
   border: 0;
   border-radius: 0.35rem;
   box-shadow: none;
+  font-family: var(--font-interface);
   font-size: 0.875rem;
   font-weight: 500;
+  overflow: hidden;
+  overflow-wrap: anywhere;
   text-align: left;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
   transition: color 180ms ease, background-color 180ms ease;
 }
 
@@ -392,6 +427,8 @@
   .public-graph[data-layout-ready][data-layout-ready] [data-graph-filter="method"] .public-graph-filter-icon { color: var(--method-node); }
   .public-graph[data-layout-ready][data-layout-ready] [data-graph-filter="task"] .public-graph-filter-icon { color: var(--task-node); }
   .public-graph[data-layout-ready][data-layout-ready] [data-graph-filter="author"] .public-graph-filter-icon { color: var(--author-node); }
+  .public-graph[data-layout-ready][data-layout-ready] [data-graph-filter="synthesis"] .public-graph-filter-icon { color: var(--synthesis-node); }
+  .public-graph[data-layout-ready][data-layout-ready] [data-graph-filter="map"] .public-graph-filter-icon { color: var(--map-node); }
 }
 
 .page:has(.home-hero) .public-graph[data-layout-ready][data-layout-ready] .public-graph-heading {
@@ -612,27 +649,46 @@
 }
 
 .public-graph[data-layout-ready] .public-graph-glyph {
-  fill: var(--secondary);
-  stroke: var(--surface);
+  pointer-events: none;
+}
+
+.public-graph[data-layout-ready] [data-node-class="paper"] { --graph-node-color: var(--paper-node); }
+.public-graph[data-layout-ready] [data-node-class="concept"] { --graph-node-color: var(--concept-node); }
+.public-graph[data-layout-ready] [data-node-class="method"] { --graph-node-color: var(--method-node); }
+.public-graph[data-layout-ready] [data-node-class="task"] { --graph-node-color: var(--task-node); }
+.public-graph[data-layout-ready] [data-node-class="author"] { --graph-node-color: var(--author-node); }
+.public-graph[data-layout-ready] [data-node-class="synthesis"] { --graph-node-color: var(--synthesis-node); }
+.public-graph[data-layout-ready] [data-node-class="map"] { --graph-node-color: var(--map-node); }
+
+.public-graph[data-layout-ready] .public-graph-node-container {
+  fill: var(--graph-node-color, var(--secondary));
+  stroke: color-mix(in srgb, var(--graph-node-color, var(--secondary)) 82%, var(--dark));
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 2px 3px rgb(55 48 39 / 18%));
+  transition: filter 160ms ease, stroke-width 160ms ease;
+}
+
+.public-graph[data-layout-ready] .public-graph-node-icon > * {
+  fill: none;
+  stroke: #fffaf3;
   stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
 
-.public-graph[data-layout-ready] [data-node-class="paper"] .public-graph-glyph { fill: #526f8a; }
-.public-graph[data-layout-ready] [data-node-class="concept"] .public-graph-glyph { fill: #66816e; }
-.public-graph[data-layout-ready] [data-node-class="method"] .public-graph-glyph { fill: #b6792d; }
-.public-graph[data-layout-ready] [data-node-class="task"] .public-graph-glyph { fill: #7b6990; }
-.public-graph[data-layout-ready] [data-node-class="author"] .public-graph-glyph {
-  fill: #fffaf3;
-  stroke: #966e6b;
-  stroke-width: 3;
+.public-graph-node:is(:hover, :focus-visible) .public-graph-node-container,
+.public-graph-node[aria-pressed="true"] .public-graph-node-container {
+  stroke: var(--dark);
+  stroke-width: 2;
+  filter: drop-shadow(0 4px 6px rgb(55 48 39 / 24%));
 }
 
 .public-graph-label,
 .public-graph-paper-title,
-.public-graph-paper-meta,
-.public-graph-author-initial {
-  font-family: var(--font-interface);
+.public-graph-paper-meta {
+  font-family: inherit;
   pointer-events: none;
   user-select: none;
 }
@@ -664,13 +720,6 @@
 .public-graph-paper-meta {
   fill: var(--gray);
   font-size: 9px;
-}
-
-.public-graph-author-initial {
-  z-index: 2;
-  fill: #966e6b;
-  font-size: 9px;
-  font-weight: 800;
 }
 
 .public-graph-glyph-far,
@@ -746,6 +795,7 @@
 .public-graph-inspector-heading p {
   margin: 0;
   color: var(--secondary);
+  font-family: var(--font-interface);
   font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.09em;
@@ -1127,9 +1177,12 @@ h6 {
 
 .sidebar :is(h1, h2, h3, h4, h5, h6),
 .explorer :is(h1, h2, h3, h4, h5, h6),
-.toc :is(h1, h2, h3, h4, h5, h6),
-.public-graph :is(h1, h2, h3, h4, h5, h6) {
+.toc :is(h1, h2, h3, h4, h5, h6) {
   font-family: var(--font-interface);
+}
+
+.public-graph :is(h1, h2, h3, h4, h5, h6) {
+  font-family: inherit;
 }
 
 button,
@@ -1371,6 +1424,10 @@ body > .public-search {
   line-height: 1.2;
 }
 
+.public-graph .public-graph-heading h2 {
+  font-family: var(--font-editorial);
+}
+
 .home-filter,
 .public-graph-filters,
 .public-graph-toolbar,
@@ -1454,6 +1511,8 @@ body > .public-search {
 .node-type-card[data-home-node-class="method"] { --node-card-accent: var(--method-node); border-top: 3px solid var(--method-node); }
 .node-type-card[data-home-node-class="task"] { --node-card-accent: var(--task-node); border-top: 3px solid var(--task-node); }
 .node-type-card[data-home-node-class="author"] { --node-card-accent: var(--author-node); border-top: 3px solid var(--author-node); }
+.node-type-card[data-home-node-class="synthesis"] { --node-card-accent: var(--synthesis-node); border-top: 3px solid var(--synthesis-node); }
+.node-type-card[data-home-node-class="map"] { --node-card-accent: var(--map-node); border-top: 3px solid var(--map-node); }
 
 .node-type-card-icon {
   position: relative;
@@ -1840,7 +1899,7 @@ html.library-no-scroll {
   border: 1px solid var(--lightgray);
   background: var(--surface);
   border-radius: 1rem;
-  font-family: var(--font-interface);
+  font-family: inherit;
 }
 
 .public-graph-heading {
@@ -1894,6 +1953,8 @@ html.library-no-scroll {
 .public-graph-swatch[data-node-class="method"] { background: var(--method-node); }
 .public-graph-swatch[data-node-class="task"] { background: var(--task-node); }
 .public-graph-swatch[data-node-class="author"] { background: var(--author-node); }
+.public-graph-swatch[data-node-class="synthesis"] { background: var(--synthesis-node); }
+.public-graph-swatch[data-node-class="map"] { background: var(--map-node); }
 
 .public-graph-status {
   margin: 0 0 0.75rem;
@@ -2566,6 +2627,29 @@ body::-webkit-scrollbar,
   grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-auto-rows: 28rem;
   gap: 1.25rem;
+}
+
+.featured-papers-more {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1.25rem;
+}
+
+.featured-papers-more button {
+  min-height: 2.75rem;
+  padding: 0;
+  color: var(--secondary);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--font-interface);
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
+.featured-papers-more button:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
 }
 
 .paper-card {
@@ -3459,4 +3543,107 @@ body::-webkit-scrollbar,
     opacity: 1;
     transform: none;
   }
+}
+
+/* Window-sized graph mode keeps the site in its normal browser window while
+ * giving touch users a dedicated, gesture-safe graph workspace. */
+html.library-no-scroll:has(.sidebar.left.library-open):not(:has(.sidebar.right.toc-open)) {
+  overflow: auto;
+}
+
+html.graph-window-open {
+  overflow: hidden;
+}
+
+.public-graph[data-layout-ready][data-layout-ready] .public-graph-filters {
+  width: auto;
+  max-width: none;
+  overflow: visible;
+}
+
+.public-graph[data-layout-ready][data-layout-ready] .public-graph-filters button {
+  width: 2.75rem;
+  min-width: 2.75rem;
+  padding: 0;
+  justify-content: center;
+}
+
+.public-graph[data-layout-ready][data-layout-ready] .public-graph-filters :is(.public-graph-swatch, [data-graph-filter-label], [data-graph-filter-count]) {
+  display: none;
+}
+
+.public-graph[data-layout-ready][data-layout-ready] .public-graph-filter-icon {
+  display: block;
+}
+
+.public-graph[data-layout-ready][data-layout-ready] [data-graph-filter="paper"] .public-graph-filter-icon { color: var(--paper-node); }
+.public-graph[data-layout-ready][data-layout-ready] [data-graph-filter="concept"] .public-graph-filter-icon { color: var(--concept-node); }
+.public-graph[data-layout-ready][data-layout-ready] [data-graph-filter="method"] .public-graph-filter-icon { color: var(--method-node); }
+.public-graph[data-layout-ready][data-layout-ready] [data-graph-filter="task"] .public-graph-filter-icon { color: var(--task-node); }
+.public-graph[data-layout-ready][data-layout-ready] [data-graph-filter="author"] .public-graph-filter-icon { color: var(--author-node); }
+.public-graph[data-layout-ready][data-layout-ready] [data-graph-filter="synthesis"] .public-graph-filter-icon { color: var(--synthesis-node); }
+.public-graph[data-layout-ready][data-layout-ready] [data-graph-filter="map"] .public-graph-filter-icon { color: var(--map-node); }
+
+.public-graph[data-layout-ready][data-layout-ready] .public-graph-window-toggle {
+  position: absolute;
+  inset: auto auto 1rem 1rem;
+  z-index: 25;
+  display: grid;
+  width: 2.75rem;
+  min-width: 2.75rem;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  margin: 0;
+  padding: 0;
+  place-items: center;
+  color: var(--darkgray);
+  background: rgb(255 252 247 / 88%);
+  border: 1px solid color-mix(in srgb, var(--darkgray) 18%, transparent);
+  border-radius: 0.75rem;
+  box-shadow: 0 8px 24px rgb(55 48 39 / 9%);
+  backdrop-filter: blur(14px);
+}
+
+.public-graph-window-icon {
+  width: 1.2rem;
+  height: 1.2rem;
+  grid-area: 1 / 1;
+}
+
+.public-graph-window-icon-collapse,
+.public-graph[data-graph-window="expanded"] .public-graph-window-icon-expand {
+  display: none;
+}
+
+.public-graph[data-graph-window="expanded"] .public-graph-window-icon-collapse {
+  display: block;
+}
+
+.public-graph[data-layout-ready][data-layout-ready][data-graph-window="expanded"] {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  width: 100vw;
+  height: 100dvh;
+  min-height: 0;
+  margin: 0;
+  padding: clamp(0.75rem, 2vw, 1.25rem);
+  overflow: hidden;
+  background: var(--surface);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.public-graph[data-layout-ready][data-layout-ready][data-graph-window="expanded"] .public-graph-heading {
+  margin-bottom: 0.75rem;
+}
+
+.public-graph[data-layout-ready][data-layout-ready][data-graph-window="expanded"] .public-graph-workspace,
+.public-graph[data-layout-ready][data-layout-ready][data-graph-window="expanded"] .public-graph-canvas {
+  height: 100%;
+  min-height: 0;
+}
+
+.public-graph[data-layout-ready][data-layout-ready][data-graph-window="expanded"] .public-graph-canvas {
+  touch-action: none;
 }
