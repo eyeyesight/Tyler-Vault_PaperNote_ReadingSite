@@ -11,6 +11,7 @@ import test from "node:test"
 
 import {
   _testOnlyAdapterFailure,
+  _testOnlyProviderDependencies,
   _testOnlyTerminateOwnedProcess,
   createBoundedCommandTransport,
   createBoundedHttpTransport,
@@ -83,6 +84,14 @@ test("exports the internal local-Git constructor, bounded command transport, and
 test("exports the production GitHub provider constructor", async () => {
   const module = await import("../lib/routine-publication-adapter.mjs")
   assert.equal(typeof module.createRoutinePublicationProviderCapabilities, "function")
+})
+
+test("default provider dependencies expose the bounded HTTP transport as a callable get seam", () => {
+  const dependencies = _testOnlyProviderDependencies({
+    commandTransport: { async run() { throw new Error("not reached") } },
+  })
+  assert.equal(typeof dependencies.command.run, "function")
+  assert.equal(typeof dependencies.http, "function")
 })
 
 test("the final factory returns exactly plain localGit and provider capability seams", async () => {
