@@ -55,3 +55,63 @@ pages:
   - source: "Literature/Syntheses/Neurophysiological Signatures of Driving Expertise.md"
     route: "/knowledge/synthesis/neurophysiological-signatures-of-driving-expertise/"
     layout: support
+
+  - source: "Literature/Notes/Cheng et al. 2024 — Evaluating EEG neurofeedback in sport psychology.md"
+    route: "/papers/cheng-2024-evaluating-eeg-neurofeedback-in-sport-psychology/"
+    layout: paper
+
+  - source: "Literature/Notes/Corrado et al. 2024 — Improving Mental Skills in Precision Sports by Using Neurofeedback Training.md"
+    route: "/papers/corrado-2024-improving-mental-skills-in-precision-sports-by-using-neurofeedback-training/"
+    layout: paper
+
+  - source: "Literature/Notes/Gong et al. 2021 — Neurofeedback Training for Sport Performance.md"
+    route: "/papers/gong-2021-neurofeedback-training-for-sport-performance/"
+    layout: paper
+
+  - source: "Literature/Notes/Mirifar et al. 2017 — Neurofeedback as supplementary training for optimizing athletes performance.md"
+    route: "/papers/mirifar-2017-neurofeedback-as-supplementary-training-for-optimizing-athletes-performance/"
+    layout: paper
+
+  - source: "Literature/Notes/Onagawa et al. 2023 — Neurofeedback Training and Motor Performance.md"
+    route: "/papers/onagawa-2023-neurofeedback-training-and-motor-performance/"
+    layout: paper
+
+  - source: "Literature/Notes/Sitaram et al. 2017 — Closed-loop brain training the science of neurofeedback.md"
+    route: "/papers/sitaram-2017-closed-loop-brain-training-the-science-of-neurofeedback/"
+    layout: paper
+
+  - source: "Literature/Notes/Xiang et al. 2018 — Neurofeedback Training for Sport Performance — Paper Note.md"
+    route: "/papers/xiang-2018-neurofeedback-training-for-sport-performance-paper-note/"
+    layout: paper
+
+  - source: "Literature/Notes/Yu et al. 2025 — EEG Neurofeedback and Sport Performance.md"
+    route: "/papers/yu-2025-eeg-neurofeedback-and-sport-performance/"
+    layout: paper
+
+  - source: "Knowledge/Concepts/EEG Frequency-Band Regulation.md"
+    route: "/knowledge/concept/eeg-frequency-band-regulation/"
+    layout: support
+
+  - source: "Knowledge/Concepts/Psychomotor Efficiency.md"
+    route: "/knowledge/concept/psychomotor-efficiency/"
+    layout: support
+
+  - source: "Knowledge/Concepts/Sensorimotor Rhythm (SMR).md"
+    route: "/knowledge/concept/sensorimotor-rhythm-smr/"
+    layout: support
+
+  - source: "Knowledge/Concepts/Sport Motor Performance.md"
+    route: "/knowledge/concept/sport-motor-performance/"
+    layout: support
+
+  - source: "Knowledge/Methods/EEG Neurofeedback.md"
+    route: "/knowledge/method/eeg-neurofeedback/"
+    layout: support
+
+  - source: "Knowledge/Methods/EEG.md"
+    route: "/knowledge/method/eeg/"
+    layout: support
+
+  - source: "Literature/Syntheses/EEG Neurofeedback in Sport and Motor Performance.md"
+    route: "/knowledge/synthesis/eeg-neurofeedback-in-sport-and-motor-performance/"
+    layout: support
