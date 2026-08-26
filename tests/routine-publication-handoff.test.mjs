@@ -361,7 +361,7 @@ async function makeFixture({ lane = "content", mapChanged = true } = {}) {
       assert.deepEqual(input.routes, ["/", "/papers/existing/", "/papers/new/"])
       assert.deepEqual(input.assets, ["assets/app.css", "assets/app.js"])
       assert.deepEqual(input.not_found, { path: "/__publication_missing__", expected_status: 404 })
-      assert.deepEqual(input.target, { deployment_id: "deployment-pub-06", run_id: "run-pub-06", site_commit: input.target.site_commit, url: "https://pages.example.test/Tyler-Vault_PaperNote_ReadingSite/" })
+      assert.deepEqual(input.target, { deployment_id: "deployment-pub-06", run_id: "run-pub-06", site_commit: input.target.site_commit, status: "success", url: "https://pages.example.test/Tyler-Vault_PaperNote_ReadingSite/" })
       return { target: input.target, homepage_status: 200, route_statuses: input.routes.map(() => 200), asset_statuses: input.assets.map(() => 200), not_found_status: 404 }
     },
   }
