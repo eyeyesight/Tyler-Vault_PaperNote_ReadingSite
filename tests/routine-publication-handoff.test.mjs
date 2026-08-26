@@ -1135,6 +1135,28 @@ test("anonymous smoke supplies every approved route, CSS or JS asset, and custom
   }
 })
 
+test("anonymous smoke retries a complete 200/404 matrix while new routes settle", async () => {
+  const fixture = await makeFixture()
+  try {
+    const originalSmoke = fixture.provider.anonymousSmoke
+    let calls = 0
+    fixture.provider.anonymousSmoke = async (input) => {
+      calls += 1
+      const response = await originalSmoke(input)
+      if (calls === 1) return { ...response, route_statuses: [200, 404, 200] }
+      return response
+    }
+    const result = await routinePublicationHandoff(fixture.operation, { provider: fixture.provider, localGit: fixture.localGit })
+    assert.equal(result.status, "deployed", JSON.stringify(result))
+    assert.equal(result.error_code, null)
+    assert.equal(calls, 2)
+    assert.equal(fixture.trace.filter((entry) => entry === "provider.smoke").length, 2)
+    assert.deepEqual(result.checks.filter(({ name }) => name === "smoke"), [{ name: "smoke", outcome: "pass" }])
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true })
+  }
+})
+
 const failureSummaries = Object.freeze({
   auth_failed: "發布服務驗證失敗，已停止。",
   rate_limited: "發布服務暫時限流，已停止。",
