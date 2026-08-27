@@ -32,7 +32,13 @@ Publication可加入：
 - 直接連結的正式`Literature/Reviews & Maps`。
 - 直接連結的`Knowledge/Authors`、`Concepts`、`Methods`與`Tasks`頁。
 
-頁面共同提供search、Explorer、graph與backlinks。未列入公開內容的wikilink會轉成安全文字，不會洩露Vault path。
+頁面共同提供search、Explorer、graph與backlinks。Public projection依公開內容清單處理Vault links與paths：
+
+- 指向已公開target的wikilink與inline-code Vault path會轉成`site-content.yml`定義的public route。
+- 指向未公開target的wikilink會轉成安全文字；inline-code Vault path只保留安全basename。
+- 一般帶`/`的程式碼、metric或identifier維持原樣，不會因為外觀像path而被改寫。
+
+最終privacy gate仍會阻擋未解析的local path、`.md`路徑與其他私人內容。
 
 ## Source與output
 
@@ -64,7 +70,7 @@ Build期間Vault是read-only。HTML、CSS、JavaScript、logs、workspaces或dep
 - 成功部署後保存最近一次可用版本（LKG）。
 - live QA失敗時，在同一次授權內恢復LKG並重新驗證。
 
-`preparing`只表示請求已被接收；只有terminal result為`published`且live QA通過，才代表公開網站已完成更新。
+`preparing`只表示請求已被接收；只有terminal result為`published`且live QA通過，才代表公開網站已完成更新。詳細的Pages propagation、live status matrix、rollback、`REMOTE_DRIFT`與manual reconciliation contract見 [`docs/publication-operations.md`](docs/publication-operations.md)。
 
 ## 開發入口
 
