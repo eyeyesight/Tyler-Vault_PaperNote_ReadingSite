@@ -1,19 +1,18 @@
 # Tyler-Vault PaperNote Reading Site
 
-將 Tyler-Vault 中已核准的論文筆記與知識頁，轉成可搜尋、可瀏覽的公開 Reading Site。日常操作在 Telegram 完成；不需要手動執行 build、Git 或 GitHub Pages 指令。
+Tyler-Vault PaperNote Reading Site 將已核准的論文筆記與知識頁轉成可搜尋、可瀏覽的公開網站。
 
-## 可以做什麼
+**[開啟 Reading Site](https://eyeyesight.github.io/Tyler-Vault_PaperNote_ReadingSite/)**
 
-- 從待處理的論文筆記產生 A、B、C…候選整合項目。
-- 在 Telegram 貼回決策，先建立待確認的 integration plan。
-- 經最後確認後，把核准內容正式整合到 Tyler-Vault。
-- 同步 Zotero annotations 到筆記中的 managed section。
-- 發布已核准的論文頁、知識頁與直接連結的正式支援頁。
-- 部署後檢查公開網站；若部署失敗，使用上一個可用版本恢復。
+日常 PaperNote 流程在 Telegram 完成，不需要手動執行 build、Git 或 GitHub Pages 指令：
 
-公開頁面由 [`site-content.yml`](site-content.yml) 的內容動態產生，沒有固定頁數上限。
+```text
+process → decision reply → integrate → publish
+```
 
-## 日常使用：Telegram 四個指令
+Zotero annotations 同步是獨立操作，不是上述四步 workflow 的其中一步。
+
+## 日常流程
 
 ### 1. 產生候選
 
@@ -21,13 +20,11 @@
 /vault_papernote_process
 ```
 
-系統會讀取待處理的論文筆記、同步必要的 Zotero 資料，並回傳本批次的候選與可編輯的 decision template。
-
-候選以 `A`、`B`、`C`…標示。每篇論文以 `P1`、`P2`…標示。
+系統會讀取待處理的論文筆記、同步必要的 Zotero 資料，並回傳本批次的候選與 decision template。候選以 `A`、`B`、`C`…標示，每篇論文以 `P1`、`P2`…標示。
 
 ### 2. 貼回決策
 
-直接在同一個 Telegram 對話貼上編輯後的template，不需要額外指令。例如：
+在同一個 Telegram 對話貼上編輯後的 template，不需要額外指令。例如：
 
 ```text
 Batch: VP-20260813-01
@@ -37,16 +34,7 @@ P1 merge: C, D => Knowledge/Methods/Vehicle Sensor Synchronization
 Unlisted: exclude
 ```
 
-可用動作：
-
-- `keep`：沿用候選路徑。
-- `rename`：改成指定頁面。
-- `merge`：將多個候選合併到一頁。
-- `split`：將一個候選拆成多頁。
-- `defer`：暫緩；本批次不會進入integration。
-- 未列出的候選依 `Unlisted: exclude`排除，但保留決策紀錄。
-
-成功時會看到 `Pending integration`、`Ready: yes`，以及最後確認指令。
+可用動作包括 `keep`、`rename`、`merge`、`split` 與 `defer`。未列出的候選依 `Unlisted: exclude` 排除，但仍保留決策紀錄。成功時會看到 `Pending integration` 與 `Ready: yes`。
 
 ### 3. 正式整合
 
@@ -54,58 +42,51 @@ Unlisted: exclude
 /vault_papernote_integrate
 ```
 
-只有這一步會把pending plan正式寫入 Tyler-Vault。完成後會回報整合的論文筆記、目標頁與checkpoint位置。
+只有這一步會把 pending plan 正式寫入 Tyler-Vault。完成後會回報整合的論文筆記、目標頁與 checkpoint 位置。
 
-### 4. 發布Reading Site
+### 4. 發布 Reading Site
 
 ```text
 /vault_papernote_publish
 ```
 
-指令會先立即回覆同一筆operation ID，接著在背景完成：
+系統會先回覆 operation ID，再於背景建立安全的公開版本、更新 GitHub Pages、執行 live verification，並保存最近一次可用版本（LKG）。GitHub Pages 更新可能需要約 2 分鐘傳播；系統會自動等待。
 
-1. 找出已核准的新內容與直接連結的正式支援頁。
-2. 建立公開projection並排除私人metadata、local paths與credentials。
-3. 生成Reading Site。
-4. 更新GitHub Pages。
-5. 執行critical live QA。
-6. 保存最近一次可用版本（LKG）；必要時自動恢復。
+同一筆 publish 重複送出時只會讀回或繼續原 operation，不會建立第二個發布工作。Telegram 最後會顯示以下其中一種結果：
 
-公開projection會處理Markdown中的inline-code Vault路徑：已列入`site-content.yml`的目標會轉成對應的公開route連結；未公開的目標只保留安全basename，不公開Vault目錄結構；一般帶`/`的程式碼或指標名稱維持原樣。最終privacy gate仍會阻擋未處理的local path、`.md`路徑與其他私人內容。
+| Terminal status | 代表意思 |
+| --- | --- |
+| `published` | 網站已更新，live verification 通過。 |
+| `no_change` | 核准內容沒有變更，不需要重新部署。 |
+| `needs_attention` | 系統已安全停止；依 error code 與 next action 處理。 |
 
-部署完成後，live QA要求homepage為`200`、所有核准routes與CSS／JavaScript assets為`200`，且專用missing sentinel為`404`。若homepage與missing sentinel已正確、只有核准route或asset暫時為`404`，系統會每5秒重試一次、最多24次（約2分鐘），等待GitHub Pages傳播完成。`500`／`503`、錯誤deployment target、不完整response matrix或其他非傳播型錯誤不會被重試掩蓋；系統會fail closed，並在安全條件成立時恢復LKG。
-
-同一筆publish重複送出時，只會讀回或繼續原operation，不會建立第二個網站發布工作。每個operation最多主動送一次terminal結果。
-
-### Zotero同步
+## Zotero annotations 同步
 
 ```text
 /vault_papernote_zotero
 ```
 
-同步Zotero annotations到Vault筆記中的managed section。若沒有變更，會明確回覆no change。
+這個指令只同步 Zotero annotations 到 Vault 筆記中的 managed section，不會執行整合或發布。若沒有變更，系統會明確回覆 `no change`。
 
-## 成功後在哪裡看結果
+## 結果在哪裡看
 
-- **整合後Markdown**：Tyler-Vault中的正式Literature與Knowledge頁。
-- **公開Reading Site**：<https://eyeyesight.github.io/Tyler-Vault_PaperNote_ReadingSite/>
-- **發布結果**：原Telegram對話中的operation terminal message。
-- **公開內容清單與routes**：[`site-content.yml`](site-content.yml)。
+- **正式 Markdown**：Tyler-Vault 中已整合的 Literature 與 Knowledge 頁。
+- **公開網站**：[Tyler-Vault PaperNote Reading Site](https://eyeyesight.github.io/Tyler-Vault_PaperNote_ReadingSite/)。
+- **操作結果**：原 Telegram 對話中的 terminal message。
+- **公開內容與 routes**：[`site-content.yml`](site-content.yml)。
 
-## 初次安裝與設定
+公開頁面由 `site-content.yml` 動態產生，沒有固定頁數上限。發布時會自動移除或安全轉換不應公開的 Vault 與 local metadata。
 
-### 需求
+## 初次設定
 
-- Hermes Agent與已連線的Telegram Gateway。
-- Node.js 22+、npm 10.9.2+。
-- Python 3.11+。
-- 可讀寫的Tyler-Vault工作副本。
-- 已設定的Zotero與Google Workspace存取。
-- 對目標GitHub repository及Pages的必要權限。
+需要：
 
-### Hermes Plugin
+- 已連線 Telegram Gateway 的 Hermes Agent。
+- Node.js 22+、npm 10.9.2+、Python 3.11+。
+- 可讀寫的 Tyler-Vault 工作副本。
+- 已設定的 Zotero、Google Workspace、GitHub 與 Pages 權限。
 
-將`vault-paper-workflow` plugin安裝到目前Hermes profile後啟用：
+在目前 Hermes profile 啟用 plugin：
 
 ```bash
 hermes plugins enable vault-paper-workflow --no-allow-tool-override
@@ -113,65 +94,38 @@ hermes plugins list
 hermes doctor
 ```
 
-Plugin不需要覆寫Hermes內建tools。Gateway載入後，Telegram menu應只有以下四個PaperNote commands：
-
-```text
-/vault_papernote_process
-/vault_papernote_integrate
-/vault_papernote_publish
-/vault_papernote_zotero
-```
-
-Runtime settings需提供四個commands的bounded argv、working directory與timeout。路徑和非秘密設定放在Hermes profile的runtime settings；tokens、API keys與credentials只放在Hermes支援的secret store，文件與logs中一律顯示為`[REDACTED]`。
+Plugin 載入後，Telegram menu 應提供 `process`、`integrate`、`publish` 與 `zotero` 四個 PaperNote commands。完整設定、secret storage 與 publication diagnostics 請看 [`docs/publication-operations.md`](docs/publication-operations.md)。
 
 ## 常見問題
 
 ### 沒有待處理論文
 
-先確認Vault的`Inbox/Literature Drafts`是否有符合流程的draft，以及Google Drive工作副本是否為最新。
+確認 Vault 的 `Inbox/Literature Drafts` 是否有符合流程的 draft，以及 Google Drive 工作副本是否為最新。
 
-### 貼上decision後沒有建立pending plan
+### Decision reply 沒有建立 pending plan
 
-確認以下三部分都存在且未改錯：
+確認 `Batch: <batch-id>`、至少一條候選動作與 `Unlisted: exclude` 都存在。Batch ID 必須與最近一次 `process` 結果相同。
 
-- `Batch: <batch-id>`
-- 至少一條`P1 keep:`、`rename:`、`merge:`、`split:`或`defer:`
-- `Unlisted: exclude`
+### Integrate 找不到 pending plan
 
-Batch ID必須和最近一次`process`結果相同。所有候選必須有唯一決策；有`defer`時不會進入integration。
+重新執行 `process`、貼回 decision template，確認收到 `Ready: yes` 後再執行 `integrate`。不要手動建立 pending manifest。
 
-### integrate回覆沒有pending plan
+### Publish 回覆 `needs_attention`
 
-重新執行`process`，貼回decision template，確認收到`Ready: yes`後再執行`integrate`。不要手動建立pending manifest。
+這是 terminal state。重新送出同一個 publish command 不代表系統會假設問題已修好；請依 Telegram 顯示的 error code 與 next action 處理。若 next action 要求 manual review，請使用 [publication recovery guide](docs/publication-operations.md#needs_attention-與人工恢復)，不要自行繞過安全狀態。
 
-### publish停在needs_attention
+### 出現 `REMOTE_DRIFT`
 
-查看Telegram中的error code與next action。常見原因是：
+遠端 publication state 在操作期間改變，因此系統安全停止。先停止重送，依 [recovery guide](docs/publication-operations.md#remote_drift) 完成人工檢查。
 
-- GitHub／Pages權限或credentials不可用。
-- Vault、Git或renderer路徑不可讀。
-- 內容含真正不應公開的active HTML、unsafe URL、attachment embed或local path。
-- GitHub deployment或live QA失敗。
-- 遠端`main`、`gh-pages`或mapping baseline在operation期間變更，觸發`REMOTE_DRIFT`安全停止。
+### Reading Site 沒有更新
 
-`needs_attention`是terminal狀態。再次送出相同publish command只會讀回同一筆operation，不會自動假設問題已修復，也不會建立第二筆。
+先確認 terminal result 是 `published`，而不是 `no_change` 或 `needs_attention`。`published` 後可等待約 2 分鐘；若仍未更新，再查看 GitHub Pages deployment 與 [publication diagnostics](docs/publication-operations.md#部署與-live-qa)。
 
-當next action為`request_manual_review`時，operator需先核對遠端`gh-pages`、公開網站與LKG的實際版本；確認live與LKG安全後，透過正式reconciliation receipt與acknowledgement流程解除current slot。不要force-push遠端、直接修改publication SQLite，或手動改寫LKG旗標來跳過核對。
+## 文件與開發入口
 
-### 網站沒有更新
+- 系統資料流、內容投影與安全邊界：[`CONTEXT.md`](CONTEXT.md)
+- Publication setup、recovery 與 diagnostics：[`docs/publication-operations.md`](docs/publication-operations.md)
+- Quartz、renderer 與本機 preview：[`docs/quartz-toolchain.md`](docs/quartz-toolchain.md)
 
-先確認terminal result是否為`published`而非`no_change`或`needs_attention`，再查看GitHub Pages deployment。不要以private preview、dependency install或Git push本身當作發布成功。
-
-## 本機開發與preview
-
-一般使用者不需要這一節。修改renderer或樣式時：
-
-```bash
-npm ci
-npm run slim:preflight -- --vault-root 'C:/absolute/Tyler-Vault'
-npm run slim:build -- --vault-root 'C:/absolute/Tyler-Vault'
-npm run typecheck
-npm run test:slim
-```
-
-Build只讀取Vault，輸出位於repository的artifacts，不會把HTML或runtime檔案寫回Vault。Quartz安裝與本機build細節見 [`docs/quartz-toolchain.md`](docs/quartz-toolchain.md)；資料流與安全邊界見 [`CONTEXT.md`](CONTEXT.md)。
+一般使用者不需要本機 build。修改 renderer 或 publication code 時，先閱讀上述文件與 [`AGENTS.md`](AGENTS.md)，再依變更範圍執行測試。
