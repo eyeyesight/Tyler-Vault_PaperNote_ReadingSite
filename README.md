@@ -71,6 +71,10 @@ Unlisted: exclude
 5. 執行critical live QA。
 6. 保存最近一次可用版本（LKG）；必要時自動恢復。
 
+公開projection會處理Markdown中的inline-code Vault路徑：已列入`site-content.yml`的目標會轉成對應的公開route連結；未公開的目標只保留安全basename，不公開Vault目錄結構；一般帶`/`的程式碼或指標名稱維持原樣。最終privacy gate仍會阻擋未處理的local path、`.md`路徑與其他私人內容。
+
+部署完成後，live QA要求homepage為`200`、所有核准routes與CSS／JavaScript assets為`200`，且專用missing sentinel為`404`。若homepage與missing sentinel已正確、只有核准route或asset暫時為`404`，系統會每5秒重試一次、最多24次（約2分鐘），等待GitHub Pages傳播完成。`500`／`503`、錯誤deployment target、不完整response matrix或其他非傳播型錯誤不會被重試掩蓋；系統會fail closed，並在安全條件成立時恢復LKG。
+
 同一筆publish重複送出時，只會讀回或繼續原operation，不會建立第二個網站發布工作。每個operation最多主動送一次terminal結果。
 
 ### Zotero同步
@@ -148,8 +152,11 @@ Batch ID必須和最近一次`process`結果相同。所有候選必須有唯一
 - Vault、Git或renderer路徑不可讀。
 - 內容含真正不應公開的active HTML、unsafe URL、attachment embed或local path。
 - GitHub deployment或live QA失敗。
+- 遠端`main`、`gh-pages`或mapping baseline在operation期間變更，觸發`REMOTE_DRIFT`安全停止。
 
-修正原因後再次送出同一個publish command；系統應讀回或恢復同一筆operation，而不是建立第二筆。
+`needs_attention`是terminal狀態。再次送出相同publish command只會讀回同一筆operation，不會自動假設問題已修復，也不會建立第二筆。
+
+當next action為`request_manual_review`時，operator需先核對遠端`gh-pages`、公開網站與LKG的實際版本；確認live與LKG安全後，透過正式reconciliation receipt與acknowledgement流程解除current slot。不要force-push遠端、直接修改publication SQLite，或手動改寫LKG旗標來跳過核對。
 
 ### 網站沒有更新
 
